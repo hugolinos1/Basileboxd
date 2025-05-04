@@ -8,8 +8,8 @@ import type {
   ToastProps,
 } from "@/components/ui/toast"
 
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+const TOAST_LIMIT = 3 // Allow up to 3 toasts
+const TOAST_REMOVE_DELAY = 5000 // 5 seconds
 
 type ToasterToast = ToastProps & {
   id: string
@@ -60,7 +60,7 @@ const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
 
 const addToRemoveQueue = (toastId: string) => {
   if (toastTimeouts.has(toastId)) {
-    return
+    clearTimeout(toastTimeouts.get(toastId)); // Clear existing timeout if dismiss is called again
   }
 
   const timeout = setTimeout(() => {
@@ -77,9 +77,16 @@ const addToRemoveQueue = (toastId: string) => {
 export const reducer = (state: State, action: Action): State => {
   switch (action.type) {
     case "ADD_TOAST":
+       // Remove oldest toast if limit is reached
+      const toasts = [action.toast, ...state.toasts];
+      if (toasts.length > TOAST_LIMIT) {
+          const oldestToastId = toasts[toasts.length -1].id;
+          toastTimeouts.delete(oldestToastId); // Remove timeout for the oldest
+          toasts.pop(); // Remove the oldest toast from array
+      }
       return {
         ...state,
-        toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
+        toasts,
       }
 
     case "UPDATE_TOAST":
@@ -117,11 +124,19 @@ export const reducer = (state: State, action: Action): State => {
     }
     case "REMOVE_TOAST":
       if (action.toastId === undefined) {
+        // Clear all timeouts when removing all toasts
+        toastTimeouts.forEach(timeout => clearTimeout(timeout));
+        toastTimeouts.clear();
         return {
           ...state,
           toasts: [],
         }
       }
+       // Clear timeout for the specific toast being removed
+        if(toastTimeouts.has(action.toastId)) {
+             clearTimeout(toastTimeouts.get(action.toastId));
+             toastTimeouts.delete(action.toastId);
+        }
       return {
         ...state,
         toasts: state.toasts.filter((t) => t.id !== action.toastId),
@@ -142,7 +157,7 @@ function dispatch(action: Action) {
 
 type Toast = Omit<ToasterToast, "id">
 
-function toast({ ...props }: Toast) {
+function toast({ duration = TOAST_REMOVE_DELAY, ...props }: Toast & { duration?: number }) {
   const id = genId()
 
   const update = (props: ToasterToast) =>
@@ -163,6 +178,16 @@ function toast({ ...props }: Toast) {
       },
     },
   })
+
+    // Set timeout for auto-dismissal, unless duration is Infinity
+    if (duration !== Infinity) {
+        const removeTimeout = setTimeout(() => {
+             dismiss();
+        }, duration);
+        // Store timeout reference to clear it if manually dismissed
+        toastTimeouts.set(id, removeTimeout);
+    }
+
 
   return {
     id: id,

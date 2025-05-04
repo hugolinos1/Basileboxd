@@ -3,78 +3,79 @@
 @tailwind utilities;
 
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-montserrat), sans-serif;
 }
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
+    --background: 0 0% 8%; /* #141414 */
+    --foreground: 0 0% 100%; /* white */
+    --card: 0 0% 10%; /* Slightly lighter than background */
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 357 91% 47%; /* #E50914 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 15%; /* Slightly lighter gray */
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 15%; /* Same as secondary for dark theme */
+    --muted-foreground: 0 0% 65%; /* text-gray-400 equivalent */
+    --accent: 0 0% 20%; /* Darker accent for hover states */
+    --accent-foreground: 0 0% 98%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
+    --border: 0 0% 20%; /* Dark border */
+    --input: 0 0% 15%; /* Same as secondary/muted */
+    --ring: 357 91% 47%; /* Use primary for focus ring */
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-background: 0 0% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 357 91% 47%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 20%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 20%;
+    --sidebar-ring: 357 91% 47%;
   }
+
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
+    --background: 0 0% 8%; /* #141414 */
+    --foreground: 0 0% 100%; /* white */
+    --card: 0 0% 10%;
     --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
+    --popover: 0 0% 8%;
     --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
+    --primary: 357 91% 47%; /* #E50914 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 15%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 65%;
+    --accent: 0 0% 20%;
     --accent-foreground: 0 0% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+    --border: 0 0% 20%;
+    --input: 0 0% 15%;
+    --ring: 357 91% 47%;
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-background: 0 0% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 357 91% 47%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 0 0% 20%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 20%;
+    --sidebar-ring: 357 91% 47%;
   }
 }
 
@@ -85,4 +86,49 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Custom styles based on baliserate1.html */
+@layer components {
+  .thumbnail-hover {
+    @apply transition-transform duration-300 ease-in-out hover:scale-110;
+  }
+
+  .top10-slider {
+    /* Custom styles for slider if needed beyond Tailwind */
+  }
+
+  .scroll-arrow {
+    @apply absolute top-1/2 -translate-y-1/2 cursor-pointer text-white bg-black bg-opacity-50 rounded-full p-2 z-10 hover:bg-opacity-75 transition-opacity;
+  }
+
+  .star-rating {
+    color: #FFD700; /* Gold color for stars */
+  }
+
+  .hero-gradient {
+    background: linear-gradient(to top, rgba(20, 20, 20, 1) 0%, rgba(20, 20, 20, 0) 100%);
+  }
+
+  .top10-badge {
+    @apply absolute top-4 left-4 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded;
+  }
+
+  .top-number {
+    @apply absolute -left-4 -bottom-4 text-6xl md:text-8xl font-extrabold stroke-black stroke-2;
+    -webkit-text-stroke: 2px black; /* For Safari */
+  }
+
+  .top-number-gold { color: #FFD700; }
+  .top-number-silver { color: #C0C0C0; }
+  .top-number-bronze { color: #CD7F32; }
+
+  .stacked-avatars > * + * {
+      @apply -ml-2;
+  }
+}
+
+/* Input focus style */
+input:focus, textarea:focus, select:focus {
+  @apply ring-2 ring-primary border-primary;
 }
