@@ -1,3 +1,4 @@
+
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -46,12 +47,14 @@ const MAX_FILE_SIZE = {
 const ACCEPTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'audio/mpeg', 'audio/wav'];
 const ACCEPTED_COVER_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
-const fileSchema = z.custom<File>((val) => val instanceof File, 'Veuillez télécharger un fichier');
+// Use z.instanceof for better type checking across environments
+const fileSchema = z.instanceof(typeof window !== 'undefined' ? File : Object, { message: 'Veuillez télécharger un fichier' });
+
 const coverPhotoSchema = fileSchema.refine(
-    (file) => ACCEPTED_COVER_PHOTO_TYPES.includes(file.type),
+    (file) => file instanceof File && ACCEPTED_COVER_PHOTO_TYPES.includes(file.type),
     "Type de photo non supporté."
 ).refine(
-    (file) => file.size <= MAX_FILE_SIZE.image,
+    (file) => file instanceof File && file.size <= MAX_FILE_SIZE.image,
      `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
 ).optional(); // Make cover photo optional
 
@@ -551,45 +554,46 @@ export default function CreateEventPage() {
                                     name="coverPhoto"
                                     render={({ field }) => (
                                         <FormItem className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64">
-                                            {coverPhotoPreview ? (
-                                                <div className="relative w-full h-full">
-                                                    <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
-                                                    <Button
-                                                        type="button"
-                                                        variant="destructive"
-                                                        size="icon"
-                                                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10"
-                                                        onClick={removeCoverPhoto}
-                                                    >
-                                                        <X className="h-4 w-4" />
-                                                        <span className="sr-only">Retirer photo</span>
-                                                    </Button>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
-                                                    <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo pour personnaliser votre soirée.</p>
-                                                    <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}>
-                                                        <Upload className="mr-2 h-4 w-4" />
-                                                        Ajouter une photo
-                                                    </Button>
-                                                </>
-                                            )}
-                                             <FormControl>
-                                                {/* Hidden actual input */}
-                                                <Input
-                                                    id="cover-photo-input"
-                                                    type="file"
-                                                    accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
-                                                    onChange={handleCoverPhotoChange}
-                                                    className="sr-only"
-                                                    ref={field.ref} // Connect ref for react-hook-form
-                                                    onBlur={field.onBlur} // Connect onBlur for react-hook-form
-                                                    name={field.name} // Ensure name is passed
-                                                    disabled={field.disabled} // Pass disabled state
-                                                />
-                                             </FormControl>
-                                            <FormMessage className="mt-2"/>
+
+                                                {coverPhotoPreview ? (
+                                                    <div className="relative w-full h-full">
+                                                        <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
+                                                        <Button
+                                                            type="button"
+                                                            variant="destructive"
+                                                            size="icon"
+                                                            className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10"
+                                                            onClick={removeCoverPhoto}
+                                                        >
+                                                            <X className="h-4 w-4" />
+                                                            <span className="sr-only">Retirer photo</span>
+                                                        </Button>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
+                                                        <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo pour personnaliser votre soirée.</p>
+                                                        <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}>
+                                                            <Upload className="mr-2 h-4 w-4" />
+                                                            Ajouter une photo
+                                                        </Button>
+                                                    </>
+                                                )}
+                                                <FormControl>
+                                                    {/* Hidden actual input */}
+                                                    <Input
+                                                        id="cover-photo-input"
+                                                        type="file"
+                                                        accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                                        onChange={handleCoverPhotoChange}
+                                                        className="sr-only"
+                                                        ref={field.ref} // Connect ref for react-hook-form
+                                                        onBlur={field.onBlur} // Connect onBlur for react-hook-form
+                                                        name={field.name} // Ensure name is passed
+                                                        disabled={field.disabled} // Pass disabled state
+                                                    />
+                                                 </FormControl>
+                                                <FormMessage className="mt-2"/>
                                         </FormItem>
                                     )}
                                 />
