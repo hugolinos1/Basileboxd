@@ -7,14 +7,14 @@ export function HeroSection() {
     <div className="relative h-96 md:h-[500px] lg:h-[600px] w-full">
       {/* Background Image */}
       <Image
-        src="https://picsum.photos/seed/youth-party-night/1600/900" // Placeholder for a youth party image
-        alt="Jeunes faisant la fête lors d'une soirée" // Updated alt text
+        src="https://picsum.photos/seed/balise-group-night/1600/900" // Placeholder representing the user's image
+        alt="Groupe de jeunes hommes posant la nuit devant une ville illuminée et une rivière" // Updated alt text for the user's image
         layout="fill"
         objectFit="cover"
         quality={85}
         priority // Load the hero image eagerly
         className="absolute inset-0 z-0"
-        data-ai-hint="soirée jeunes fête" // Updated AI hint
+        data-ai-hint="groupe jeunes hommes nuit ville rivière" // Updated AI hint for the user's image
       />
 
       {/* Gradient Overlay */}
