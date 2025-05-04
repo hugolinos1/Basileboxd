@@ -27,7 +27,7 @@ export function Navbar() {
       await signOut(auth);
       router.push('/auth'); // Redirect to auth page after sign out
     } catch (error) {
-      console.error("Error signing out: ", error);
+      console.error("Erreur lors de la déconnexion: ", error);
       // Handle error (e.g., show a toast message)
     }
   };
@@ -55,7 +55,7 @@ export function Navbar() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Search parties..."
+              placeholder="Rechercher des fêtes..."
               className="w-full pl-10 pr-4 py-2 h-9 bg-secondary border-border focus:bg-background focus:border-primary"
             />
           </div>
@@ -87,24 +87,24 @@ export function Navbar() {
                 {isAdmin && (
                   <DropdownMenuItem onClick={() => router.push('/admin')}>
                     <LayoutDashboard className="mr-2 h-4 w-4" />
-                    <span>Admin Panel</span>
+                    <span>Panneau Admin</span>
                   </DropdownMenuItem>
                 )}
                  <DropdownMenuItem disabled> {/* Disabled until settings page is created */}
                     <Settings className="mr-2 h-4 w-4" />
-                    <span>Settings</span>
+                    <span>Paramètres</span>
                  </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut}>
                   <LogOut className="mr-2 h-4 w-4" />
-                  <span>Log out</span>
+                  <span>Se déconnecter</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
             <Button onClick={() => router.push('/auth')} variant="default" size="sm">
               <UserIcon className="mr-2 h-4 w-4" />
-              Login / Sign Up
+              Connexion / Inscription
             </Button>
           )}
         </div>

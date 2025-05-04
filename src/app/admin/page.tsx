@@ -4,8 +4,9 @@ import { useEffect } from 'react';
 import { useFirebase } from '@/context/FirebaseContext';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, ImageIcon, Video, Music } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge'; // Added Badge import
 
 // Mock Data Structures - Replace with actual data fetching and types later
 interface MockUser { id: string; email: string; createdAt: Date; }
@@ -24,7 +25,7 @@ const mockParties: MockParty[] = [
   { id: 'partyB', name: 'Beach Bash', createdBy: 'user1', date: new Date(Date.now() - 172800000) }, // 2 days ago
 ];
 const mockComments: MockComment[] = [
-    { id: 'cmt1', partyId: 'partyB', userId: 'user2', text: 'Great party!', timestamp: new Date() },
+    { id: 'cmt1', partyId: 'partyB', userId: 'user2', text: 'Super fête !', timestamp: new Date() },
 ];
 const mockMedia: MockMedia[] = [
     { id: 'mediaX', partyId: 'partyA', url: 'https://picsum.photos/200', type: 'image', uploadedAt: new Date() },
@@ -43,26 +44,26 @@ export default function AdminPage() {
 
   const handleDelete = (type: string, id: string) => {
       // Placeholder for delete functionality
-      console.log(`Attempting to delete ${type} with ID: ${id}`);
-      alert(`[Admin Action] Delete ${type} ID: ${id} (Implementation Pending)`);
+      console.log(`Tentative de suppression de ${type} avec l'ID : ${id}`);
+      alert(`[Action Admin] Supprimer ${type} ID : ${id} (Implémentation en attente)`);
        // TODO: Implement actual Firestore delete operation with confirmation dialog
   }
 
   if (loading) {
-    return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">Checking permissions...</div>;
+    return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">Vérification des permissions...</div>;
   }
 
   if (!isAdmin) {
     // Render minimal content or nothing while redirecting
-    return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">Access Denied. Redirecting...</div>;
+    return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">Accès refusé. Redirection...</div>;
   }
 
   // Admin content
   return (
     <div className="container mx-auto px-4 py-12">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold text-primary">Admin Dashboard</h1>
-        <Badge variant="destructive"><ShieldAlert className="w-4 h-4 mr-1" /> Admin Access</Badge>
+        <h1 className="text-3xl font-bold text-primary">Tableau de Bord Admin</h1>
+        <Badge variant="destructive"><ShieldAlert className="w-4 h-4 mr-1" /> Accès Admin</Badge>
       </div>
 
        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -70,17 +71,17 @@ export default function AdminPage() {
          {/* Users Management */}
         <Card className="bg-card border-border">
             <CardHeader>
-            <CardTitle>Users ({mockUsers.length})</CardTitle>
-            <CardDescription>Manage application users.</CardDescription>
+            <CardTitle>Utilisateurs ({mockUsers.length})</CardTitle>
+            <CardDescription>Gérer les utilisateurs de l'application.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 max-h-96 overflow-y-auto">
              {mockUsers.map((u) => (
                 <div key={u.id} className="flex justify-between items-center p-2 bg-secondary rounded-md">
                     <div>
                         <p className="text-sm font-medium">{u.email}</p>
-                        <p className="text-xs text-muted-foreground">Joined: {u.createdAt.toLocaleDateString()}</p>
+                        <p className="text-xs text-muted-foreground">Inscrit le: {u.createdAt.toLocaleDateString()}</p>
                     </div>
-                    <Button variant="destructive" size="sm" onClick={() => handleDelete('User', u.id)}>Delete</Button>
+                    <Button variant="destructive" size="sm" onClick={() => handleDelete('Utilisateur', u.id)}>Supprimer</Button>
                 </div>
              ))}
             </CardContent>
@@ -89,17 +90,17 @@ export default function AdminPage() {
          {/* Parties Management */}
         <Card className="bg-card border-border">
             <CardHeader>
-            <CardTitle>Parties ({mockParties.length})</CardTitle>
-            <CardDescription>Manage party entries.</CardDescription>
+            <CardTitle>Fêtes ({mockParties.length})</CardTitle>
+            <CardDescription>Gérer les entrées de fêtes.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 max-h-96 overflow-y-auto">
              {mockParties.map((p) => (
                 <div key={p.id} className="flex justify-between items-center p-2 bg-secondary rounded-md">
                     <div>
                         <p className="text-sm font-medium">{p.name}</p>
-                        <p className="text-xs text-muted-foreground">Date: {p.date.toLocaleDateString()} | By: {p.createdBy}</p>
+                        <p className="text-xs text-muted-foreground">Date : {p.date.toLocaleDateString()} | Par : {p.createdBy}</p>
                     </div>
-                     <Button variant="destructive" size="sm" onClick={() => handleDelete('Party', p.id)}>Delete</Button>
+                     <Button variant="destructive" size="sm" onClick={() => handleDelete('Fête', p.id)}>Supprimer</Button>
                 </div>
              ))}
             </CardContent>
@@ -108,8 +109,8 @@ export default function AdminPage() {
          {/* Comments Management */}
         <Card className="bg-card border-border">
             <CardHeader>
-            <CardTitle>Comments ({mockComments.length})</CardTitle>
-            <CardDescription>Moderate comments.</CardDescription>
+            <CardTitle>Commentaires ({mockComments.length})</CardTitle>
+            <CardDescription>Modérer les commentaires.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 max-h-96 overflow-y-auto">
              {mockComments.map((c) => (
@@ -117,10 +118,10 @@ export default function AdminPage() {
                      <div className="flex-1 mr-4">
                         <p className="text-sm italic">"{c.text}"</p>
                         <p className="text-xs text-muted-foreground">
-                            On Party: {c.partyId} | By: {c.userId} | At: {c.timestamp.toLocaleString()}
+                            Sur la Fête : {c.partyId} | Par : {c.userId} | Le : {c.timestamp.toLocaleString()}
                         </p>
                     </div>
-                     <Button variant="destructive" size="sm" onClick={() => handleDelete('Comment', c.id)}>Delete</Button>
+                     <Button variant="destructive" size="sm" onClick={() => handleDelete('Commentaire', c.id)}>Supprimer</Button>
                  </div>
              ))}
             </CardContent>
@@ -129,8 +130,8 @@ export default function AdminPage() {
         {/* Media Management */}
         <Card className="bg-card border-border">
             <CardHeader>
-            <CardTitle>Media ({mockMedia.length})</CardTitle>
-            <CardDescription>Manage uploaded media.</CardDescription>
+            <CardTitle>Médias ({mockMedia.length})</CardTitle>
+            <CardDescription>Gérer les médias téléchargés.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 max-h-96 overflow-y-auto">
              {mockMedia.map((m) => (
@@ -140,9 +141,9 @@ export default function AdminPage() {
                          {m.type === 'video' && <Video className="w-4 h-4 text-muted-foreground"/>}
                          {m.type === 'audio' && <Music className="w-4 h-4 text-muted-foreground"/>}
                          <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-sm truncate hover:underline">{m.url.substring(m.url.lastIndexOf('/')+1)}</a>
-                         <p className="text-xs text-muted-foreground">(Party: {m.partyId})</p>
+                         <p className="text-xs text-muted-foreground">(Fête : {m.partyId})</p>
                      </div>
-                     <Button variant="destructive" size="sm" onClick={() => handleDelete('Media', m.id)}>Delete</Button>
+                     <Button variant="destructive" size="sm" onClick={() => handleDelete('Média', m.id)}>Supprimer</Button>
                  </div>
              ))}
             </CardContent>

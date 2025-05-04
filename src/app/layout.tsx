@@ -13,7 +13,7 @@ const montserrat = Montserrat({
 
 export const metadata: Metadata = {
   title: 'PartyHub',
-  description: 'Create, rate, comment, and share your parties!',
+  description: 'Créez, notez, commentez et partagez vos fêtes !',
 };
 
 export default function RootLayout({
@@ -22,7 +22,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="fr" className="dark"> {/* Changed lang to fr */}
       <body className={`${montserrat.variable} antialiased bg-background text-foreground font-sans`}>
         <FirebaseProvider>
           <div className="flex flex-col min-h-screen">

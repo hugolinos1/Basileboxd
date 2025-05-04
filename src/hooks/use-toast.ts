@@ -1,3 +1,6 @@
+// hooks/use-toast.ts - Keeping messages dynamic, but you might translate default/fallback messages if needed.
+// No changes needed in this file based on the provided snippet, as messages seem dynamic.
+// If there were default messages like "Success!" or "Error!", they would be translated here.
 "use client"
 
 // Inspired by react-hot-toast library
@@ -60,7 +63,7 @@ const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
 
 const addToRemoveQueue = (toastId: string) => {
   if (toastTimeouts.has(toastId)) {
-    clearTimeout(toastTimeouts.get(toastId)); // Clear existing timeout if dismiss is called again
+    clearTimeout(toastTimeouts.get(toastId)!); // Clear existing timeout if dismiss is called again
   }
 
   const timeout = setTimeout(() => {
@@ -81,7 +84,10 @@ export const reducer = (state: State, action: Action): State => {
       const toasts = [action.toast, ...state.toasts];
       if (toasts.length > TOAST_LIMIT) {
           const oldestToastId = toasts[toasts.length -1].id;
-          toastTimeouts.delete(oldestToastId); // Remove timeout for the oldest
+          if(toastTimeouts.has(oldestToastId)) { // Check if timeout exists before deleting
+             clearTimeout(toastTimeouts.get(oldestToastId)!);
+             toastTimeouts.delete(oldestToastId); // Remove timeout for the oldest
+          }
           toasts.pop(); // Remove the oldest toast from array
       }
       return {
@@ -134,13 +140,15 @@ export const reducer = (state: State, action: Action): State => {
       }
        // Clear timeout for the specific toast being removed
         if(toastTimeouts.has(action.toastId)) {
-             clearTimeout(toastTimeouts.get(action.toastId));
+             clearTimeout(toastTimeouts.get(action.toastId)!);
              toastTimeouts.delete(action.toastId);
         }
       return {
         ...state,
         toasts: state.toasts.filter((t) => t.id !== action.toastId),
       }
+    default:
+      return state; // Ensure a state is always returned
   }
 }
 

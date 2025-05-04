@@ -21,8 +21,8 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
 const formSchema = z.object({
-  email: z.string().email({ message: 'Invalid email address.' }),
-  password: z.string().min(6, { message: 'Password must be at least 6 characters.' }),
+  email: z.string().email({ message: 'Adresse email invalide.' }),
+  password: z.string().min(6, { message: 'Le mot de passe doit contenir au moins 6 caractères.' }),
 });
 
 export function LoginForm() {
@@ -43,20 +43,20 @@ export function LoginForm() {
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
       toast({
-        title: 'Login Successful',
-        description: 'Welcome back!',
+        title: 'Connexion réussie',
+        description: 'Bon retour !',
       });
       router.push('/'); // Redirect to home page on successful login
     } catch (error: any) {
-      console.error('Login error:', error);
-      let errorMessage = 'An unknown error occurred during login.';
+      console.error('Erreur de connexion:', error);
+      let errorMessage = 'Une erreur inconnue est survenue lors de la connexion.';
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-          errorMessage = 'Invalid email or password.';
+          errorMessage = 'Email ou mot de passe invalide.';
       } else if (error.code === 'auth/invalid-email') {
-          errorMessage = 'Please enter a valid email address.';
+          errorMessage = 'Veuillez entrer une adresse email valide.';
       }
       toast({
-        title: 'Login Failed',
+        title: 'Échec de la connexion',
         description: errorMessage,
         variant: 'destructive',
       });
@@ -76,7 +76,7 @@ export function LoginForm() {
               <FormLabel>Email</FormLabel>
               <FormControl>
                 <Input
-                  placeholder="you@example.com"
+                  placeholder="vous@exemple.com"
                   {...field}
                   type="email"
                   className="bg-input border-border focus:bg-background focus:border-primary"
@@ -91,7 +91,7 @@ export function LoginForm() {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel>Mot de passe</FormLabel>
               <FormControl>
                 <Input
                     placeholder="••••••••"
@@ -106,7 +106,7 @@ export function LoginForm() {
         />
         <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-           Login
+           Se connecter
         </Button>
       </form>
     </Form>

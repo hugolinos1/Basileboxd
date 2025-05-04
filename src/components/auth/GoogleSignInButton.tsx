@@ -43,27 +43,27 @@ export function GoogleSignInButton() {
            createdAt: new Date(),
          });
           toast({
-            title: 'Account Created & Logged In',
-            description: `Welcome, ${user.displayName || user.email}!`,
+            title: 'Compte créé et connecté',
+            description: `Bienvenue, ${user.displayName || user.email}!`,
         });
       } else {
            toast({
-            title: 'Login Successful',
-            description: `Welcome back, ${user.displayName || user.email}!`,
+            title: 'Connexion réussie',
+            description: `Bon retour, ${user.displayName || user.email}!`,
         });
       }
 
       router.push('/'); // Redirect to home page
     } catch (error: any) {
-      console.error('Google Sign-In error:', error);
-       let errorMessage = 'An unknown error occurred during Google Sign-In.';
+      console.error('Erreur de connexion Google :', error);
+       let errorMessage = 'Une erreur inconnue est survenue lors de la connexion Google.';
        if (error.code === 'auth/popup-closed-by-user') {
-         errorMessage = 'Sign-in cancelled.';
+         errorMessage = 'Connexion annulée.';
        } else if (error.code === 'auth/account-exists-with-different-credential') {
-            errorMessage = 'An account already exists with the same email address but different sign-in credentials. Try signing in with the original method.';
+            errorMessage = 'Un compte existe déjà avec la même adresse e-mail mais des identifiants de connexion différents. Essayez de vous connecter avec la méthode d\'origine.';
        }
       toast({
-        title: 'Google Sign-In Failed',
+        title: 'Échec de la connexion Google',
         description: errorMessage,
         variant: 'destructive',
       });
@@ -79,7 +79,7 @@ export function GoogleSignInButton() {
       ) : (
         <GoogleIcon />
       )}
-      Continue with Google
+      Continuer avec Google
     </Button>
   );
 }

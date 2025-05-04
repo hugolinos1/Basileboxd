@@ -8,13 +8,13 @@ export function HeroSection() {
       {/* Background Image */}
       <Image
         src="https://picsum.photos/1600/900?random=hero"
-        alt="Hero background party image"
+        alt="Image de fond de fête héroïque"
         layout="fill"
         objectFit="cover"
         quality={85}
         priority // Load the hero image eagerly
         className="absolute inset-0 z-0"
-        data-ai-hint="party crowd fun"
+        data-ai-hint="foule fête amusement"
       />
 
       {/* Gradient Overlay */}
@@ -24,22 +24,22 @@ export function HeroSection() {
       <div className="relative z-20 container mx-auto px-4 md:px-6 h-full flex flex-col justify-end pb-12 md:pb-20 lg:pb-28">
         <div className="max-w-lg">
             {/* Optional: Top 10 Badge if applicable to the featured item */}
-            {/* <span className="top10-badge mb-4">Top 1 Party</span> */}
+            {/* <span className="top10-badge mb-4">Top 1 Fête</span> */}
 
             <h1 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-white mb-4 shadow-lg">
-              Experience the Vibe
+              Vivez l'Ambiance
             </h1>
             <p className="text-base md:text-lg text-gray-200 mb-6 shadow-md">
-              Discover, rate, and share the best party moments. Join the community and never miss out.
+              Découvrez, notez et partagez les meilleurs moments de fête. Rejoignez la communauté et ne manquez rien.
             </p>
             <div className="flex space-x-3">
               <Button variant="default" size="lg" className="bg-white text-black hover:bg-gray-200">
                 <Play className="mr-2 h-5 w-5 fill-black" />
-                Explore Now
+                Explorer Maintenant
               </Button>
               <Button variant="secondary" size="lg" className="bg-gray-600 bg-opacity-70 text-white hover:bg-gray-500 hover:bg-opacity-70">
                 <Info className="mr-2 h-5 w-5" />
-                More Info
+                Plus d'infos
               </Button>
             </div>
         </div>

@@ -21,11 +21,11 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
 const formSchema = z.object({
-  email: z.string().email({ message: 'Invalid email address.' }),
-  password: z.string().min(6, { message: 'Password must be at least 6 characters.' }),
+  email: z.string().email({ message: 'Adresse email invalide.' }),
+  password: z.string().min(6, { message: 'Le mot de passe doit contenir au moins 6 caractères.' }),
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
+  message: "Les mots de passe ne correspondent pas",
   path: ['confirmPassword'], // path of error
 });
 
@@ -58,30 +58,30 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
         uid: user.uid,
         createdAt: new Date(),
         // Add other initial fields like displayName if collected, or leave empty
-        displayName: user.email?.split('@')[0] || 'New User',
+        displayName: user.email?.split('@')[0] || 'Nouvel utilisateur',
         avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100` // Placeholder avatar
       });
 
 
       toast({
-        title: 'Signup Successful',
-        description: 'Your account has been created. Please log in.',
+        title: 'Inscription réussie',
+        description: 'Votre compte a été créé. Veuillez vous connecter.',
       });
       form.reset(); // Reset form fields
       onSignupSuccess?.(); // Callback to potentially switch tabs
 
     } catch (error: any) {
-      console.error('Signup error:', error);
-       let errorMessage = 'An unknown error occurred during sign up.';
+      console.error('Erreur d\'inscription:', error);
+       let errorMessage = 'Une erreur inconnue est survenue lors de l\'inscription.';
         if (error.code === 'auth/email-already-in-use') {
-            errorMessage = 'This email address is already registered.';
+            errorMessage = 'Cette adresse email est déjà enregistrée.';
         } else if (error.code === 'auth/invalid-email') {
-            errorMessage = 'Please enter a valid email address.';
+            errorMessage = 'Veuillez entrer une adresse email valide.';
         } else if (error.code === 'auth/weak-password') {
-            errorMessage = 'The password is too weak. Please choose a stronger password.';
+            errorMessage = 'Le mot de passe est trop faible. Veuillez choisir un mot de passe plus fort.';
         }
       toast({
-        title: 'Signup Failed',
+        title: 'Échec de l\'inscription',
         description: errorMessage,
         variant: 'destructive',
       });
@@ -101,7 +101,7 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
               <FormLabel>Email</FormLabel>
               <FormControl>
                 <Input
-                  placeholder="you@example.com"
+                  placeholder="vous@exemple.com"
                   {...field} type="email"
                   className="bg-input border-border focus:bg-background focus:border-primary"
                  />
@@ -115,7 +115,7 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel>Mot de passe</FormLabel>
               <FormControl>
                 <Input
                   placeholder="••••••••"
@@ -133,7 +133,7 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
           name="confirmPassword"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Confirm Password</FormLabel>
+              <FormLabel>Confirmer le mot de passe</FormLabel>
               <FormControl>
                 <Input
                   placeholder="••••••••"
@@ -148,7 +148,7 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
         />
         <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-           Sign Up
+           S'inscrire
         </Button>
       </form>
     </Form>

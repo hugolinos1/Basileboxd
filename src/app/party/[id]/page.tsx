@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '@/config/firebase';
+import { db } from '@/config/firebase'; // Import potentially null db
 import { useFirebase } from '@/context/FirebaseContext';
 import { format } from 'date-fns';
+import { fr } from 'date-fns/locale'; // Import French locale
 import { Star, Send, User, MapPin, CalendarDays, Image as ImageIcon, Video, Music, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -75,6 +76,12 @@ export default function PartyDetailsPage() {
 
   useEffect(() => {
     if (!partyId) return;
+    if (!db) {
+        console.error("Firestore non initialisé. Impossible de récupérer la fête.");
+        toast({ title: 'Erreur', description: 'La base de données n\'est pas disponible.', variant: 'destructive' });
+        setLoading(false);
+        return;
+      }
 
     const fetchParty = async () => {
       setLoading(true);
@@ -94,12 +101,12 @@ export default function PartyDetailsPage() {
               setUserRating(0); // Reset if user has no rating
           }
         } else {
-          toast({ title: 'Error', description: 'Party not found.', variant: 'destructive' });
+          toast({ title: 'Erreur', description: 'Fête non trouvée.', variant: 'destructive' });
           router.push('/'); // Redirect if party doesn't exist
         }
       } catch (error) {
-        console.error('Error fetching party:', error);
-        toast({ title: 'Error', description: 'Could not load party details.', variant: 'destructive' });
+        console.error('Erreur lors de la récupération de la fête :', error);
+        toast({ title: 'Erreur', description: 'Impossible de charger les détails de la fête.', variant: 'destructive' });
       } finally {
         setLoading(false);
       }
@@ -121,10 +128,13 @@ export default function PartyDetailsPage() {
 
   const handleRateParty = async (newRating: number) => {
      if (!user) {
-       toast({ title: 'Login Required', description: 'Please log in to rate.', variant: 'destructive' });
+       toast({ title: 'Connexion requise', description: 'Veuillez vous connecter pour noter.', variant: 'destructive' });
        return;
      }
-     if (!party) return;
+     if (!party || !db) {
+         toast({ title: 'Erreur', description: 'Impossible de noter pour le moment.', variant: 'destructive' });
+         return;
+     };
      setIsRating(true);
 
      try {
@@ -139,11 +149,11 @@ export default function PartyDetailsPage() {
          calculateAverageRating(newRatings); // Recalculate average
          setParty(prev => prev ? { ...prev, ratings: newRatings } : null); // Update local state
 
-         toast({ title: 'Rating Submitted', description: `You rated this party ${newRating} stars.` });
+         toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating} étoiles.` });
 
      } catch (error) {
-         console.error("Error submitting rating:", error);
-         toast({ title: 'Error', description: 'Could not submit rating.', variant: 'destructive' });
+         console.error("Erreur lors de l'envoi de la note :", error);
+         toast({ title: 'Erreur', description: 'Impossible d\'envoyer la note.', variant: 'destructive' });
      } finally {
          setIsRating(false);
      }
@@ -152,17 +162,20 @@ export default function PartyDetailsPage() {
 
   const handleAddComment = async () => {
     if (!user) {
-      toast({ title: 'Login Required', description: 'Please log in to comment.', variant: 'destructive' });
+      toast({ title: 'Connexion requise', description: 'Veuillez vous connecter pour commenter.', variant: 'destructive' });
       return;
     }
-    if (!party || !comment.trim()) return;
+    if (!party || !comment.trim() || !db) {
+        toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire pour le moment.', variant: 'destructive' });
+        return
+    };
 
     setIsSubmittingComment(true);
     try {
       const partyDocRef = doc(db, 'parties', party.id);
       const newComment = {
         userId: user.uid,
-        email: user.email || 'anonymous',
+        email: user.email || 'anonyme',
         avatar: user.photoURL || undefined, // Use Google photo if available
         text: comment.trim(),
         timestamp: serverTimestamp(), // Use server timestamp
@@ -178,10 +191,10 @@ export default function PartyDetailsPage() {
 
 
       setComment(''); // Clear comment input
-      toast({ title: 'Comment Added' });
+      toast({ title: 'Commentaire ajouté' });
     } catch (error) {
-      console.error('Error adding comment:', error);
-      toast({ title: 'Error', description: 'Could not add comment.', variant: 'destructive' });
+      console.error('Erreur lors de l\'ajout du commentaire :', error);
+      toast({ title: 'Erreur', description: 'Impossible d\'ajouter le commentaire.', variant: 'destructive' });
     } finally {
       setIsSubmittingComment(false);
     }
@@ -190,8 +203,8 @@ export default function PartyDetailsPage() {
    // Render helper for media
    const renderMedia = (url: string, index: number) => {
      const onError = (e: any) => {
-        console.error(`Error loading media ${url}:`, e);
-        setPlayerError(`Could not load media: ${url.substring(url.lastIndexOf('/') + 1)}`);
+        console.error(`Erreur lors du chargement du média ${url}:`, e);
+        setPlayerError(`Impossible de charger le média : ${url.substring(url.lastIndexOf('/') + 1)}`);
         // Optionally hide the player or show a placeholder
      }
 
@@ -200,7 +213,7 @@ export default function PartyDetailsPage() {
          <div key={index} className="aspect-video bg-black rounded-lg overflow-hidden relative">
             {playerError && url === playerError.substring(playerError.indexOf(':') + 2) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">
-                    Error loading video
+                    Erreur de chargement de la vidéo
                 </div>
             )}
              <ReactPlayer
@@ -219,7 +232,7 @@ export default function PartyDetailsPage() {
          <div key={index} className="w-full bg-card p-4 rounded-lg shadow">
            <ReactPlayer url={url} controls width="100%" height="50px" onError={onError}/>
              {playerError && url === playerError.substring(playerError.indexOf(':') + 2) && (
-                <p className="text-destructive text-xs mt-2">Error loading audio</p>
+                <p className="text-destructive text-xs mt-2">Erreur de chargement de l'audio</p>
             )}
          </div>
        );
@@ -228,7 +241,7 @@ export default function PartyDetailsPage() {
          <div key={index} className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group">
            <Image
              src={url}
-             alt={`Party media ${index + 1}`}
+             alt={`Média de la fête ${index + 1}`}
              layout="fill"
              objectFit="cover"
              className="transition-transform duration-300 group-hover:scale-105"
@@ -237,7 +250,7 @@ export default function PartyDetailsPage() {
            />
             {playerError && url === playerError.substring(playerError.indexOf(':') + 2) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">
-                    Error loading image
+                    Erreur de chargement de l'image
                 </div>
             )}
          </div>
@@ -264,7 +277,7 @@ export default function PartyDetailsPage() {
 
   if (!party) {
     // Should have been redirected, but as a fallback
-    return <div className="container mx-auto px-4 py-12 text-center">Party not found.</div>;
+    return <div className="container mx-auto px-4 py-12 text-center">Fête non trouvée.</div>;
   }
 
 
@@ -279,9 +292,9 @@ export default function PartyDetailsPage() {
                 <div>
                      <CardTitle className="text-2xl md:text-3xl font-bold text-primary mb-2">{party.name}</CardTitle>
                      <CardDescription className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                       <span className="flex items-center gap-1"><CalendarDays className="h-4 w-4"/> {format(partyDate, 'PPP')}</span>
+                       <span className="flex items-center gap-1"><CalendarDays className="h-4 w-4"/> {format(partyDate, 'PPP', { locale: fr })}</span>
                        {party.location && <span className="flex items-center gap-1"><MapPin className="h-4 w-4"/> {party.location}</span>}
-                       <span className="flex items-center gap-1"><User className="h-4 w-4"/> Created by {party.creatorEmail || 'Unknown'}</span>
+                       <span className="flex items-center gap-1"><User className="h-4 w-4"/> Créé par {party.creatorEmail || 'Inconnu'}</span>
                     </CardDescription>
                 </div>
                  <div className="flex flex-col items-start md:items-end gap-2 flex-shrink-0 mt-4 md:mt-0">
@@ -292,11 +305,11 @@ export default function PartyDetailsPage() {
                           disabled={!user || isRating}
                        />
                         <Badge variant="secondary" className="text-xs font-semibold">
-                           {averageRating.toFixed(1)} ({Object.keys(party.ratings).length} ratings)
+                           {averageRating.toFixed(1)} ({Object.keys(party.ratings).length} notes)
                         </Badge>
                    </div>
-                     {isRating && <span className="text-xs text-muted-foreground">Submitting...</span>}
-                     {!user && <span className="text-xs text-muted-foreground">Login to rate</span>}
+                     {isRating && <span className="text-xs text-muted-foreground">Envoi...</span>}
+                     {!user && <span className="text-xs text-muted-foreground">Connectez-vous pour noter</span>}
                 </div>
 
             </div>
@@ -309,19 +322,19 @@ export default function PartyDetailsPage() {
 
         {/* Media Section */}
         <CardContent className="p-6 md:p-8">
-            <h3 className="text-xl font-semibold mb-4 text-foreground">Media Gallery</h3>
+            <h3 className="text-xl font-semibold mb-4 text-foreground">Galerie Média</h3>
             {party.mediaUrls && party.mediaUrls.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                 {party.mediaUrls.map(renderMedia)}
             </div>
             ) : (
-            <p className="text-muted-foreground">No media uploaded for this party yet.</p>
+            <p className="text-muted-foreground">Aucun média téléchargé pour cette fête pour l'instant.</p>
             )}
         </CardContent>
 
         {/* Comments Section */}
          <CardContent className="p-6 md:p-8 border-t border-border/50">
-            <h3 className="text-xl font-semibold mb-6 text-foreground">Comments ({party.comments.length})</h3>
+            <h3 className="text-xl font-semibold mb-6 text-foreground">Commentaires ({party.comments.length})</h3>
             <div className="space-y-6">
               {/* Add Comment Form */}
                {user && (
@@ -332,7 +345,7 @@ export default function PartyDetailsPage() {
                     </Avatar>
                     <div className="flex-1">
                     <Textarea
-                        placeholder="Add your comment..."
+                        placeholder="Ajouter votre commentaire..."
                         value={comment}
                         onChange={(e) => setComment(e.target.value)}
                         className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary"
@@ -345,14 +358,14 @@ export default function PartyDetailsPage() {
                         className="bg-primary hover:bg-primary/90"
                     >
                         {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                        Post Comment
+                        Poster le commentaire
                     </Button>
                     </div>
                 </div>
                )}
                 {!user && (
                     <p className="text-muted-foreground text-sm">
-                        <button onClick={() => router.push('/auth')} className="text-primary hover:underline font-medium">Log in</button> to leave a comment.
+                        <button onClick={() => router.push('/auth')} className="text-primary hover:underline font-medium">Connectez-vous</button> pour laisser un commentaire.
                     </p>
                 )}
 
@@ -371,7 +384,7 @@ export default function PartyDetailsPage() {
                         <div className="flex justify-between items-center mb-1">
                             <p className="text-xs font-semibold text-foreground">{cmt.email}</p>
                             <p className="text-xs text-muted-foreground">
-                                {format(new Date(cmt.timestamp.seconds * 1000), 'PPp')}
+                                {format(new Date(cmt.timestamp.seconds * 1000), 'PPp', { locale: fr })}
                             </p>
                         </div>
                         <p className="text-sm text-foreground/90">{cmt.text}</p>
@@ -380,7 +393,7 @@ export default function PartyDetailsPage() {
                     ))}
                 </div>
                ) : (
-                 <p className="text-muted-foreground text-center py-4">No comments yet. Be the first to share your thoughts!</p>
+                 <p className="text-muted-foreground text-center py-4">Aucun commentaire pour l'instant. Soyez le premier à partager vos pensées !</p>
                )}
             </div>
          </CardContent>

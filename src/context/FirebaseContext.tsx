@@ -23,21 +23,21 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     // Ensure auth is initialized before subscribing
     if (!auth) {
-        console.error("Firebase Auth is not initialized. Cannot set up auth state listener.");
+        console.error("Firebase Auth non initialisé. Impossible de configurer l'écouteur d'état d'authentification.");
         setLoading(false); // Stop loading, but indicate an error state might be needed
         // Optionally: Set an error state here to inform the user
         return;
     }
 
-    console.log("Setting up Firebase Auth state listener...");
+    console.log("Configuration de l'écouteur d'état Firebase Auth...");
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-       console.log("Auth state changed:", currentUser?.email || 'No user');
+       console.log("État d'authentification changé :", currentUser?.email || 'Aucun utilisateur');
       setUser(currentUser);
       setIsAdmin(currentUser?.email === adminEmail);
       setLoading(false);
     }, (error) => {
         // Handle errors during auth state observation
-        console.error("Error in onAuthStateChanged listener:", error);
+        console.error("Erreur dans l'écouteur onAuthStateChanged :", error);
         setUser(null);
         setIsAdmin(false);
         setLoading(false);
@@ -45,7 +45,7 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
 
     // Cleanup subscription on unmount
     return () => {
-        console.log("Cleaning up Firebase Auth state listener.");
+        console.log("Nettoyage de l'écouteur d'état Firebase Auth.");
         unsubscribe();
     }
   }, [adminEmail]); // Rerun effect if adminEmail changes (though it's constant here)
@@ -67,7 +67,7 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
          </div>
          {/* Skeleton Main Content */}
          <main className="flex-grow container mx-auto px-4 py-8">
-            <Skeleton className="h-96 w-full mb-8" />
+             <Skeleton className="h-96 w-full mb-8" />
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
                 {Array.from({ length: 10 }).map((_, i) => (
                     <Skeleton key={i} className="h-64 w-full" />
@@ -101,7 +101,7 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
 export const useFirebase = () => {
   const context = useContext(FirebaseContext);
   if (context === undefined) {
-    throw new Error('useFirebase must be used within a FirebaseProvider');
+    throw new Error('useFirebase doit être utilisé à l\'intérieur d\'un FirebaseProvider');
   }
   return context;
 };

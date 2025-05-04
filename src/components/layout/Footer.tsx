@@ -11,35 +11,35 @@ export function Footer() {
 
   const footerLinks = [
     {
-      title: "Company",
+      title: "Entreprise",
       links: [
-        { name: "About Us", href: "#" },
-        { name: "Careers", href: "#" },
-        { name: "Press", href: "#" },
+        { name: "À propos", href: "#" },
+        { name: "Carrières", href: "#" },
+        { name: "Presse", href: "#" },
       ],
     },
     {
       title: "Support",
       links: [
-        { name: "Help Center", href: "#" },
-        { name: "Contact Us", href: "#" },
-        { name: "Privacy Policy", href: "#" },
-        { name: "Terms of Service", href: "#" },
+        { name: "Centre d'aide", href: "#" },
+        { name: "Contactez-nous", href: "#" },
+        { name: "Politique de confidentialité", href: "#" },
+        { name: "Conditions d'utilisation", href: "#" },
       ],
     },
     {
-        title: "Community",
+        title: "Communauté",
         links: [
             { name: "Blog", href: "#" },
-            { name: "Guidelines", href: "#" },
-            { name: "Events", href: "#" },
+            { name: "Directives", href: "#" },
+            { name: "Événements", href: "#" },
         ],
     },
      {
-        title: "Legal",
+        title: "Légal",
         links: [
-            { name: "Cookie Policy", href: "#" },
-            { name: "Impressum", href: "#" },
+            { name: "Politique de cookies", href: "#" },
+            { name: "Mentions légales", href: "#" },
         ],
     }
   ];
@@ -76,7 +76,7 @@ export function Footer() {
 
         {/* Copyright */}
         <div className="text-center text-xs text-muted-foreground pt-8 border-t border-border/40">
-          &copy; {new Date().getFullYear()} PartyHub. All rights reserved.
+          &copy; {new Date().getFullYear()} PartyHub. Tous droits réservés.
         </div>
       </div>
     </footer>

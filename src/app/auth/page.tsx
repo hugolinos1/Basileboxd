@@ -24,21 +24,21 @@ export default function AuthPage() {
 
    // Optionally, show a loading state or nothing while checking auth state
    if (loading || user) {
-     return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">Loading...</div>; // Or a spinner
+     return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">Chargement...</div>; // Or a spinner
    }
 
   return (
     <div className="flex items-center justify-center min-h-[calc(100vh-10rem)] py-12 px-4">
       <Tabs defaultValue="login" value={activeTab} onValueChange={setActiveTab} className="w-full max-w-md">
         <TabsList className="grid w-full grid-cols-2 mb-6 bg-secondary">
-          <TabsTrigger value="login" className="data-[state=active]:bg-card data-[state=active]:text-foreground">Login</TabsTrigger>
-          <TabsTrigger value="signup" className="data-[state=active]:bg-card data-[state=active]:text-foreground">Sign Up</TabsTrigger>
+          <TabsTrigger value="login" className="data-[state=active]:bg-card data-[state=active]:text-foreground">Connexion</TabsTrigger>
+          <TabsTrigger value="signup" className="data-[state=active]:bg-card data-[state=active]:text-foreground">Inscription</TabsTrigger>
         </TabsList>
         <TabsContent value="login">
           <Card className="bg-card border-border">
             <CardHeader className="space-y-1 text-center">
-              <CardTitle className="text-2xl">Welcome Back</CardTitle>
-              <CardDescription>Enter your credentials to access your account</CardDescription>
+              <CardTitle className="text-2xl">Bon Retour</CardTitle>
+              <CardDescription>Entrez vos identifiants pour accéder à votre compte</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <LoginForm />
@@ -48,7 +48,7 @@ export default function AuthPage() {
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
                   <span className="bg-card px-2 text-muted-foreground">
-                    Or continue with
+                    Ou continuer avec
                   </span>
                 </div>
               </div>
@@ -59,8 +59,8 @@ export default function AuthPage() {
         <TabsContent value="signup">
           <Card className="bg-card border-border">
             <CardHeader className="space-y-1 text-center">
-              <CardTitle className="text-2xl">Create an Account</CardTitle>
-              <CardDescription>Enter your details to join the party</CardDescription>
+              <CardTitle className="text-2xl">Créer un Compte</CardTitle>
+              <CardDescription>Entrez vos informations pour rejoindre la fête</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <SignupForm onSignupSuccess={() => setActiveTab('login')} />
@@ -70,7 +70,7 @@ export default function AuthPage() {
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
                   <span className="bg-card px-2 text-muted-foreground">
-                    Or sign up with
+                    Ou s'inscrire avec
                   </span>
                 </div>
               </div>

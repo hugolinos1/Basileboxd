@@ -5,16 +5,16 @@ import Link from 'next/link';
 export function AddPartySection() {
   const icons = [
     { Icon: Camera, label: 'Photos' },
-    { Icon: Video, label: 'Videos' },
-    { Icon: Music, label: 'Sounds' },
+    { Icon: Video, label: 'Vidéos' },
+    { Icon: Music, label: 'Sons' },
   ];
 
   return (
     <div className="bg-secondary py-12 md:py-16">
       <div className="container mx-auto px-4 md:px-6 text-center">
-        <h2 className="text-2xl md:text-3xl font-bold mb-4 text-white">Share Your Party!</h2>
+        <h2 className="text-2xl md:text-3xl font-bold mb-4 text-white">Partagez Votre Fête !</h2>
         <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
-          Got moments to share? Create a new party entry and upload your photos, videos, and sound clips for everyone to rate and comment on.
+          Des moments à partager ? Créez une nouvelle entrée de fête et téléchargez vos photos, vidéos et clips audio pour que tout le monde puisse noter et commenter.
         </p>
 
         <div className="flex justify-center items-center space-x-6 mb-8">
@@ -29,7 +29,7 @@ export function AddPartySection() {
         <Link href="/party/create">
           <Button size="lg" className="bg-primary hover:bg-primary/90 text-primary-foreground">
             <PlusCircle className="mr-2 h-5 w-5" />
-            Create New Party
+            Créer une Nouvelle Fête
           </Button>
         </Link>
       </div>

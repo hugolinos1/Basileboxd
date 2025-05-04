@@ -42,20 +42,20 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
 
   return (
     <div className="container mx-auto px-4 md:px-6 relative group">
-      <h2 className="text-2xl md:text-3xl font-bold mb-6 text-white">Top 10 Parties</h2>
+      <h2 className="text-2xl md:text-3xl font-bold mb-6 text-white">Top 10 des Fêtes</h2>
 
       {/* Scroll Arrows - visible on hover */}
       <button
         onClick={() => scroll('left')}
         className="scroll-arrow left-0 md:left-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-        aria-label="Scroll left"
+        aria-label="Faire défiler vers la gauche"
       >
         <ChevronLeft className="h-6 w-6 md:h-8 md:w-8" />
       </button>
       <button
         onClick={() => scroll('right')}
         className="scroll-arrow right-0 md:right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-        aria-label="Scroll right"
+        aria-label="Faire défiler vers la droite"
       >
         <ChevronRight className="h-6 w-6 md:h-8 md:w-8" />
       </button>
@@ -83,7 +83,7 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
                     objectFit="cover"
                     className="transition-transform duration-300 group-hover/item:scale-110" // Image zoom on card hover
                     loading="lazy" // Lazy load images
-                    data-ai-hint="party event celebration"
+                    data-ai-hint="fête événement célébration"
                   />
                    {/* Optional overlay for better text visibility if needed */}
                   {/* <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" /> */}

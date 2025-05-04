@@ -17,14 +17,14 @@ const firebaseConfig: FirebaseOptions = {
 
 // Validate essential config FIRST
 if (!firebaseConfig.apiKey) {
-    console.error("MISSING FIREBASE API KEY: The NEXT_PUBLIC_FIREBASE_API_KEY environment variable is not set.");
-    // Don't throw an error on the client-side to prevent app crash
-    // The FirebaseProvider will handle the uninitialized state.
-    // Server-side checks might still be appropriate elsewhere if needed.
+    console.error("CLÉ API FIREBASE MANQUANTE : La variable d'environnement NEXT_PUBLIC_FIREBASE_API_KEY n'est pas définie.");
+    // Ne pas lever d'erreur côté client pour éviter le crash de l'application
+    // FirebaseProvider gérera l'état non initialisé.
+    // Des vérifications côté serveur pourraient toujours être appropriées ailleurs si nécessaire.
 }
 if (!firebaseConfig.projectId) {
-    // Warn but don't throw, as some functionalities might still work initially.
-    console.warn("Firebase Project ID (NEXT_PUBLIC_FIREBASE_PROJECT_ID) is missing. Check .env.local.");
+    // Avertir mais ne pas lever d'erreur, car certaines fonctionnalités pourraient encore fonctionner initialement.
+    console.warn("L'ID de projet Firebase (NEXT_PUBLIC_FIREBASE_PROJECT_ID) est manquant. Vérifiez .env.local.");
 }
 
 
@@ -36,19 +36,19 @@ if (!getApps().some(existingApp => existingApp.name === '[DEFAULT]')) {
     // Only initialize if essential config is present
     if (firebaseConfig.apiKey && firebaseConfig.projectId) {
         app = initializeApp(firebaseConfig);
-        console.log("Firebase App Initialized successfully.");
+        console.log("Application Firebase initialisée avec succès.");
     } else {
-        console.error("Firebase App cannot be initialized due to missing configuration (apiKey or projectId).");
+        console.error("L'application Firebase ne peut pas être initialisée en raison d'une configuration manquante (apiKey ou projectId).");
         app = null;
     }
   } catch (error) {
-    console.error("Firebase initialization failed:", error);
+    console.error("L'initialisation de Firebase a échoué :", error);
     // Allow app to continue running, but Firebase services will be null
     app = null;
   }
 } else {
   app = getApp(); // Get the already initialized default app
-  // console.log("Firebase App already initialized."); // Less verbose logging
+  // console.log("Application Firebase déjà initialisée."); // Less verbose logging
 }
 
 
@@ -70,20 +70,20 @@ if (app) {
                 if (supported && firebaseConfig.measurementId) {
                     try {
                          analytics = getAnalytics(app!); // Use non-null assertion as app is checked
-                         console.log("Firebase Analytics Initialized.");
+                         console.log("Firebase Analytics initialisé.");
                     } catch (analyticsError) {
-                        console.warn("Firebase Analytics initialization failed:", analyticsError);
+                        console.warn("L'initialisation de Firebase Analytics a échoué :", analyticsError);
                         analytics = null;
                     }
 
                 } else if (!firebaseConfig.measurementId) {
-                     // console.log("Firebase Analytics disabled: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID not set."); // Less verbose
+                     // console.log("Firebase Analytics désactivé : NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID non défini."); // Less verbose
                 }
                  else {
-                    // console.log("Firebase Analytics is not supported in this environment."); // Less verbose
+                    // console.log("Firebase Analytics n'est pas pris en charge dans cet environnement."); // Less verbose
                 }
             }).catch(err => {
-                 console.error("Error checking Firebase Analytics support:", err);
+                 console.error("Erreur lors de la vérification de la prise en charge de Firebase Analytics :", err);
             });
         }
 
@@ -91,39 +91,39 @@ if (app) {
         // Connect to emulators if running in development mode
         // Check for a specific environment variable or hostname
         if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-            console.log("Attempting to connect to Firebase Emulators...");
+            console.log("Tentative de connexion aux émulateurs Firebase...");
              try {
                 // Note: Using localhost for emulators. Adjust if your emulators run elsewhere.
                 // Ensure they are not connected multiple times - connect functions handle this internally usually
-                 if (auth && !auth?._emulator?.options) {
+                 if (auth && !(auth as any)._emulator?.options) { // Heuristic check if already connected
                     connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
                  }
-                 if (db && !db?._databaseId) { // Heuristic check if already connected
+                 if (db && !(db as any)._databaseId) { // Heuristic check if already connected
                     connectFirestoreEmulator(db, 'localhost', 8080);
                  }
-                if (storage && !storage?._bucket?.domain) { // Heuristic check
+                if (storage && !(storage as any)._bucket?.domain) { // Heuristic check
                    connectStorageEmulator(storage, 'localhost', 9199);
                  }
-                 console.log("Attempting connection to Firebase Emulators (Auth:9099, Firestore:8080, Storage:9199). Check console for confirmations.");
+                 console.log("Tentative de connexion aux émulateurs Firebase (Auth:9099, Firestore:8080, Storage:9199). Vérifiez la console pour les confirmations.");
              } catch (emulatorError: any) {
                   // Firebase SDKs usually prevent multiple connections, but log unexpected errors
                   if (!emulatorError.message.includes('already connected') && !emulatorError.message.includes('Cannot connect') ) { // Be more specific if needed
-                     console.warn("Emulator connection error:", emulatorError.message);
+                     console.warn("Erreur de connexion à l'émulateur :", emulatorError.message);
                   } else {
-                     // console.log("Emulators likely already connected or connection attempt ongoing.");
+                     // console.log("Émulateurs probablement déjà connectés ou tentative de connexion en cours.");
                   }
              }
         }
 
     } catch (serviceError) {
-        console.error("Failed to initialize Firebase services (Auth, Firestore, Storage):", serviceError);
+        console.error("Échec de l'initialisation des services Firebase (Auth, Firestore, Storage) :", serviceError);
          auth = null;
          db = null;
          storage = null;
          analytics = null;
     }
 } else {
-     console.error("Firebase App failed to initialize. Firebase services (Auth, Firestore, Storage, Analytics) will not be available.");
+     console.error("L'application Firebase n'a pas pu être initialisée. Les services Firebase (Auth, Firestore, Storage, Analytics) ne seront pas disponibles.");
 }
 
 
