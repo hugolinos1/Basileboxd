@@ -17,12 +17,13 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Clock } from 'lucide-react';
+import { Slider } from '@/components/ui/slider'; // Added Slider import
+import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Clock, MessageSquare } from 'lucide-react'; // Added Star, MessageSquare imports
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
-import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { useRouter } from 'next/navigation';
@@ -36,7 +37,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'; // Added Avatar
 import { Video, Music, File } from 'lucide-react'; // Import the icons
 
 
-// Schema Definition remains similar, add coverPhoto
+// Schema Definition remains similar, add coverPhoto, initialRating, initialComment
 const MAX_FILE_SIZE = {
   image: 1 * 1024 * 1024, // 1MB
   video: 10 * 1024 * 1024, // 10MB
@@ -52,7 +53,7 @@ const coverPhotoSchema = fileSchema.refine(
 ).refine(
     (file) => file.size <= MAX_FILE_SIZE.image,
      `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
-);
+).optional(); // Make cover photo optional
 
 
 const formSchema = z.object({
@@ -62,7 +63,9 @@ const formSchema = z.object({
   location: z.string().max(150).optional(), // Keep location optional for now
   participants: z.array(z.string().email()).optional(), // Array of emails for participants
   media: z.array(fileSchema).optional(), // Array of files for general media
-  coverPhoto: coverPhotoSchema.optional(), // Optional single cover photo
+  coverPhoto: coverPhotoSchema, // Optional single cover photo
+  initialRating: z.number().min(1, { message: "La note doit être d'au moins 1." }).max(5, { message: "La note ne peut pas dépasser 5." }).optional(),
+  initialComment: z.string().max(500, { message: "Le commentaire ne peut pas dépasser 500 caractères." }).optional(),
 });
 
 type EventFormValues = z.infer<typeof formSchema>;
@@ -83,6 +86,7 @@ export default function CreateEventPage() {
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
   const [coverPhotoPreview, setCoverPhotoPreview] = useState<string | null>(null);
+  const [currentRating, setCurrentRating] = useState<number>(0); // State to display rating
 
   // --- Mock Participants Data ---
   const [mockParticipants, setMockParticipants] = useState([
@@ -109,6 +113,8 @@ export default function CreateEventPage() {
       participants: [],
       media: [],
       coverPhoto: undefined,
+      initialRating: undefined,
+      initialComment: '',
     },
   });
 
@@ -117,6 +123,12 @@ export default function CreateEventPage() {
     const watchedDate = form.watch('date');
     const watchedLocation = form.watch('location');
     const watchedDescription = form.watch('description');
+    const watchedRating = form.watch('initialRating'); // Watch the rating
+
+    useEffect(() => {
+        setCurrentRating(watchedRating || 0);
+    }, [watchedRating]);
+
 
    // Media File Handling
    const handleMediaFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,11 +157,25 @@ export default function CreateEventPage() {
     const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
-             form.setValue('coverPhoto', file, { shouldValidate: true });
-             if (coverPhotoPreview) {
-                 URL.revokeObjectURL(coverPhotoPreview); // Clean up previous preview
+             // Validate the file against the schema before setting value and preview
+             const validationResult = coverPhotoSchema.safeParse(file);
+             if (validationResult.success) {
+                 form.setValue('coverPhoto', file, { shouldValidate: true });
+                 if (coverPhotoPreview) {
+                     URL.revokeObjectURL(coverPhotoPreview); // Clean up previous preview
+                 }
+                 setCoverPhotoPreview(URL.createObjectURL(file));
+             } else {
+                 // Show validation error
+                 form.setError('coverPhoto', { type: 'manual', message: validationResult.error.errors[0]?.message });
+                 // Optionally clear the input and preview
+                  form.setValue('coverPhoto', undefined, { shouldValidate: true });
+                  if (coverPhotoPreview) {
+                    URL.revokeObjectURL(coverPhotoPreview);
+                  }
+                  setCoverPhotoPreview(null);
+                  (event.target as HTMLInputElement).value = ''; // Clear file input
              }
-             setCoverPhotoPreview(URL.createObjectURL(file));
         } else {
             form.setValue('coverPhoto', undefined, { shouldValidate: true });
             if (coverPhotoPreview) {
@@ -193,7 +219,7 @@ export default function CreateEventPage() {
                  maxSize = MAX_FILE_SIZE.audio;
             } else if (!isCover) { // Don't reject if it's just not an image/video/audio for general media
                  console.warn(`Type de fichier non supporté pour la compression : ${file.type}`);
-                 maxSize = Infinity; // Allow other types without size check for now
+                 maxSize = 50 * 1024 * 1024; // Allow other types up to 50MB for now
             }
              else { // Reject unsupported cover photo types
                  reject(new Error('Type de fichier non supporté pour la photo de couverture'));
@@ -267,7 +293,7 @@ export default function CreateEventPage() {
 
     try {
         // 1. Create party document without media/cover URLs first
-         const partyData = {
+         const partyData: any = { // Use 'any' temporarily or define a proper type
             name: values.name,
             description: values.description || '',
             date: values.date,
@@ -278,13 +304,40 @@ export default function CreateEventPage() {
             participantEmails: [user.email], // Store emails for easier lookup initially
             mediaUrls: [], // Initialize as empty
             coverPhotoUrl: '', // Initialize as empty
-            ratings: {},
-            comments: [],
+            ratings: {}, // Initialize empty
+            comments: [], // Initialize empty
             createdAt: serverTimestamp(),
          };
 
+          // Add initial rating if provided
+          if (values.initialRating !== undefined) {
+                partyData.ratings[user.uid] = values.initialRating;
+          }
+
+          // Add initial comment if provided
+          let initialCommentData: any = null;
+            if (values.initialComment && values.initialComment.trim()) {
+                initialCommentData = {
+                    userId: user.uid,
+                    email: user.email || 'Anonyme',
+                    avatar: user.photoURL || undefined,
+                    text: values.initialComment.trim(),
+                    timestamp: serverTimestamp() // Use server timestamp here
+                };
+                // We will add this with arrayUnion after doc creation
+            }
+
+
          const partyDocRef = await addDoc(collection(db, 'parties'), partyData);
          const partyId = partyDocRef.id;
+
+          // Add initial comment if it exists
+          if (initialCommentData) {
+                await updateDoc(partyDocRef, {
+                    comments: arrayUnion(initialCommentData)
+                });
+          }
+
 
         // 2. Upload Cover Photo (if provided)
         let coverPhotoUrl = '';
@@ -360,7 +413,7 @@ export default function CreateEventPage() {
         <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-3 gap-8"> {/* 3-column layout on large screens */}
 
-                 {/* Column 1: Basic Info & Cover Photo */}
+                 {/* Column 1: Basic Info, Cover Photo, Participants */}
                  <div className="lg:col-span-2 space-y-8"> {/* Spans 2 columns */}
                       {/* --- Informations de base Card --- */}
                       <Card className="bg-card border border-border">
@@ -462,7 +515,7 @@ export default function CreateEventPage() {
                        {/* --- Photo de l'Event Card (Cover Photo) --- */}
                        <Card className="bg-card border border-border">
                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
-                               <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">2</div> {/* Changed number to 2 */}
+                               <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">2</div>
                                <CardTitle className="text-lg font-semibold">Photo de l'Événement</CardTitle>
                            </CardHeader>
                            <CardContent className="flex flex-col md:flex-row items-center gap-6">
@@ -525,12 +578,10 @@ export default function CreateEventPage() {
                                                 {watchedName || "Nom de la soirée"}
                                             </CardTitle>
                                             <div className="flex items-center space-x-1 text-xs text-yellow-400 mb-1">
-                                                <Star className="h-3 w-3 fill-current" />
-                                                <Star className="h-3 w-3 fill-current" />
-                                                <Star className="h-3 w-3 fill-current" />
-                                                <Star className="h-3 w-3 fill-current" />
-                                                <Star className="h-3 w-3" />
-                                                <span className="text-muted-foreground ml-1">Nouvelle</span>
+                                               {Array.from({ length: 5 }).map((_, i) => (
+                                                  <Star key={i} className={`h-3 w-3 ${i < currentRating ? 'fill-current' : ''}`} />
+                                               ))}
+                                                <span className="text-muted-foreground ml-1">{currentRating > 0 ? `${currentRating}/5` : "Nouvelle"}</span>
                                             </div>
                                              <div className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
                                                  <CalendarIcon className="h-3 w-3" />
@@ -551,10 +602,10 @@ export default function CreateEventPage() {
                            </CardContent>
                        </Card>
 
-                       {/* --- Participants Card --- */}
-                       <Card className="bg-card border border-border">
+                        {/* --- Participants Card --- */}
+                        <Card className="bg-card border border-border">
                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
-                               <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</div> {/* Changed number to 3 */}
+                               <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</div>
                                <CardTitle className="text-lg font-semibold">Participants</CardTitle>
                            </CardHeader>
                            <CardContent className="space-y-4">
@@ -593,12 +644,12 @@ export default function CreateEventPage() {
 
                  </div>
 
-                 {/* Column 2: Import Souvenirs & Submit */}
+                 {/* Column 2: Import Souvenirs, Evaluation & Submit */}
                   <div className="lg:col-span-1 space-y-8">
                      {/* --- Importer Souvenirs Card --- */}
                         <Card className="bg-card border border-border">
                             <CardHeader className="flex flex-row items-center space-x-2 pb-4">
-                                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">4</div> {/* Changed number to 4 */}
+                                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">4</div>
                                 <CardTitle className="text-lg font-semibold">Importer des Souvenirs</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
@@ -673,6 +724,63 @@ export default function CreateEventPage() {
                                         </div>
                                     </div>
                                 )}
+                            </CardContent>
+                        </Card>
+
+                        {/* --- Evaluation Card --- */}
+                         <Card className="bg-card border border-border">
+                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
+                                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">5</div>
+                                <CardTitle className="text-lg font-semibold">Évaluation Initiale</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                {/* Rating Slider */}
+                                <FormField
+                                    control={form.control}
+                                    name="initialRating"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex items-center justify-between">
+                                                <span>Note (Optionnel)</span>
+                                                <span className="text-sm font-bold text-primary">{field.value || 0}/5</span>
+                                            </FormLabel>
+                                            <FormControl>
+                                                 <div className="flex items-center space-x-3">
+                                                      <Star className="h-5 w-5 text-muted-foreground"/>
+                                                       <Slider
+                                                           defaultValue={[0]}
+                                                           value={field.value !== undefined ? [field.value] : [0]}
+                                                           onValueChange={(value) => field.onChange(value[0] === 0 ? undefined : value[0])} // Set to undefined if 0
+                                                           max={5}
+                                                           step={1}
+                                                           className="flex-1"
+                                                        />
+                                                       <Star className="h-5 w-5 text-yellow-400 fill-current"/>
+                                                 </div>
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                {/* Comment Textarea */}
+                                <FormField
+                                    control={form.control}
+                                    name="initialComment"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Commentaire (Optionnel)</FormLabel>
+                                            <FormControl>
+                                                <Textarea
+                                                placeholder="Ajoutez un premier commentaire pour lancer la discussion..."
+                                                className="resize-none bg-input border-border focus:bg-background focus:border-primary"
+                                                rows={4}
+                                                {...field}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
                             </CardContent>
                         </Card>
 
