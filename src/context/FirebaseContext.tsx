@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from '@/config/firebase';
+import { auth } from '@/config/firebase'; // Import potentially null auth
 import { Skeleton } from '@/components/ui/skeleton'; // Assuming Skeleton component exists
 
 interface FirebaseContextProps {
@@ -21,14 +21,33 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
   const adminEmail = "hugues.rabier@gmail.com";
 
   useEffect(() => {
+    // Ensure auth is initialized before subscribing
+    if (!auth) {
+        console.error("Firebase Auth is not initialized. Cannot set up auth state listener.");
+        setLoading(false); // Stop loading, but indicate an error state might be needed
+        // Optionally: Set an error state here to inform the user
+        return;
+    }
+
+    console.log("Setting up Firebase Auth state listener...");
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+       console.log("Auth state changed:", currentUser?.email || 'No user');
       setUser(currentUser);
       setIsAdmin(currentUser?.email === adminEmail);
       setLoading(false);
+    }, (error) => {
+        // Handle errors during auth state observation
+        console.error("Error in onAuthStateChanged listener:", error);
+        setUser(null);
+        setIsAdmin(false);
+        setLoading(false);
     });
 
     // Cleanup subscription on unmount
-    return () => unsubscribe();
+    return () => {
+        console.log("Cleaning up Firebase Auth state listener.");
+        unsubscribe();
+    }
   }, [adminEmail]); // Rerun effect if adminEmail changes (though it's constant here)
 
   if (loading) {
