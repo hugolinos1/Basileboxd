@@ -360,7 +360,7 @@ export default function CreateEventPage() {
         <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-3 gap-8"> {/* 3-column layout on large screens */}
 
-                 {/* Column 1: Basic Info & Media */}
+                 {/* Column 1: Basic Info & Cover Photo */}
                  <div className="lg:col-span-2 space-y-8"> {/* Spans 2 columns */}
                       {/* --- Informations de base Card --- */}
                       <Card className="bg-card border border-border">
@@ -456,85 +456,13 @@ export default function CreateEventPage() {
                                         )}
                                         />
                                 </div>
-                                {/* Media Upload Button - Styled as per image */}
-                                 <FormField
-                                    control={form.control}
-                                    name="media"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                        {/* Hidden actual input */}
-                                        <FormControl>
-                                             <Input
-                                                id="media-upload-input"
-                                                type="file"
-                                                multiple
-                                                accept={ACCEPTED_MEDIA_TYPES.join(',')}
-                                                onChange={handleMediaFileChange}
-                                                className="sr-only" // Hide the default input
-                                            />
-                                        </FormControl>
-                                        {/* Custom styled button */}
-                                        <Button type="button" variant="outline" className="w-full sm:w-auto bg-secondary hover:bg-accent border-border" onClick={() => document.getElementById('media-upload-input')?.click()}>
-                                            <Upload className="mr-2 h-4 w-4" />
-                                            Importer Souvenirs
-                                        </Button>
-                                         <FormDescription>
-                                            Photos, Vidéos, Sons (Max {MAX_FILE_SIZE.image/1024/1024}Mo/Image, {MAX_FILE_SIZE.video/1024/1024}Mo/Vidéo).
-                                        </FormDescription>
-                                        <FormMessage />
-                                        </FormItem>
-                                    )}
-                                    />
-                                {/* Media Previews & Progress */}
-                                {(form.watch('media') || []).length > 0 && (
-                                    <div className="space-y-4">
-                                        <h4 className="text-sm font-medium text-foreground">Souvenirs ajoutés :</h4>
-                                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
-                                            {(form.watch('media') || []).map((file, index) => (
-                                                <div key={index} className="relative group border rounded-md p-2 bg-secondary space-y-1">
-                                                    {mediaPreviews[index] && file.type.startsWith('image/') ? (
-                                                        <Image src={mediaPreviews[index]} alt={`Aperçu ${file.name}`} width={80} height={80} className="rounded-md object-cover mx-auto h-16 w-16" />
-                                                    ) : (
-                                                        <div className="h-16 w-16 flex items-center justify-center bg-muted rounded-md mx-auto text-muted-foreground text-2xl">
-                                                            {/* Simple icons based on type */}
-                                                            {file.type.startsWith('video/') && <Video className="h-8 w-8" />}
-                                                            {file.type.startsWith('audio/') && <Music className="h-8 w-8" />}
-                                                            {!file.type.startsWith('image/') && !file.type.startsWith('video/') && !file.type.startsWith('audio/') && <File className="h-8 w-8" />}
-                                                        </div>
-                                                    )}
-                                                    <p className="text-xs text-muted-foreground truncate text-center">{file.name}</p>
-                                                    {uploadProgress[file.name] !== undefined && uploadProgress[file.name] >= 0 && uploadProgress[file.name] < 100 && (
-                                                        <Progress value={uploadProgress[file.name]} className="h-1 w-full" />
-                                                    )}
-                                                    {uploadProgress[file.name] === 100 && (
-                                                        <p className="text-xs text-green-500 text-center">Téléversé</p>
-                                                    )}
-                                                    {uploadProgress[file.name] === -1 && (
-                                                        <p className="text-xs text-destructive text-center">Échec</p>
-                                                    )}
-                                                    <Button
-                                                        type="button"
-                                                        variant="destructive"
-                                                        size="icon"
-                                                        className="absolute -top-2 -right-2 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity rounded-full z-10"
-                                                        onClick={() => removeMediaFile(index)}
-                                                    >
-                                                        <X className="h-3 w-3" />
-                                                        <span className="sr-only">Retirer {file.name}</span>
-                                                    </Button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
                           </CardContent>
                       </Card>
 
-                      {/* --- Souvenirs de l'Event Card (Cover Photo) --- */}
+                       {/* --- Photo de l'Event Card (Cover Photo) --- */}
                        <Card className="bg-card border border-border">
                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
-                               <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</div>
+                               <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">2</div> {/* Changed number to 2 */}
                                <CardTitle className="text-lg font-semibold">Photo de l'Événement</CardTitle>
                            </CardHeader>
                            <CardContent className="flex flex-col md:flex-row items-center gap-6">
@@ -622,13 +550,96 @@ export default function CreateEventPage() {
                                </div>
                            </CardContent>
                        </Card>
+
+                       {/* --- Importer Souvenirs Card --- */}
+                        <Card className="bg-card border border-border">
+                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
+                                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">4</div> {/* Changed number to 4 */}
+                                <CardTitle className="text-lg font-semibold">Importer des Souvenirs</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                 {/* Media Upload Button - Styled as per image */}
+                                 <FormField
+                                    control={form.control}
+                                    name="media"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                        {/* Hidden actual input */}
+                                        <FormControl>
+                                             <Input
+                                                id="media-upload-input"
+                                                type="file"
+                                                multiple
+                                                accept={ACCEPTED_MEDIA_TYPES.join(',')}
+                                                onChange={handleMediaFileChange}
+                                                className="sr-only" // Hide the default input
+                                            />
+                                        </FormControl>
+                                        {/* Custom styled button */}
+                                        <Button type="button" variant="outline" className="w-full sm:w-auto bg-secondary hover:bg-accent border-border" onClick={() => document.getElementById('media-upload-input')?.click()}>
+                                            <Upload className="mr-2 h-4 w-4" />
+                                            Importer Souvenirs (Photos, Vidéos, Sons)
+                                        </Button>
+                                         <FormDescription>
+                                            Max {MAX_FILE_SIZE.image/1024/1024}Mo/Image, {MAX_FILE_SIZE.video/1024/1024}Mo/Vidéo, {MAX_FILE_SIZE.audio/1024/1024}Mo/Son.
+                                        </FormDescription>
+                                        <FormMessage />
+                                        </FormItem>
+                                    )}
+                                    />
+                                {/* Media Previews & Progress */}
+                                {(form.watch('media') || []).length > 0 && (
+                                    <div className="space-y-4">
+                                        <h4 className="text-sm font-medium text-foreground">Souvenirs ajoutés :</h4>
+                                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
+                                            {(form.watch('media') || []).map((file, index) => (
+                                                <div key={index} className="relative group border rounded-md p-2 bg-secondary space-y-1">
+                                                    {mediaPreviews[index] && file.type.startsWith('image/') ? (
+                                                        <Image src={mediaPreviews[index]} alt={`Aperçu ${file.name}`} width={80} height={80} className="rounded-md object-cover mx-auto h-16 w-16" />
+                                                    ) : (
+                                                        <div className="h-16 w-16 flex items-center justify-center bg-muted rounded-md mx-auto text-muted-foreground text-2xl">
+                                                            {/* Simple icons based on type */}
+                                                            {file.type.startsWith('video/') && <Video className="h-8 w-8" />}
+                                                            {file.type.startsWith('audio/') && <Music className="h-8 w-8" />}
+                                                            {!file.type.startsWith('image/') && !file.type.startsWith('video/') && !file.type.startsWith('audio/') && <File className="h-8 w-8" />}
+                                                        </div>
+                                                    )}
+                                                    <p className="text-xs text-muted-foreground truncate text-center">{file.name}</p>
+                                                    {uploadProgress[file.name] !== undefined && uploadProgress[file.name] >= 0 && uploadProgress[file.name] < 100 && (
+                                                        <Progress value={uploadProgress[file.name]} className="h-1 w-full" />
+                                                    )}
+                                                    {uploadProgress[file.name] === 100 && (
+                                                        <p className="text-xs text-green-500 text-center">Téléversé</p>
+                                                    )}
+                                                    {uploadProgress[file.name] === -1 && (
+                                                        <p className="text-xs text-destructive text-center">Échec</p>
+                                                    )}
+                                                    <Button
+                                                        type="button"
+                                                        variant="destructive"
+                                                        size="icon"
+                                                        className="absolute -top-2 -right-2 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity rounded-full z-10"
+                                                        onClick={() => removeMediaFile(index)}
+                                                    >
+                                                        <X className="h-3 w-3" />
+                                                        <span className="sr-only">Retirer {file.name}</span>
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
                  </div>
 
-                 {/* Column 2: Participants */}
+                 {/* Column 2: Participants & Submit */}
                   <div className="lg:col-span-1 space-y-8">
+                      {/* --- Participants Card --- */}
                       <Card className="bg-card border border-border">
                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
-                               <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">2</div>
+                               <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</div> {/* Changed number to 3 */}
                                <CardTitle className="text-lg font-semibold">Participants</CardTitle>
                            </CardHeader>
                            <CardContent className="space-y-4">
@@ -686,3 +697,5 @@ export default function CreateEventPage() {
     </div>
   );
 }
+
+    
