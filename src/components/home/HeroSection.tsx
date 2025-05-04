@@ -27,7 +27,7 @@ export function HeroSection() {
             {/* <span className="top10-badge mb-4">Top 1 Fête</span> */}
 
             <h1 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-primary mb-4 shadow-lg">
-              LaliseBoxd
+              BaliseBoxd
             </h1>
             <p className="text-base md:text-lg text-gray-200 mb-6 shadow-md">
               Revivez, notez, documentez et partagez les meilleurs Events de Balise Boli.
