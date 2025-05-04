@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 const Slider = React.forwardRef<
   React.ElementRef<typeof SliderPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root>
->(({ className, ...props }, ref) => {
+>(({ className, step = 1, ...props }, ref) => { // Default step to 1, allow overriding
     // Ensure value is always an array, even if defaultValue is used.
     // Radix Slider expects `value` prop to be an array for controlled component behavior.
     // For uncontrolled with defaultValue, we can let Radix handle it internally,
@@ -23,11 +23,12 @@ const Slider = React.forwardRef<
             "relative flex w-full touch-none select-none items-center",
             className
             )}
+             step={step} // Pass the step prop
              // Pass value or defaultValue, but not both to the Root element directly
              // Radix manages the internal state based on which prop is provided.
              {...(value !== undefined ? { value } : {})}
              {...(defaultValue !== undefined ? { defaultValue } : {})}
-            {...props} // Pass remaining props like onValueChange, max, step, etc.
+            {...props} // Pass remaining props like onValueChange, max, etc.
         >
             <SliderPrimitive.Track className="relative h-2 w-full grow overflow-hidden rounded-full bg-secondary">
             <SliderPrimitive.Range className="absolute h-full bg-primary" />

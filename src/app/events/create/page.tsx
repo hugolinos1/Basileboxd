@@ -64,7 +64,7 @@ const formSchema = z.object({
   participants: z.array(z.string().email()).optional(), // Array of emails for participants
   media: z.array(fileSchema).optional(), // Array of files for general media
   coverPhoto: coverPhotoSchema, // Optional single cover photo
-  initialRating: z.number().min(1, { message: "La note doit être d'au moins 1." }).max(5, { message: "La note ne peut pas dépasser 5." }).optional(),
+  initialRating: z.number().min(0.5, { message: "La note doit être d'au moins 0.5." }).max(5, { message: "La note ne peut pas dépasser 5." }).optional(), // Allow 0.5 increments
   initialComment: z.string().max(500, { message: "Le commentaire ne peut pas dépasser 500 caractères." }).optional(),
 });
 
@@ -579,9 +579,9 @@ export default function CreateEventPage() {
                                             </CardTitle>
                                             <div className="flex items-center space-x-1 text-xs text-yellow-400 mb-1">
                                                {Array.from({ length: 5 }).map((_, i) => (
-                                                  <Star key={i} className={`h-3 w-3 ${i < currentRating ? 'fill-current' : ''}`} />
+                                                  <Star key={i} className={`h-3 w-3 ${i < currentRating ? 'fill-current' : ''} ${ i + 0.5 === currentRating ? 'half-star' : '' }`} />
                                                ))}
-                                                <span className="text-muted-foreground ml-1">{currentRating > 0 ? `${currentRating}/5` : "Nouvelle"}</span>
+                                                <span className="text-muted-foreground ml-1">{currentRating > 0 ? `${currentRating.toFixed(1)}/5` : "Nouvelle"}</span>
                                             </div>
                                              <div className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
                                                  <CalendarIcon className="h-3 w-3" />
@@ -742,7 +742,7 @@ export default function CreateEventPage() {
                                         <FormItem>
                                             <FormLabel className="flex items-center justify-between">
                                                 <span>Note (Optionnel)</span>
-                                                <span className="text-sm font-bold text-primary">{field.value || 0}/5</span>
+                                                <span className="text-sm font-bold text-primary">{field.value?.toFixed(1) || '0.0'}/5</span> {/* Display with one decimal */}
                                             </FormLabel>
                                             <FormControl>
                                                  <div className="flex items-center space-x-3">
@@ -752,7 +752,7 @@ export default function CreateEventPage() {
                                                            value={field.value !== undefined ? [field.value] : [0]}
                                                            onValueChange={(value) => field.onChange(value[0] === 0 ? undefined : value[0])} // Set to undefined if 0
                                                            max={5}
-                                                           step={1}
+                                                           step={0.5} // Set step to 0.5
                                                            className="flex-1"
                                                         />
                                                        <Star className="h-5 w-5 text-yellow-400 fill-current"/>
