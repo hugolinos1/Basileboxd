@@ -3,6 +3,7 @@ import { initializeApp, getApps, getApp, FirebaseOptions } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
+import { getAnalytics, isSupported } from "firebase/analytics";
 
 const firebaseConfig: FirebaseOptions = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -11,22 +12,21 @@ const firebaseConfig: FirebaseOptions = {
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID, // Optional
 };
 
-// Validate essential config FIRST
+// Basic validation (Next.js build will also fail if NEXT_PUBLIC vars are missing)
 if (!firebaseConfig.apiKey) {
-    console.error("MISSING FIREBASE API KEY: The NEXT_PUBLIC_FIREBASE_API_KEY environment variable is not set.");
-    // Throw a detailed error to guide the user.
-    throw new Error("Firebase API key is missing. Please check your environment variables (ensure NEXT_PUBLIC_FIREBASE_API_KEY is set in .env.local) and restart the Next.js development server (npm run dev). If deploying, ensure this variable is set in your deployment environment.");
+    console.error("Firebase API key is missing. Check NEXT_PUBLIC_FIREBASE_API_KEY in .env.local and restart the server.");
+    // Avoid throwing hard error here to prevent crashing the build/app entirely if env vars load slightly late,
+    // but be aware Firebase services will fail.
 }
 if (!firebaseConfig.projectId) {
-    // Warn but don't throw, as some functionalities might still work initially.
-    console.warn("Firebase Project ID (NEXT_PUBLIC_FIREBASE_PROJECT_ID) is missing. Some features might not work correctly. Check .env.local and restart the server if needed.");
+    console.warn("Firebase Project ID (NEXT_PUBLIC_FIREBASE_PROJECT_ID) is missing. Check .env.local.");
 }
 
 
-// Initialize Firebase App
-// Make sure this runs only once
+// Initialize Firebase App - Ensure this runs only once
 let app;
 if (!getApps().length) {
   try {
@@ -34,13 +34,10 @@ if (!getApps().length) {
      console.log("Firebase App Initialized successfully.");
   } catch (error) {
     console.error("Firebase initialization failed:", error);
-    // Prevent further errors by providing dummy objects or re-throwing
-    // Depending on how critical Firebase is, you might want to handle this differently
     throw new Error(`Firebase App initialization failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 } else {
   app = getApp(); // Get the already initialized app
-  // console.log("Using existing Firebase App instance."); // Optional: useful for debugging
 }
 
 
@@ -48,44 +45,57 @@ if (!getApps().length) {
 let auth: ReturnType<typeof getAuth> | null = null;
 let db: ReturnType<typeof getFirestore> | null = null;
 let storage: ReturnType<typeof getStorage> | null = null;
+let analytics: ReturnType<typeof getAnalytics> | null = null;
+
 
 try {
     auth = getAuth(app);
     db = getFirestore(app);
     storage = getStorage(app);
-    // console.log("Firebase Auth, Firestore, and Storage services obtained."); // Optional debug log
+
+    // Initialize Analytics only on the client-side if supported
+    if (typeof window !== 'undefined') {
+        isSupported().then((supported) => {
+            if (supported) {
+                analytics = getAnalytics(app);
+                console.log("Firebase Analytics Initialized.");
+            } else {
+                console.log("Firebase Analytics is not supported in this environment.");
+            }
+        });
+    }
+
 
     // Connect to emulators if running in development mode
     // Check for a specific environment variable or hostname
     if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
         console.log("Attempting to connect to Firebase Emulators...");
-         // Ensure emulators are not connected multiple times
          try {
-             // Note: Using localhost for emulators. Adjust if your emulators run elsewhere.
+            // Note: Using localhost for emulators. Adjust if your emulators run elsewhere.
+            // Ensure they are not connected multiple times - connect functions handle this internally usually
             connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
             connectFirestoreEmulator(db, 'localhost', 8080);
             connectStorageEmulator(storage, 'localhost', 9199);
-             console.log("Successfully connected to Firebase Emulators (or already connected).");
+             console.log("Attempting connection to Firebase Emulators (Auth:9099, Firestore:8080, Storage:9199).");
          } catch (emulatorError: any) {
-              // Ignore 'already connected' errors, log others
-              if (!emulatorError.message.includes('already connected')) {
+              // Firebase SDKs usually prevent multiple connections, but log unexpected errors
+              if (!emulatorError.message.includes('already connected') && !emulatorError.message.includes('Cannot connect') ) { // Be more specific if needed
                  console.warn("Emulator connection error:", emulatorError.message);
               } else {
-                 // console.log("Emulators already connected."); // Can be noisy
+                 // console.log("Emulators likely already connected or connection attempt ongoing.");
               }
          }
     }
 
 } catch (error) {
     console.error("Failed to initialize Firebase services (Auth, Firestore, Storage):", error);
-     // Handle cases where services fail to initialize (e.g., due to config issues caught after app init)
-     auth = null; // Nullify to prevent usage
+     auth = null;
      db = null;
      storage = null;
-      throw new Error(`Failed to initialize Firebase services: ${error instanceof Error ? error.message : String(error)}`);
+     analytics = null;
+     // Decide if throwing is appropriate or if the app can run without Firebase
+     // throw new Error(`Failed to initialize Firebase services: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 
-// Export potentially null services if initialization failed and needs graceful handling elsewhere
-// Or ensure they are always valid instances if throwing errors is preferred
-export { app, auth, db, storage };
+export { app, auth, db, storage, analytics };
