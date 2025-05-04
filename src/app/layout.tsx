@@ -22,7 +22,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className="dark"> {/* Changed lang to fr */}
+    <html lang="fr" className="dark">
       <body className={`${montserrat.variable} antialiased bg-background text-foreground font-sans`}>
         <FirebaseProvider>
           <div className="flex flex-col min-h-screen">
