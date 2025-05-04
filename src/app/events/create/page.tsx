@@ -578,16 +578,13 @@ export default function CreateEventPage() {
                                       <Button type="button" variant="outline" className="flex-1 bg-secondary hover:bg-accent border-border" disabled> {/* Disabled for now */}
                                           <UserPlus className="mr-2 h-4 w-4"/> Ajouter
                                       </Button>
-                                      <Button type="button" variant="outline" className="flex-1 bg-secondary hover:bg-accent border-border" disabled> {/* Disabled for now */}
-                                           <Upload className="mr-2 h-4 w-4"/> Importer
-                                      </Button>
                                 </div>
                                 <FormField
                                     control={form.control}
                                     name="participants"
                                     render={() => (
                                          <FormDescription>
-                                            Recherchez ou importez des participants (Fonctionnalité en développement).
+                                            Recherchez des participants pour les ajouter (Fonctionnalité en développement).
                                         </FormDescription>
                                     )}
                                  />
