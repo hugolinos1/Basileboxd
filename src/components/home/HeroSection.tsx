@@ -1,20 +1,21 @@
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
-import { Play, Info } from 'lucide-react';
+import { Info, PlusCircle } from 'lucide-react'; // Changed Play to PlusCircle
+import Link from 'next/link'; // Import Link
 
 export function HeroSection() {
   return (
     <div className="relative h-96 md:h-[500px] lg:h-[600px] w-full">
       {/* Background Image */}
       <Image
-        src="https://picsum.photos/seed/balise-group-night/1600/900" // Placeholder representing the user's image
-        alt="Groupe de jeunes hommes posant la nuit devant une ville illuminée et une rivière" // Updated alt text for the user's image
+        src="https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?q=80&w=1600&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D" // Updated image URL
+        alt="Groupe de jeunes s'amusant à une fête ou un concert" // Updated alt text for better description
         layout="fill"
         objectFit="cover"
         quality={85}
         priority // Load the hero image eagerly
         className="absolute inset-0 z-0"
-        data-ai-hint="groupe jeunes hommes nuit ville rivière" // Updated AI hint for the user's image
+        data-ai-hint="fête jeunes concert foule" // Updated AI hint
       />
 
       {/* Gradient Overlay */}
@@ -33,10 +34,12 @@ export function HeroSection() {
               Revivez, notez, documentez et partagez les meilleurs Events de Balise Boli.
             </p>
             <div className="flex space-x-3">
-              <Button variant="default" size="lg" className="bg-white text-black hover:bg-gray-200">
-                <Play className="mr-2 h-5 w-5 fill-black" />
-                Explorer Maintenant
-              </Button>
+              <Link href="/events/create" passHref>
+                <Button variant="default" size="lg" className="bg-white text-black hover:bg-gray-200">
+                  <PlusCircle className="mr-2 h-5 w-5 fill-black" /> {/* Changed icon */}
+                  Créer un Event {/* Updated text */}
+                </Button>
+              </Link>
               <Button variant="secondary" size="lg" className="bg-gray-600 bg-opacity-70 text-white hover:bg-gray-500 hover:bg-opacity-70">
                 <Info className="mr-2 h-5 w-5" />
                 Plus d'infos
