@@ -17,8 +17,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Slider } from '@/components/ui/slider'; // Added Slider import
-import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Clock, MessageSquare } from 'lucide-react'; // Added Star, MessageSquare imports
+import { Slider } from '@/components/ui/slider';
+import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Clock, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -33,8 +33,8 @@ import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'; // Added Avatar components
-import { Video, Music, File } from 'lucide-react'; // Import the icons
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Video, Music, File } from 'lucide-react';
 
 
 // Schema Definition remains similar, add coverPhoto, initialRating, initialComment
@@ -78,6 +78,18 @@ const getFileType = (file: File): 'image' | 'video' | 'audio' | 'other' => {
   return 'other';
 };
 
+// Couleurs Tailwind pour les avatars des participants
+const participantColors = [
+  'bg-red-600',
+  'bg-blue-600',
+  'bg-green-600',
+  'bg-yellow-600',
+  'bg-purple-600',
+  'bg-pink-600',
+  'bg-indigo-600',
+  'bg-teal-600',
+];
+
 export default function CreateEventPage() {
   const { user } = useFirebase();
   const router = useRouter();
@@ -93,6 +105,8 @@ export default function CreateEventPage() {
     { id: '1', name: 'Thomas', status: 'En attente', initials: 'T' },
     { id: '2', name: 'Sophie', status: 'En attente', initials: 'S' },
     { id: '3', name: 'Marc', status: 'En attente', initials: 'M' },
+    { id: '4', name: 'Julie', status: 'En attente', initials: 'J' },
+    { id: '5', name: 'Alex', status: 'En attente', initials: 'A' },
   ]);
    // ----------------------------
 
@@ -611,11 +625,11 @@ export default function CreateEventPage() {
                            <CardContent className="space-y-4">
                                 <p className="text-sm font-medium text-muted-foreground">Liste des participants</p>
                                 <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
-                                    {mockParticipants.map((p) => (
+                                     {mockParticipants.map((p, index) => (
                                         <div key={p.id} className="flex items-center justify-between">
                                             <div className="flex items-center space-x-3">
                                                 <Avatar className="h-8 w-8">
-                                                    <AvatarFallback className="bg-primary/80 text-primary-foreground text-xs">
+                                                    <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}>
                                                         {p.initials}
                                                     </AvatarFallback>
                                                 </Avatar>
