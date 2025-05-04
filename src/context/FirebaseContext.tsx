@@ -2,13 +2,17 @@
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from '@/config/firebase'; // Import potentially null auth
+import { auth, firebaseInitialized, firebaseInitializationError } from '@/config/firebase'; // Import potentially null auth and initialization status
 import { Skeleton } from '@/components/ui/skeleton'; // Assuming Skeleton component exists
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'; // Import Alert components
+import { AlertTriangle } from 'lucide-react'; // Import icon for error alert
 
 interface FirebaseContextProps {
   user: User | null;
   loading: boolean;
   isAdmin: boolean;
+  initializationFailed: boolean;
+  initializationErrorMessage: string | null;
 }
 
 const FirebaseContext = createContext<FirebaseContextProps | undefined>(undefined);
@@ -17,15 +21,24 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  // Directly use the imported initialization status
+  const initializationFailed = !firebaseInitialized;
+  const initializationErrorMessage = firebaseInitializationError;
 
   const adminEmail = "hugues.rabier@gmail.com";
 
   useEffect(() => {
-    // Ensure auth is initialized before subscribing
+    // If initialization already failed, don't attempt to set up listener
+    if (initializationFailed) {
+      console.error("Firebase n'a pas été initialisé, l'écouteur d'authentification ne sera pas configuré.");
+      setLoading(false);
+      return;
+    }
+
+    // Ensure auth is initialized before subscribing (double check, although firebaseInitialized should cover this)
     if (!auth) {
-        console.error("Firebase Auth non initialisé. Impossible de configurer l'écouteur d'état d'authentification.");
-        setLoading(false); // Stop loading, but indicate an error state might be needed
-        // Optionally: Set an error state here to inform the user
+        console.error("Firebase Auth non initialisé au moment de l'effet useEffect. L'écouteur ne sera pas configuré.");
+        setLoading(false); // Stop loading, state already reflects initialization failure
         return;
     }
 
@@ -48,16 +61,15 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
         console.log("Nettoyage de l'écouteur d'état Firebase Auth.");
         unsubscribe();
     }
-  }, [adminEmail]); // Rerun effect if adminEmail changes (though it's constant here)
+  }, [adminEmail, initializationFailed]); // Rerun effect if initialization status changes
 
-  if (loading) {
-    // Optional: Show a loading skeleton or spinner for the entire app
-    // Or return null/empty fragment if Navbar/Footer handle their own loading
+  // Show Skeleton while loading AND if initialization hasn't failed yet
+  if (loading && !initializationFailed) {
     return (
        <div className="flex flex-col min-h-screen">
          {/* Skeleton Navbar */}
          <div className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="container flex h-14 max-w-screen-2xl items-center justify-between">
+            <div className="container flex h-14 max-w-screen-2xl items-center justify-between px-4 md:px-6">
                  <Skeleton className="h-8 w-24" />
                  <div className="flex items-center space-x-4">
                     <Skeleton className="h-8 w-48 hidden md:block" />
@@ -75,7 +87,7 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
             </div>
          </main>
          {/* Skeleton Footer */}
-          <footer className="bg-card py-8 mt-auto border-t">
+          <footer className="bg-card py-8 mt-auto border-t border-border/40">
             <div className="container mx-auto px-4 grid grid-cols-2 md:grid-cols-4 gap-8 text-sm">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="space-y-3">
@@ -86,13 +98,34 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
                 </div>
               ))}
             </div>
+             <div className="text-center text-xs text-muted-foreground pt-8 border-t border-border/40">
+                 <Skeleton className="h-4 w-48 mx-auto" />
+             </div>
           </footer>
        </div>
     );
   }
 
+  // Show Error Alert if initialization failed
+  if (initializationFailed) {
+     return (
+       <div className="flex flex-col min-h-screen items-center justify-center p-4">
+         <Alert variant="destructive" className="max-w-md">
+           <AlertTriangle className="h-4 w-4" />
+           <AlertTitle>Erreur d'Initialisation Firebase</AlertTitle>
+           <AlertDescription>
+             L'application n'a pas pu se connecter à Firebase. Veuillez vérifier la configuration.
+             {initializationErrorMessage && <p className="mt-2 text-xs">Détail : {initializationErrorMessage}</p>}
+             <p className="mt-2 text-xs">Assurez-vous que les variables d'environnement (commençant par NEXT_PUBLIC_) sont correctement définies dans `.env.local` et que le serveur de développement a été redémarré (`npm run dev`).</p>
+           </AlertDescription>
+         </Alert>
+       </div>
+     );
+  }
+
+  // Render children if loading is complete and initialization was successful
   return (
-    <FirebaseContext.Provider value={{ user, loading, isAdmin }}>
+    <FirebaseContext.Provider value={{ user, loading, isAdmin, initializationFailed, initializationErrorMessage }}>
       {children}
     </FirebaseContext.Provider>
   );
