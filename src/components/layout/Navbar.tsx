@@ -1,10 +1,11 @@
+
 'use client';
 
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings } from 'lucide-react';
+import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users } from 'lucide-react'; // Added List and Users icons
 import { useFirebase } from '@/context/FirebaseContext';
 import { auth } from '@/config/firebase';
 import { signOut } from 'firebase/auth';
@@ -41,13 +42,26 @@ export function Navbar() {
   return (
     <nav className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 max-w-screen-2xl items-center justify-between px-4 md:px-6">
-        <Link href="/" className="mr-6 flex items-center space-x-2">
-          {/* Replace with actual SVG logo if available */}
-           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6 text-primary">
-             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
-           </svg>
-          <span className="font-bold text-primary">BaliseBoxd</span>
-        </Link>
+        <div className="flex items-center space-x-6"> {/* Container for Logo and Nav Links */}
+          <Link href="/" className="flex items-center space-x-2">
+            {/* Replace with actual SVG logo if available */}
+             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6 text-primary">
+               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+             </svg>
+            <span className="font-bold text-primary">BaliseBoxd</span>
+          </Link>
+
+           {/* Navigation Links */}
+           <div className="hidden md:flex items-center space-x-4">
+                <Link href="/parties" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                   <List className="mr-1 h-4 w-4" /> Events
+                </Link>
+                <Link href="/users" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                    <Users className="mr-1 h-4 w-4" /> Utilisateurs
+                </Link>
+           </div>
+        </div>
+
 
         <div className="flex flex-1 items-center justify-end space-x-4">
           {/* Search Bar - Simplified */}
@@ -65,7 +79,7 @@ export function Navbar() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={user.photoURL || undefined} alt={user.email || 'User'} />
+                    <AvatarImage src={user.photoURL || undefined} alt={user.email || 'Utilisateur'} />
                     <AvatarFallback className="bg-primary text-primary-foreground">
                       {getInitials(user.email)}
                     </AvatarFallback>
@@ -84,6 +98,18 @@ export function Navbar() {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                 {/* Mobile Nav Links */}
+                 <div className="md:hidden">
+                    <DropdownMenuItem onClick={() => router.push('/parties')}>
+                        <List className="mr-2 h-4 w-4" />
+                        <span>Events</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/users')}>
+                        <Users className="mr-2 h-4 w-4" />
+                        <span>Utilisateurs</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                 </div>
                 {isAdmin && (
                   <DropdownMenuItem onClick={() => router.push('/admin')}>
                     <LayoutDashboard className="mr-2 h-4 w-4" />
@@ -112,3 +138,4 @@ export function Navbar() {
     </nav>
   );
 }
+
