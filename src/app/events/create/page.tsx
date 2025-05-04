@@ -523,9 +523,7 @@ export default function CreateEventPage() {
                                                     mode="single"
                                                     selected={field.value}
                                                     onSelect={field.onChange}
-                                                    disabled={(date) =>
-                                                        date < new Date(new Date().setHours(0, 0, 0, 0)) // Can be adjusted if past events are allowed
-                                                    }
+                                                    // Removed disabled prop to allow past dates
                                                     initialFocus
                                                 />
                                                 </PopoverContent>
@@ -565,44 +563,46 @@ export default function CreateEventPage() {
                                         <FormItem className="flex-1">
                                             {/* Outer container for the visual dropzone area and preview */}
                                             <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
-                                                {coverPhotoPreview ? (
-                                                    <div className="relative w-full h-full">
-                                                        <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
-                                                        <Button
-                                                            type="button"
-                                                            variant="destructive"
-                                                            size="icon"
-                                                            className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10"
-                                                            onClick={removeCoverPhoto}
-                                                        >
-                                                            <X className="h-4 w-4" />
-                                                            <span className="sr-only">Retirer photo</span>
-                                                        </Button>
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex flex-col items-center justify-center text-center h-full">
-                                                        <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
-                                                        <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo pour personnaliser votre soirée.</p>
-                                                        <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}>
-                                                            <Upload className="mr-2 h-4 w-4" />
-                                                            Ajouter une photo
-                                                        </Button>
-                                                    </div>
-                                                )}
-                                                 {/* Hidden actual input - controlled by React Hook Form */}
                                                 <FormControl>
-                                                    <Input
-                                                        id="cover-photo-input"
-                                                        type="file"
-                                                        accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
-                                                        onChange={handleCoverPhotoChange}
-                                                        className="sr-only"
-                                                        ref={field.ref}
-                                                        onBlur={field.onBlur}
-                                                        name={field.name}
-                                                        disabled={field.disabled}
-                                                        // Remove value and onChange from here, RHF handles it
-                                                    />
+                                                   <>
+                                                     {coverPhotoPreview ? (
+                                                         <div className="relative w-full h-full">
+                                                             <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
+                                                             <Button
+                                                                 type="button"
+                                                                 variant="destructive"
+                                                                 size="icon"
+                                                                 className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10"
+                                                                 onClick={removeCoverPhoto}
+                                                             >
+                                                                 <X className="h-4 w-4" />
+                                                                 <span className="sr-only">Retirer photo</span>
+                                                             </Button>
+                                                         </div>
+                                                     ) : (
+                                                         <div className="flex flex-col items-center justify-center text-center h-full">
+                                                             <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
+                                                             <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo pour personnaliser votre soirée.</p>
+                                                             <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}>
+                                                                 <Upload className="mr-2 h-4 w-4" />
+                                                                 Ajouter une photo
+                                                             </Button>
+                                                         </div>
+                                                     )}
+                                                      {/* Hidden actual input - controlled by React Hook Form */}
+                                                     <Input
+                                                         id="cover-photo-input"
+                                                         type="file"
+                                                         accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                                         onChange={handleCoverPhotoChange}
+                                                         className="sr-only"
+                                                         ref={field.ref}
+                                                         onBlur={field.onBlur}
+                                                         name={field.name}
+                                                         disabled={field.disabled}
+                                                         // Remove value and onChange from here, RHF handles it
+                                                     />
+                                                   </>
                                                 </FormControl>
                                                 <FormMessage className="absolute bottom-2 left-2 right-2 text-xs"/>
                                             </div>
@@ -858,3 +858,5 @@ export default function CreateEventPage() {
     </div>
   );
 }
+
+    
