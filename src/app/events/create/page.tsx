@@ -19,7 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Slider } from '@/components/ui/slider';
-import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Clock, MessageSquare } from 'lucide-react';
+import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Clock } from 'lucide-react'; // Removed MessageSquare import
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -51,10 +51,18 @@ const ACCEPTED_COVER_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const fileSchema = z.instanceof(typeof window !== 'undefined' ? File : Object, { message: 'Veuillez télécharger un fichier' });
 
 const coverPhotoSchema = fileSchema.refine(
-    (file) => file instanceof File && ACCEPTED_COVER_PHOTO_TYPES.includes(file.type),
+    (file) => {
+        // Check if in browser environment AND if it's a File instance before accessing file properties
+        const isFile = typeof window !== 'undefined' && file instanceof File;
+        // Ensure file properties are accessed only if it's a valid File object
+        return isFile ? ACCEPTED_COVER_PHOTO_TYPES.includes(file.type) : false;
+    },
     "Type de photo non supporté."
 ).refine(
-    (file) => file instanceof File && file.size <= MAX_FILE_SIZE.image,
+    (file) => {
+        const isFile = typeof window !== 'undefined' && file instanceof File;
+        return isFile ? file.size <= MAX_FILE_SIZE.image : false;
+    },
      `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
 ).optional(); // Make cover photo optional
 
@@ -259,8 +267,9 @@ export default function CreateEventPage() {
             // Compress images
             if (fileType === 'image') {
                 try {
-                    const compressedBlob = await compressMedia(file, { maxSizeMB: targetSizeMB });
-                    fileToUpload = compressedBlob.blob instanceof File ? compressedBlob.blob : new File([compressedBlob.blob], file.name, { type: compressedBlob.blob.type });
+                    const compressedBlobResult = await compressMedia(file, { maxSizeMB: targetSizeMB });
+                    const compressedBlob = compressedBlobResult.blob;
+                    fileToUpload = compressedBlob instanceof File ? compressedBlob : new File([compressedBlob], file.name, { type: compressedBlob.type });
                     // Use compressed file only if smaller
                     if(fileToUpload.size >= file.size) {
                         fileToUpload = file;
@@ -553,8 +562,9 @@ export default function CreateEventPage() {
                                     control={form.control}
                                     name="coverPhoto"
                                     render={({ field }) => (
-                                        <FormItem className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64">
-
+                                        <FormItem className="flex-1">
+                                            {/* Outer container for the visual dropzone area and preview */}
+                                            <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                                 {coverPhotoPreview ? (
                                                     <div className="relative w-full h-full">
                                                         <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
@@ -570,30 +580,32 @@ export default function CreateEventPage() {
                                                         </Button>
                                                     </div>
                                                 ) : (
-                                                    <>
+                                                    <div className="flex flex-col items-center justify-center text-center h-full">
                                                         <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
                                                         <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo pour personnaliser votre soirée.</p>
                                                         <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}>
                                                             <Upload className="mr-2 h-4 w-4" />
                                                             Ajouter une photo
                                                         </Button>
-                                                    </>
+                                                    </div>
                                                 )}
+                                                 {/* Hidden actual input - controlled by React Hook Form */}
                                                 <FormControl>
-                                                    {/* Hidden actual input */}
                                                     <Input
                                                         id="cover-photo-input"
                                                         type="file"
                                                         accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
                                                         onChange={handleCoverPhotoChange}
                                                         className="sr-only"
-                                                        ref={field.ref} // Connect ref for react-hook-form
-                                                        onBlur={field.onBlur} // Connect onBlur for react-hook-form
-                                                        name={field.name} // Ensure name is passed
-                                                        disabled={field.disabled} // Pass disabled state
+                                                        ref={field.ref}
+                                                        onBlur={field.onBlur}
+                                                        name={field.name}
+                                                        disabled={field.disabled}
+                                                        // Remove value and onChange from here, RHF handles it
                                                     />
-                                                 </FormControl>
-                                                <FormMessage className="mt-2"/>
+                                                </FormControl>
+                                                <FormMessage className="absolute bottom-2 left-2 right-2 text-xs"/>
+                                            </div>
                                         </FormItem>
                                     )}
                                 />
