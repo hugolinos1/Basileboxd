@@ -17,9 +17,9 @@ const firebaseConfig: FirebaseOptions = {
 
 // Validate essential config FIRST
 if (!firebaseConfig.apiKey) {
-    console.error("MISSING FIREBASE API KEY: The NEXT_PUBLIC_FIREBASE_API_KEY environment variable is not set.");
-    // Removed the throw new Error to prevent crashing the app. Console error is sufficient.
-    // Consider adding alternative behavior here if needed, like disabling Firebase features.
+    console.warn("Firebase API key (NEXT_PUBLIC_FIREBASE_API_KEY) is missing or not loaded yet. Check .env.local and restart the server.");
+    // Don't throw an error here to avoid breaking client-side rendering or build process
+    // Components using Firebase should handle the possibility of uninitialized services.
 }
 if (!firebaseConfig.projectId) {
     // Warn but don't throw, as some functionalities might still work initially.
@@ -32,8 +32,14 @@ let app;
 // Check if the default app is already initialized
 if (!getApps().some(existingApp => existingApp.name === '[DEFAULT]')) {
   try {
-    app = initializeApp(firebaseConfig);
-    console.log("Firebase App Initialized successfully.");
+    // Only initialize if essential config is present
+    if (firebaseConfig.apiKey && firebaseConfig.projectId) {
+        app = initializeApp(firebaseConfig);
+        console.log("Firebase App Initialized successfully.");
+    } else {
+        console.error("Firebase App cannot be initialized due to missing configuration (apiKey or projectId).");
+        app = null;
+    }
   } catch (error) {
     console.error("Firebase initialization failed:", error);
     // Allow app to continue running, but Firebase services will be null
@@ -41,7 +47,7 @@ if (!getApps().some(existingApp => existingApp.name === '[DEFAULT]')) {
   }
 } else {
   app = getApp(); // Get the already initialized default app
-  console.log("Firebase App already initialized.");
+  // console.log("Firebase App already initialized."); // Less verbose logging
 }
 
 
@@ -70,10 +76,10 @@ if (app) {
                     }
 
                 } else if (!firebaseConfig.measurementId) {
-                     console.log("Firebase Analytics disabled: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID not set.");
+                     // console.log("Firebase Analytics disabled: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID not set."); // Less verbose
                 }
                  else {
-                    console.log("Firebase Analytics is not supported in this environment.");
+                    // console.log("Firebase Analytics is not supported in this environment."); // Less verbose
                 }
             }).catch(err => {
                  console.error("Error checking Firebase Analytics support:", err);
