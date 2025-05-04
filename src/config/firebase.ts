@@ -17,9 +17,10 @@ const firebaseConfig: FirebaseOptions = {
 
 // Validate essential config FIRST
 if (!firebaseConfig.apiKey) {
-    console.warn("Firebase API key (NEXT_PUBLIC_FIREBASE_API_KEY) is missing or not loaded yet. Check .env.local and restart the server.");
-    // Don't throw an error here to avoid breaking client-side rendering or build process
-    // Components using Firebase should handle the possibility of uninitialized services.
+    console.error("MISSING FIREBASE API KEY: The NEXT_PUBLIC_FIREBASE_API_KEY environment variable is not set.");
+    // Don't throw an error on the client-side to prevent app crash
+    // The FirebaseProvider will handle the uninitialized state.
+    // Server-side checks might still be appropriate elsewhere if needed.
 }
 if (!firebaseConfig.projectId) {
     // Warn but don't throw, as some functionalities might still work initially.
@@ -28,7 +29,7 @@ if (!firebaseConfig.projectId) {
 
 
 // Initialize Firebase App - Ensure this runs only once
-let app;
+let app: ReturnType<typeof initializeApp> | null = null;
 // Check if the default app is already initialized
 if (!getApps().some(existingApp => existingApp.name === '[DEFAULT]')) {
   try {
@@ -68,7 +69,7 @@ if (app) {
             isSupported().then((supported) => {
                 if (supported && firebaseConfig.measurementId) {
                     try {
-                         analytics = getAnalytics(app);
+                         analytics = getAnalytics(app!); // Use non-null assertion as app is checked
                          console.log("Firebase Analytics Initialized.");
                     } catch (analyticsError) {
                         console.warn("Firebase Analytics initialization failed:", analyticsError);
@@ -94,10 +95,16 @@ if (app) {
              try {
                 // Note: Using localhost for emulators. Adjust if your emulators run elsewhere.
                 // Ensure they are not connected multiple times - connect functions handle this internally usually
-                connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
-                connectFirestoreEmulator(db, 'localhost', 8080);
-                connectStorageEmulator(storage, 'localhost', 9199);
-                 console.log("Attempting connection to Firebase Emulators (Auth:9099, Firestore:8080, Storage:9199).");
+                 if (auth && !auth?._emulator?.options) {
+                    connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
+                 }
+                 if (db && !db?._databaseId) { // Heuristic check if already connected
+                    connectFirestoreEmulator(db, 'localhost', 8080);
+                 }
+                if (storage && !storage?._bucket?.domain) { // Heuristic check
+                   connectStorageEmulator(storage, 'localhost', 9199);
+                 }
+                 console.log("Attempting connection to Firebase Emulators (Auth:9099, Firestore:8080, Storage:9199). Check console for confirmations.");
              } catch (emulatorError: any) {
                   // Firebase SDKs usually prevent multiple connections, but log unexpected errors
                   if (!emulatorError.message.includes('already connected') && !emulatorError.message.includes('Cannot connect') ) { // Be more specific if needed
