@@ -64,7 +64,7 @@ const formSchema = z.object({
   participants: z.array(z.string().email()).optional(), // Array of emails for participants
   media: z.array(fileSchema).optional(), // Array of files for general media
   coverPhoto: coverPhotoSchema, // Optional single cover photo
-  initialRating: z.number().min(0.5, { message: "La note doit être d'au moins 0.5." }).max(5, { message: "La note ne peut pas dépasser 5." }).optional(), // Allow 0.5 increments
+  initialRating: z.number().min(0.5, { message: "La note doit être d'au moins 0.5." }).max(5, { message: "La note ne peut pas dépasser 5." }).step(0.5).optional(), // Allow 0.5 increments
   initialComment: z.string().max(500, { message: "Le commentaire ne peut pas dépasser 500 caractères." }).optional(),
 });
 
@@ -196,6 +196,19 @@ export default function CreateEventPage() {
                 URL.revokeObjectURL(coverPhotoPreview);
             }
             setCoverPhotoPreview(null);
+        }
+    };
+
+     const removeCoverPhoto = () => {
+        form.setValue('coverPhoto', undefined, { shouldValidate: true });
+        if (coverPhotoPreview) {
+            URL.revokeObjectURL(coverPhotoPreview);
+        }
+        setCoverPhotoPreview(null);
+        // Clear the file input visually
+        const input = document.getElementById('cover-photo-input') as HTMLInputElement;
+        if (input) {
+            input.value = '';
         }
     };
 
@@ -533,47 +546,56 @@ export default function CreateEventPage() {
                                <CardTitle className="text-lg font-semibold">Photo de l'Événement</CardTitle>
                            </CardHeader>
                            <CardContent className="flex flex-col md:flex-row items-center gap-6">
-                               <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64">
-                                    {coverPhotoPreview ? (
-                                        <div className="relative w-full h-full">
-                                             <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
-                                             <Button
-                                                type="button"
-                                                variant="destructive"
-                                                size="icon"
-                                                className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10"
-                                                onClick={() => handleCoverPhotoChange({ target: { files: null } } as any)} // Simulate clearing
-                                            >
-                                                <X className="h-4 w-4" />
-                                                <span className="sr-only">Retirer photo</span>
-                                            </Button>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
-                                            <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo pour personnaliser votre soirée.</p>
-                                            <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}>
-                                                 <Upload className="mr-2 h-4 w-4" />
-                                                Ajouter une photo
-                                            </Button>
-                                            {/* Hidden actual input */}
-                                            <FormControl>
-                                                <Input
-                                                    id="cover-photo-input"
-                                                    type="file"
-                                                    accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
-                                                    onChange={handleCoverPhotoChange}
-                                                    className="sr-only"
-                                                />
+                                <FormField
+                                    control={form.control}
+                                    name="coverPhoto"
+                                    render={({ field }) => (
+                                        <FormItem className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64">
+                                             <FormControl>
+                                                <>
+                                                    {coverPhotoPreview ? (
+                                                        <div className="relative w-full h-full">
+                                                            <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
+                                                            <Button
+                                                                type="button"
+                                                                variant="destructive"
+                                                                size="icon"
+                                                                className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10"
+                                                                onClick={removeCoverPhoto}
+                                                            >
+                                                                <X className="h-4 w-4" />
+                                                                <span className="sr-only">Retirer photo</span>
+                                                            </Button>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
+                                                            <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo pour personnaliser votre soirée.</p>
+                                                            <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}>
+                                                                <Upload className="mr-2 h-4 w-4" />
+                                                                Ajouter une photo
+                                                            </Button>
+                                                            {/* Hidden actual input */}
+                                                            <Input
+                                                                id="cover-photo-input"
+                                                                type="file"
+                                                                accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                                                onChange={handleCoverPhotoChange}
+                                                                className="sr-only"
+                                                                ref={field.ref} // Connect ref for react-hook-form
+                                                                onBlur={field.onBlur} // Connect onBlur for react-hook-form
+                                                                name={field.name} // Ensure name is passed
+                                                                disabled={field.disabled} // Pass disabled state
+                                                            />
+                                                        </>
+                                                    )}
+                                                </>
                                              </FormControl>
-                                              <FormField
-                                                control={form.control}
-                                                name="coverPhoto" // Ensure this matches the schema
-                                                render={() => <FormMessage className="mt-2"/>} // Just render message area
-                                                />
-                                        </>
+                                            <FormMessage className="mt-2"/>
+                                        </FormItem>
                                     )}
-                               </div>
+                                />
+
 
                                {/* Preview Card */}
                                <div className="w-full md:w-64 flex-shrink-0">
@@ -583,7 +605,7 @@ export default function CreateEventPage() {
                                                  {coverPhotoPreview ? (
                                                      <Image src={coverPhotoPreview} alt="Aperçu carte" layout="fill" objectFit="cover" />
                                                  ) : (
-                                                     <ImageIcon className="h-10 w-10 text-muted-foreground" />
+                                                     <ImageIcon className="h-10 w-10 text-muted-foreground" data-ai-hint="carte vide"/>
                                                  )}
                                             </div>
                                         </CardHeader>
@@ -682,6 +704,10 @@ export default function CreateEventPage() {
                                                 accept={ACCEPTED_MEDIA_TYPES.join(',')}
                                                 onChange={handleMediaFileChange}
                                                 className="sr-only" // Hide the default input
+                                                ref={field.ref} // Important for react-hook-form
+                                                onBlur={field.onBlur}
+                                                name={field.name}
+                                                disabled={field.disabled}
                                             />
                                         </FormControl>
                                         {/* Custom styled button */}
@@ -768,6 +794,7 @@ export default function CreateEventPage() {
                                                            max={5}
                                                            step={0.5} // Set step to 0.5
                                                            className="flex-1"
+                                                           ref={field.ref} // Add ref for react-hook-form
                                                         />
                                                        <Star className="h-5 w-5 text-yellow-400 fill-current"/>
                                                  </div>
