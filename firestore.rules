@@ -1,83 +1,48 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Rules for the 'users' collection
-    match /users/{userId} {
-      // Allow reading user profiles if logged in
+    match /parties/{partyId} {
       allow read: if request.auth != null;
-      // Allow users to write ONLY to their own profile document
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+                       && request.resource.data.name is string
+                       && request.resource.data.name.size() > 2
+                       && request.resource.data.date is timestamp
+                       && request.resource.data.createdBy == request.auth.uid;
+
+      // Règle de mise à jour affinée :
+      allow update: if request.auth != null && (
+                       // Le créateur peut mettre à jour la plupart des champs (ajoute des vérifications plus spécifiques si nécessaire)
+                       (request.auth.uid == resource.data.createdBy &&
+                        request.resource.data.name is string &&
+                        request.resource.data.name.size() > 2 &&
+                        request.resource.data.date is timestamp) ||
+                       // N'importe quel utilisateur authentifié peut ajouter/mettre à jour sa propre note
+                       (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']) && // Autorise uniquement les modifications du champ 'ratings'
+                        request.resource.data.ratings[request.auth.uid] is number && // S'assure qu'ils définissent un nombre pour leur note
+                        request.resource.data.ratings[request.auth.uid] >= 0.5 &&
+                        request.resource.data.ratings[request.auth.uid] <= 5)
+                     );
+
+      allow delete: if false; // Personne ne peut supprimer via le client
+
+      // Règles pour les sous-collections (comme les commentaires)
+      match /comments/{commentId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.resource.data.userId == request.auth.uid
+                      && request.resource.data.text is string
+                      && request.resource.data.text.size() > 0
+                      && request.resource.data.timestamp == request.time; // S'assure que le timestamp est défini par le serveur
+        allow update, delete: if false; // Les commentaires sont immuables
+      }
     }
 
-    // Rules for the 'parties' collection
-    match /parties/{partyId} {
-
-      // --- Helper Functions ---
-      // Checks if ONLY the specified top-level keys are being modified in an update
-      function isOnlyTopLevelKeys(keys) {
-        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
-      }
-      // Checks if ONLY a specific sub-key within a map is changing
-      function isOnlyMapSubKey(mapKey, subKey) {
-         return isOnlyTopLevelKeys([mapKey]) &&
-                request.resource.data[mapKey].diff(resource.data[mapKey]).affectedKeys().hasOnly([subKey]);
-      }
-      // Validates a rating value
-      function isValidRating(rating) {
-        return rating is number && rating >= 0.5 && rating <= 5;
-      }
-       // Validates a new comment being added to the array
-      function isValidNewComment(comment) {
-         return comment.userId == request.auth.uid
-             && comment.text is string && comment.text.size() > 0
-             && comment.timestamp == request.time; // Checks for serverTimestamp sentinel
-      }
-      // --- End Helper Functions ---
-
-
-      // Allow any authenticated user to read party details
+    // Règles pour la collection 'users'
+    match /users/{userId} {
       allow read: if request.auth != null;
-
-      // Allow authenticated users to create parties with basic validation
-      allow create: if request.auth != null
-                       && request.resource.data.name is string && request.resource.data.name.size() > 2
-                       && request.resource.data.date is timestamp
-                       && request.resource.data.createdBy == request.auth.uid
-                       && request.resource.data.creatorEmail == request.auth.token.email
-                       && request.resource.data.participants == [request.auth.uid]
-                       && request.resource.data.participantEmails == [request.auth.token.email]
-                       && request.resource.data.mediaUrls == []
-                       && request.resource.data.coverPhotoUrl is string // Can be empty initially
-                       && request.resource.data.ratings is map // Can be empty initially
-                       && request.resource.data.comments is list; // Can be empty initially
-
-      // --- Update Permissions ---
-      allow update: if request.auth != null && (
-                     // 1. Allow creator to update core fields (except ratings/comments array directly)
-                     (request.auth.uid == resource.data.createdBy &&
-                       isOnlyTopLevelKeys(['name', 'description', 'date', 'location', 'mediaUrls', 'coverPhotoUrl', 'participants', 'participantEmails']) // Specify allowed fields for general updates by creator
-                     ) ||
-                     // 2. Allow ANY authenticated user to add/update ONLY THEIR OWN rating
-                     (isOnlyMapSubKey('ratings', request.auth.uid) && isValidRating(request.resource.data.ratings[request.auth.uid])
-                     ) ||
-                     // 3. Allow ANY authenticated user to add ONLY THEIR OWN comment to the comments array (using arrayUnion)
-                     // Note: This relies on client-side using arrayUnion.
-                     // This rule checks if the request is adding elements to the 'comments' array
-                     // and validates the *added* element(s).
-                     // It's less precise than the ratings check but often sufficient for arrayUnion.
-                     (isOnlyTopLevelKeys(['comments']) &&
-                      // Check that the request is adding to the list, not replacing/removing
-                      request.resource.data.comments.size() > resource.data.comments.size() &&
-                      // Validate the *last* added comment (assuming arrayUnion adds to the end)
-                      isValidNewComment(request.resource.data.comments[request.resource.data.comments.size() - 1])
-                     )
-                    );
-
-      // No direct client-side deletion allowed
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
       allow delete: if false;
-
     }
   }
 }
