@@ -4,7 +4,7 @@
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 // Import necessary Firestore functions, including FieldValue
-import { doc, getDoc, updateDoc, arrayUnion, serverTimestamp, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore';
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
@@ -45,7 +45,7 @@ interface Comment {
     email: string;
     avatar?: string | null;
     text: string;
-    timestamp: FieldValue | Timestamp | FirestoreTimestamp; // Type ajusté
+    timestamp: Timestamp | FirestoreTimestamp | Date; // Type ajusté pour accepter Date du client
 }
 interface MediaItem { url: string; type: 'image' | 'video' | 'audio' | 'autre'; }
 interface PartyData {
@@ -76,9 +76,10 @@ interface UserProfile {
 // --- Helper Functions ---
 
 // Helper pour obtenir l'heure serveur (conceptuel, retourne le placeholder)
-async function getServerTimePlaceholder(): Promise<FieldValue> {
-  return serverTimestamp();
-}
+// Plus nécessaire avec l'approche timestamp client
+// async function getServerTimePlaceholder(): Promise<FieldValue> {
+//   return serverTimestamp();
+// }
 
 // --- Composants ---
 
@@ -135,11 +136,12 @@ export default function PartyDetailsPage() {
   const participantColors = [ 'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', ];
   const getInitials = (email: string | null | undefined): string => { if (!email) return '?'; const parts = email.split('@')[0]; return parts[0]?.toUpperCase() || '?'; };
 
-  const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefined): Date | null => {
+  const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date | undefined): Date | null => {
         if (!timestamp) return null;
         try {
             if (timestamp instanceof Timestamp) return timestamp.toDate();
-            if (typeof timestamp === 'object' && typeof timestamp.seconds === 'number') {
+            if (timestamp instanceof Date) return timestamp; // Already a Date object
+            if (typeof timestamp === 'object' && 'seconds' in timestamp && typeof timestamp.seconds === 'number') {
                 const date = new Date(timestamp.seconds * 1000);
                 return isNaN(date.getTime()) ? null : date;
             }
@@ -268,19 +270,22 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const partyDocRef = doc(db, 'parties', party.id);
-      // Utiliser serverTimestamp directement pour le type FieldValue
+      // Utiliser l'horodatage du client (new Date())
       const newComment: Comment = {
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null, // Assurer null au lieu de undefined
         text: comment.trim(),
-        timestamp: serverTimestamp() // Utiliser FieldValue directement
+        timestamp: new Date() // Utiliser l'horodatage du client
       };
+
+      console.log("Tentative d'ajout du commentaire:", newComment); // Log avant l'envoi
 
       await updateDoc(partyDocRef, {
         comments: arrayUnion(newComment)
       });
 
+      console.log("Commentaire ajouté avec succès à Firestore.");
       setComment('');
       toast({ title: 'Commentaire ajouté' });
     } catch (commentError: any) {
@@ -290,6 +295,7 @@ export default function PartyDetailsPage() {
             if (commentError.message?.includes('Unsupported field value')) {
                 errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
             } else if (commentError.message?.includes('serverTimestamp')) {
+                // Cette condition ne devrait plus être atteinte
                 errorMessage = "Erreur de timestamp serveur. Réessayez.";
             }
         } else if (commentError.code === 'permission-denied') {
@@ -301,19 +307,8 @@ export default function PartyDetailsPage() {
     }
 };
 
-    // Fonction pour tester le timestamp serveur
-    const handleGetServerTime = async () => {
-        console.log("Test de l'heure du serveur...");
-        try {
-            const timestampPlaceholder = await getServerTimePlaceholder();
-            console.log('Placeholder Timestamp Serveur obtenu :', timestampPlaceholder);
-             // We cannot get the actual time without writing, so show a confirmation
-            toast({ title: 'Test Timestamp', description: `Le placeholder serverTimestamp() est prêt. L'heure réelle sera définie lors de l'écriture.`, duration: 7000 });
-        } catch (error: any) {
-            console.error('Erreur lors de la tentative d\'obtention du placeholder timestamp :', error);
-            toast({ title: 'Erreur Test Timestamp', description: `Impossible d'obtenir le placeholder: ${error.message}`, variant: 'destructive' });
-        }
-    };
+    // Fonction pour tester le timestamp serveur - Supprimée car non utilisée
+    // const handleGetServerTime = async () => { ... }
 
 
   // --- Souvenir Upload Handlers ---
@@ -614,8 +609,8 @@ export default function PartyDetailsPage() {
   const partyDate = getDateFromTimestamp(party.date);
 
     const sortedComments = party.comments ? [...party.comments].sort((a, b) => {
-        const timeA = getDateFromTimestamp(a.timestamp as Timestamp)?.getTime() || 0;
-        const timeB = getDateFromTimestamp(b.timestamp as Timestamp)?.getTime() || 0;
+        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
+        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
         return timeB - timeA;
     }) : [];
 
@@ -762,8 +757,8 @@ export default function PartyDetailsPage() {
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
-                                    {/* Add the test button */}
-                                    <Button onClick={handleGetServerTime} variant="outline" size="sm">Tester Timestamp</Button>
+                                    {/* Remove the test timestamp button */}
+                                    {/* <Button onClick={handleGetServerTime} variant="outline" size="sm">Tester Timestamp</Button> */}
                                 </div>
                             </div>
                         </div>
@@ -772,7 +767,7 @@ export default function PartyDetailsPage() {
                        {sortedComments.length > 0 ? (
                         <div className="space-y-4">
                             {sortedComments.map((cmt, index) => {
-                                const commentDate = getDateFromTimestamp(cmt.timestamp as Timestamp); // Assert type
+                                const commentDate = getDateFromTimestamp(cmt.timestamp); // Accepts Date objects now
                                 return (
                                     <div key={index} className="flex items-start space-x-3">
                                         <Avatar className="h-8 w-8 border"> <AvatarImage src={cmt.avatar || undefined} alt={cmt.email}/> <AvatarFallback className="text-xs">{getInitials(cmt.email)}</AvatarFallback> </Avatar>
@@ -855,5 +850,3 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
-
-    
