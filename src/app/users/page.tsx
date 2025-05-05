@@ -144,8 +144,8 @@ export default function UsersListPage() {
                  if (fetchError instanceof FirestoreError) {
                      // Check specifically for permission errors when trying to list the 'users' collection
                       if (fetchError.code === 'permission-denied' || fetchError.code === 'unauthenticated') {
-                          userFriendlyError = 'Permission refusée pour lister les utilisateurs.';
-                          console.error("Firestore Permission Denied: Check your security rules for the 'users' collection. Ensure authenticated users have 'list' permission. Example rule: `match /users { allow list: if request.auth != null; }`");
+                          userFriendlyError = "Permission refusée pour lister les utilisateurs. Vérifiez les règles Firestore."; // More specific error
+                          console.error("Firestore Permission Denied: Check your security rules for the 'users' collection. Ensure authenticated users have 'list' permission. Example rule: `match /users/{userId} { allow list: if request.auth != null; }`");
                      } else if (fetchError.code === 'unavailable') {
                          userFriendlyError = 'Service Firestore indisponible. Veuillez réessayer plus tard.';
                      } else {
@@ -207,7 +207,7 @@ export default function UsersListPage() {
     if (error) { // Covers both initialization errors and fetch errors
         const displayError = error; // Error state now holds the specific message
         // Log error specifically here to guide the user
-        console.error("[UsersListPage Render] Displaying Error Alert:", displayError);
+        // Note: Removed console.error here, Alert component handles display
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
