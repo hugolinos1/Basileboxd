@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc, updateDoc, arrayUnion, serverTimestamp, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch } from 'firebase/firestore'; // Import necessary Firestore functions
+import { doc, getDoc, updateDoc, arrayUnion, serverTimestamp, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore'; // Import necessary Firestore functions
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
@@ -32,8 +32,8 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  coverPhotoSchema // Import the coverPhotoSchema
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
 import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 
 // --- Interfaces ---
@@ -87,7 +87,7 @@ export default function PartyDetailsPage() {
   const params = useParams();
   const partyId = params.id as string;
   const router = useRouter();
-  const { user, firebaseInitialized, loading: userLoading, initializationFailed, initializationErrorMessage } = useFirebase(); // Added context loading states
+  const { user, firebaseInitialized, loading: userLoading, initializationFailed, initializationErrorMessage, isAdmin } = useFirebase(); // Added isAdmin from context
   const { toast } = useToast();
 
   const [party, setParty] = useState<PartyData | null>(null);
@@ -114,7 +114,9 @@ export default function PartyDetailsPage() {
 
 
   const isCreator = useMemo(() => user && party && user.uid === party.createdBy, [user, party]);
-  // const isAdmin = useMemo(() => user && user.email === "admin@example.com", [user]); // Example admin check
+  // Check if the current user is the creator OR an admin
+  const canManageParticipants = useMemo(() => user && party && (user.uid === party.createdBy || isAdmin), [user, party, isAdmin]);
+
 
   // Participant Colors & Initials (unchanged)
   const participantColors = [ 'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', ];
@@ -177,7 +179,7 @@ export default function PartyDetailsPage() {
         setParty(null);
         setPageLoading(false);
       }
-    }, (snapshotError) => {
+    }, (snapshotError: any) => {
         console.error('[PartyDetailsPage] Erreur listener snapshot:', snapshotError);
          let userFriendlyError = 'Impossible de charger les détails de la fête en temps réel.';
          if (snapshotError.code === 'permission-denied') {
@@ -247,33 +249,33 @@ export default function PartyDetailsPage() {
 
 
   const handleAddComment = async () => {
-    if (!user || !party || !comment.trim() || !db || !firebaseInitialized) { toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' }); return }
+    if (!user || !party || !comment.trim() || !db || !firebaseInitialized) {
+      toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' });
+      return;
+    }
     setIsSubmittingComment(true);
     try {
       const partyDocRef = doc(db, 'parties', party.id);
-      const newComment = {
+      const newComment: Comment = { // Ensure this matches the Comment interface
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL || null,
         text: comment.trim(),
-        timestamp: serverTimestamp() // Correctly use serverTimestamp here
+        timestamp: serverTimestamp() as Timestamp // Ensure correct typing
       };
 
-      // Use arrayUnion with the correctly structured object
       await updateDoc(partyDocRef, {
         comments: arrayUnion(newComment)
       });
 
-      // Local state updated via onSnapshot listener
       setComment('');
       toast({ title: 'Commentaire ajouté' });
     } catch (commentError: any) {
         console.error('Erreur commentaire:', commentError);
         let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
-        // Check for specific Firestore errors if needed
-        if (commentError.code === 'invalid-argument' && commentError.message.includes('Unsupported field value: undefined')) {
-            errorMessage = "Une valeur non définie a été envoyée. Veuillez réessayer.";
-        } else if (commentError.code === 'invalid-argument' && commentError.message.includes('serverTimestamp')) {
+        if (commentError.code === 'invalid-argument' && commentError.message?.includes('Unsupported field value: undefined')) {
+             errorMessage = "Une valeur non définie a été envoyée. Veuillez réessayer.";
+        } else if (commentError.code === 'invalid-argument' && commentError.message?.includes('serverTimestamp')) {
              errorMessage = "Erreur de timestamp serveur. Réessayez.";
         }
         toast({ title: 'Erreur', description: errorMessage, variant: 'destructive' });
@@ -457,8 +459,8 @@ export default function PartyDetailsPage() {
 
     // --- Add Participant Handler ---
     const handleAddParticipant = async () => {
-        if (!user || !party || !isCreator || !db || !participantEmail.trim()) {
-            toast({ title: 'Erreur', description: 'Impossible d\'ajouter un participant.', variant: 'destructive' });
+        if (!user || !party || !canManageParticipants || !db || !participantEmail.trim()) { // Check canManageParticipants
+            toast({ title: 'Erreur', description: 'Permissions insuffisantes ou informations manquantes.', variant: 'destructive' });
             return;
         }
 
@@ -780,8 +782,8 @@ export default function PartyDetailsPage() {
                  <CardContent className="p-4 md:p-6 border-t border-border/50">
                       <div className="flex justify-between items-center mb-4">
                            <h3 className="text-xl font-semibold text-foreground">Participants ({party.participantEmails?.length || 1})</h3>
-                            {/* Add Participant Button (only for creator) */}
-                            {isCreator && (
+                            {/* Add Participant Button (only for creator or admin) */}
+                            {canManageParticipants && ( // Updated condition
                                 <Dialog open={showAddParticipantDialog} onOpenChange={setShowAddParticipantDialog}>
                                     <DialogTrigger asChild>
                                         <Button variant="outline" size="sm"> <UserPlus className="mr-2 h-4 w-4" /> Ajouter </Button>
@@ -838,4 +840,3 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
-
