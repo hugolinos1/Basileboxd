@@ -185,7 +185,8 @@ export default function CreateEventPage() {
         const file = event.target.files?.[0];
         if (file) {
              // Validate the file against the schema before setting value and preview
-             const validationResult = coverPhotoSchema.safeParse(file);
+             // Use safeParse for better type checking if needed
+             const validationResult = typeof window !== 'undefined' && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true };
              if (validationResult.success) {
                  form.setValue('coverPhoto', file, { shouldValidate: true });
                  if (coverPhotoPreview) {
@@ -193,8 +194,13 @@ export default function CreateEventPage() {
                  }
                  setCoverPhotoPreview(URL.createObjectURL(file));
              } else {
-                 // Show validation error
-                 form.setError('coverPhoto', { type: 'manual', message: validationResult.error.errors[0]?.message });
+                 // Show validation error only if validationResult has errors (client-side only)
+                  if (validationResult.error?.errors?.[0]?.message) {
+                      form.setError('coverPhoto', { type: 'manual', message: validationResult.error.errors[0].message });
+                  } else {
+                      // Fallback error message if validationResult is somehow invalid
+                      form.setError('coverPhoto', { type: 'manual', message: 'Validation a échoué.' });
+                  }
                  // Optionally clear the input and preview
                   form.setValue('coverPhoto', undefined, { shouldValidate: true });
                   if (coverPhotoPreview) {
@@ -566,7 +572,8 @@ export default function CreateEventPage() {
                                             {/* Outer container for the visual dropzone area and preview */}
                                             <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                                 <FormControl>
-                                                   {/* Removed the unnecessary React.Fragment that caused the error */}
+                                                   {/* Wrap multiple children in a single div */}
+                                                   <div>
                                                      {coverPhotoPreview ? (
                                                          <div className="relative w-full h-full">
                                                              <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
@@ -604,7 +611,7 @@ export default function CreateEventPage() {
                                                          disabled={field.disabled}
                                                          // Remove value and onChange from here, RHF handles it
                                                      />
-
+                                                   </div>
                                                 </FormControl>
                                                 <FormMessage className="absolute bottom-2 left-2 right-2 text-xs"/>
                                             </div>
