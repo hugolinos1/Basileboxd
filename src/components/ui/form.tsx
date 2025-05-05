@@ -104,29 +104,31 @@ const FormLabel = React.forwardRef<
 FormLabel.displayName = "FormLabel"
 
 const FormControl = React.forwardRef<
-  React.ElementRef<typeof Slot>,
-  React.ComponentPropsWithoutRef<typeof Slot>
->(({ className, children, ...props }, ref) => {
+  HTMLDivElement, // Change ElementRef type from Slot to div
+  React.HTMLAttributes<HTMLDivElement> // Change ComponentPropsWithoutRef type
+>(({ className, children, ...props }, ref) => { // Accept standard HTMLDivElement props
   const { error, formItemId, formDescriptionId, formMessageId } = useFormField();
 
-  // Wrap children in a div to ensure a single child
+  // Use a simple div instead of Slot
   return (
-    <div className={className}>
-      <Slot
-        ref={ref}
-        id={formItemId}
-        aria-describedby={
-          !error
-            ? `${formDescriptionId}`
-            : `${formDescriptionId} ${formMessageId}`
-        }
-        aria-invalid={!!error}
-        {...props}
-      >{children}</Slot>
+    <div
+      ref={ref}
+      id={formItemId}
+      aria-describedby={
+        !error
+          ? `${formDescriptionId}`
+          : `${formDescriptionId} ${formMessageId}`
+      }
+      aria-invalid={!!error}
+      className={className} // Apply className to the div
+      {...props} // Spread remaining props
+    >
+      {children} {/* Render children directly */}
     </div>
   );
 });
 FormControl.displayName = "FormControl";
+
 
 const FormDescription = React.forwardRef<
   HTMLParagraphElement,
