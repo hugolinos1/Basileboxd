@@ -47,7 +47,7 @@ export function Navbar() {
           <Link href="/" className="flex items-center space-x-2">
             {/* Replace placeholder with actual logo image */}
             <Image
-                src="https://i.ibb.co/Jj1j0w3/cornes-du-diable-autocollant.jpg" // Updated logo URL from ibb.co
+                src="https://i.ibb.co/nMGMZNPq/logo2.png" // Updated logo URL
                 alt="BaliseBoxd Logo"
                 width={24} // Adjust width as needed
                 height={24} // Adjust height as needed
@@ -148,9 +148,3 @@ export function Navbar() {
     </nav>
   );
 }
-
-
-
-
-
-    
