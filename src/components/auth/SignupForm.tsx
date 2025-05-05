@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth, db } from '@/config/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore'; // Import serverTimestamp
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
@@ -52,15 +52,25 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
       const user = userCredential.user;
 
-      // Create user document in Firestore
-      await setDoc(doc(db, 'users', user.uid), {
-        email: user.email,
-        uid: user.uid,
-        createdAt: new Date(),
-        // Add other initial fields like displayName if collected, or leave empty
-        displayName: user.email?.split('@')[0] || 'Nouvel utilisateur',
-        avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100` // Placeholder avatar
-      });
+       // Create user document in Firestore
+       if (db) { // Check if db is not null
+           await setDoc(doc(db, 'users', user.uid), {
+             email: user.email,
+             uid: user.uid,
+             createdAt: serverTimestamp(), // Use serverTimestamp for consistency
+             displayName: user.email?.split('@')[0] || 'Nouvel utilisateur',
+             avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100` // Use Google photo or placeholder
+           });
+            console.log("Document utilisateur créé dans Firestore pour :", user.email);
+       } else {
+             console.error("Erreur : l'instance Firestore (db) est nulle. Impossible de créer le document utilisateur.");
+             // Optionally notify the user, though signup still succeeded in Auth
+             toast({
+                title: "Erreur partielle d'inscription",
+                description: "Votre compte d'authentification a été créé, mais une erreur s'est produite lors de la sauvegarde des informations de profil.",
+                variant: "warning",
+             });
+       }
 
 
       toast({
@@ -79,6 +89,8 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
             errorMessage = 'Veuillez entrer une adresse email valide.';
         } else if (error.code === 'auth/weak-password') {
             errorMessage = 'Le mot de passe est trop faible. Veuillez choisir un mot de passe plus fort.';
+        } else if (error.code === 'unavailable') {
+            errorMessage = 'Service Firebase indisponible. Veuillez réessayer plus tard.';
         }
       toast({
         title: 'Échec de l\'inscription',
