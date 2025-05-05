@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
-import { db, firebaseInitialized } from '@/config/firebase';
+import { db } from '@/config/firebase'; // Import db directly
 import Link from 'next/link';
 import Image from 'next/image';
 import { format } from 'date-fns';
@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Star, CalendarDays, MapPin, Image as ImageIcon, Loader2, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useFirebase } from '@/context/FirebaseContext'; // Import useFirebase
+import { useFirebase } from '@/context/FirebaseContext';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface FirestoreTimestamp {
@@ -44,7 +44,7 @@ const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefi
     if (!timestamp) return null;
     if (timestamp instanceof Timestamp) {
         return timestamp.toDate();
-    } else if (timestamp.seconds) {
+    } else if (timestamp && typeof timestamp === 'object' && 'seconds' in timestamp) { // Check if it's a FirestoreTimestamp-like object
         return new Date(timestamp.seconds * 1000);
     }
     return null;
@@ -55,29 +55,40 @@ export default function PartiesListPage() {
   const [parties, setParties] = useState<PartyData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { initializationFailed, initializationErrorMessage } = useFirebase(); // Use context for initialization status
+  const { firebaseInitialized, initializationFailed, initializationErrorMessage } = useFirebase(); // Use context for initialization status
 
   useEffect(() => {
+    // Exit early if Firebase initialization failed
     if (initializationFailed) {
         setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
         setLoading(false);
         return;
     }
 
-    if (!firebaseInitialized || !db) {
-        // Wait for initialization or handle case where db is null
-        // This might be redundant if initializationFailed covers it, but good as a safeguard
-        if (!loading) setLoading(true); // Ensure loading state is true if we're waiting
+    // Wait for Firebase to be initialized
+    if (!firebaseInitialized) {
+        setLoading(true); // Ensure loading is true while waiting
+        return;
+    }
+
+    // Check if db is available (it should be if firebaseInitialized is true)
+    if (!db) {
+        setError("La base de données Firestore n'est pas disponible.");
+        setLoading(false);
         return;
     }
 
 
     const fetchParties = async () => {
-      setLoading(true);
-      setError(null);
+      // Already loading or error occurred, no need to fetch again unnecessarily
+      if (error) return;
+
+      setLoading(true); // Set loading true at the start of fetch attempt
+      setError(null); // Reset error before fetching
+
       try {
+        console.log("Fetching parties..."); // Log fetch start
         const partiesCollectionRef = collection(db, 'parties');
-        // Query parties ordered by creation date descending
         const q = query(partiesCollectionRef, orderBy('createdAt', 'desc'));
         const querySnapshot = await getDocs(q);
 
@@ -87,34 +98,44 @@ export default function PartiesListPage() {
         })) as PartyData[];
 
         setParties(partiesData);
+        console.log(`Fetched ${partiesData.length} parties.`); // Log success
 
       } catch (fetchError: any) {
         console.error('Erreur lors de la récupération des fêtes :', fetchError);
         setError('Impossible de charger la liste des fêtes.');
       } finally {
-        setLoading(false);
+        setLoading(false); // Set loading false after fetch attempt (success or failure)
       }
     };
 
     fetchParties();
-  }, [firebaseInitialized, initializationFailed, initializationErrorMessage, loading]); // Re-run if initialization status changes
 
+    // Dependency array: only re-run when initialization status changes
+  }, [firebaseInitialized, initializationFailed, initializationErrorMessage, error]); // Added error dependency to prevent re-fetch on error
+
+
+  // --- Render Logic ---
 
   if (loading) {
-    // Enhanced Skeleton Loading State
+    // Render Skeleton Loading State only if not failed
+    if (initializationFailed) {
+        // If initialization failed, the error component will be rendered below.
+        // Return null here to avoid rendering skeleton over the error message.
+        return null;
+    }
     return (
       <div className="container mx-auto px-4 py-12">
         <Skeleton className="h-8 w-1/3 mb-8" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {Array.from({ length: 8 }).map((_, i) => (
-            <Card key={i} className="overflow-hidden">
+            <Card key={i} className="overflow-hidden bg-card border border-border/50">
               <CardHeader className="p-0">
-                <Skeleton className="aspect-video w-full" />
+                <Skeleton className="aspect-video w-full bg-muted" />
               </CardHeader>
               <CardContent className="p-4 space-y-2">
-                <Skeleton className="h-5 w-3/4" />
-                <Skeleton className="h-4 w-1/2" />
-                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-5 w-3/4 bg-muted" />
+                <Skeleton className="h-4 w-1/2 bg-muted" />
+                <Skeleton className="h-4 w-1/3 bg-muted" />
               </CardContent>
             </Card>
           ))}
@@ -125,6 +146,7 @@ export default function PartiesListPage() {
 
 
   if (error) {
+    // Render Error Alert
     return (
       <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
         <Alert variant="destructive" className="max-w-lg">
@@ -136,6 +158,7 @@ export default function PartiesListPage() {
     );
   }
 
+  // Render Parties List
   return (
     <div className="container mx-auto px-4 py-12">
       <h1 className="text-3xl font-bold mb-8 text-primary">Tous les Événements</h1>
@@ -159,6 +182,7 @@ export default function PartiesListPage() {
                           layout="fill"
                           objectFit="cover"
                           className="transition-transform duration-300 group-hover:scale-105"
+                          sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw" // Example sizes, adjust as needed
                           loading="lazy"
                           data-ai-hint="couverture fête événement"
                         />
@@ -194,7 +218,6 @@ export default function PartiesListPage() {
                         )}
                       </div>
                     </div>
-                    {/* Maybe add participant count or other info here if needed */}
                   </CardContent>
                 </Card>
               </Link>
