@@ -107,6 +107,15 @@ const participantColors = [
   'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600',
 ];
 
+// --- Helper Functions ---
+const getFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => {
+    if (!file || !file.type) return 'autre';
+    if (file.type.startsWith('image/')) return 'image';
+    if (file.type.startsWith('video/')) return 'video';
+    if (file.type.startsWith('audio/')) return 'audio';
+    return 'autre';
+};
+
 // --- Component ---
 export default function CreateEventPage() {
   const { user } = useFirebase();
@@ -485,7 +494,7 @@ export default function CreateEventPage() {
                                         )}
                                         />
                                     {/* FormField for location */}
-                                     <FormField control={form.control} name="location" render={({ field }) => ( <FormItem> <FormLabel>Lieu (Optionnel)</FormLabel> <FormControl> <Input placeholder="Ex : Sunset Beach Club" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/> </FormControl> <FormMessage /> </FormItem> )}/>
+                                      <FormField control={form.control} name="location" render={({ field }) => ( <FormItem> <FormLabel>Lieu (Optionnel)</FormLabel> <Input placeholder="Ex : Sunset Beach Club" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/> <FormMessage /> </FormItem> )}/>
                                 </div>
                           </CardContent>
                       </Card>
@@ -502,38 +511,39 @@ export default function CreateEventPage() {
                                     name="coverPhoto"
                                     render={({ field }) => (
                                         <FormItem className="flex-1">
-                                             <div
+                                            <FormLabel className="sr-only">Photo de couverture</FormLabel> {/* Hidden label for accessibility */}
+                                            <div
                                                 className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative cursor-pointer"
                                                 onClick={() => document.getElementById('cover-photo-input')?.click()} // Trigger file input
                                             >
-                                                 {/* Preview or Placeholder */}
-                                                 {coverPhotoPreview ? (
-                                                     <div className="relative w-full h-full">
-                                                         <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
-                                                         <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10" onClick={(e) => { e.stopPropagation(); removeCoverPhoto(); }}> <X className="h-4 w-4" /> <span className="sr-only">Retirer photo</span> </Button>
-                                                     </div>
-                                                 ) : (
-                                                     <div className="flex flex-col items-center justify-center text-center h-full">
-                                                         <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
-                                                         <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo (max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo).</p>
-                                                         <Button type="button" variant="outline" size="sm" disabled={isLoading} className="pointer-events-none"> {/* Visually indicates clickable area, but click handled by div */}
-                                                             <Upload className="mr-2 h-4 w-4" /> Ajouter une photo
-                                                         </Button>
-                                                     </div>
-                                                 )}
-                                                 {/* Hidden Input controlled by React Hook Form */}
-                                                 <FormControl>
-                                                    <Input
-                                                        id="cover-photo-input"
-                                                        type="file"
-                                                        accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
-                                                        onChange={handleCoverPhotoChange}
-                                                        className="sr-only"
-                                                        ref={field.ref} // Ensure RHF can track the input
-                                                        onBlur={field.onBlur}
-                                                        name={field.name}
-                                                        disabled={field.disabled}
-                                                    />
+                                                {/* Preview or Placeholder */}
+                                                {coverPhotoPreview ? (
+                                                    <div className="relative w-full h-full">
+                                                        <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
+                                                        <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10" onClick={(e) => { e.stopPropagation(); removeCoverPhoto(); }}> <X className="h-4 w-4" /> <span className="sr-only">Retirer photo</span> </Button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-col items-center justify-center text-center h-full">
+                                                        <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
+                                                        <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo (max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo).</p>
+                                                        <Button type="button" variant="outline" size="sm" disabled={isLoading} className="pointer-events-none"> {/* Visually indicates clickable area, but click handled by div */}
+                                                            <Upload className="mr-2 h-4 w-4" /> Ajouter une photo
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                                {/* Hidden Input controlled by React Hook Form */}
+                                                <FormControl>
+                                                  <Input
+                                                      id="cover-photo-input"
+                                                      type="file"
+                                                      accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                                      onChange={handleCoverPhotoChange}
+                                                      className="sr-only"
+                                                      ref={field.ref} // Ensure RHF can track the input
+                                                      onBlur={field.onBlur}
+                                                      name={field.name}
+                                                      disabled={field.disabled}
+                                                  />
                                                 </FormControl>
                                             </div>
                                             <FormMessage className="text-xs"/>
@@ -594,6 +604,7 @@ export default function CreateEventPage() {
                                   name="participants"
                                   render={({ field }) => (
                                       <FormItem>
+                                      <FormLabel className="sr-only">Ajouter des participants</FormLabel>
                                       <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
                                           {/* Input for email */}
                                            <FormControl>
@@ -738,3 +749,5 @@ export default function CreateEventPage() {
     </div>
   );
 }
+
+    
