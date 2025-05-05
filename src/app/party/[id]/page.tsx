@@ -32,13 +32,13 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema // Import the coverPhotoSchema
 } from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/media-uploader'; // Import schema from dedicated file
 import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
-interface Comment { userId: string; email: string; avatar?: string | null; text: string; timestamp: FirestoreTimestamp | Timestamp; }
+interface Comment { userId: string; email: string; avatar?: string | null; text: string; timestamp: FieldValue; } // Changed timestamp type to FieldValue
 interface MediaItem { url: string; type: 'image' | 'video' | 'audio' | 'autre'; }
 interface PartyData {
     id: string;
@@ -53,7 +53,7 @@ interface PartyData {
     mediaUrls: string[];
     coverPhotoUrl?: string;
     ratings: { [userId: string]: number };
-    comments: Comment[];
+    comments: Comment[]; // Changed to use updated Comment interface
     createdAt: FirestoreTimestamp | Timestamp;
 }
 // Interface for User data fetched from Firestore 'users' collection
@@ -256,12 +256,13 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const partyDocRef = doc(db, 'parties', party.id);
-      const newComment: Comment = { // Ensure this matches the Comment interface
+      // Use serverTimestamp directly for FieldValue type
+      const newComment: Comment = {
         userId: user.uid,
         email: user.email || 'anonyme',
-        avatar: user.photoURL || null,
+        avatar: user.photoURL ?? null, // Ensure null instead of undefined
         text: comment.trim(),
-        timestamp: serverTimestamp() as Timestamp // Ensure correct typing
+        timestamp: serverTimestamp() // Use FieldValue directly
       };
 
       await updateDoc(partyDocRef, {
@@ -273,10 +274,12 @@ export default function PartyDetailsPage() {
     } catch (commentError: any) {
         console.error('Erreur commentaire:', commentError);
         let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
-        if (commentError.code === 'invalid-argument' && commentError.message?.includes('Unsupported field value: undefined')) {
-             errorMessage = "Une valeur non définie a été envoyée. Veuillez réessayer.";
-        } else if (commentError.code === 'invalid-argument' && commentError.message?.includes('serverTimestamp')) {
-             errorMessage = "Erreur de timestamp serveur. Réessayez.";
+        if (commentError.code === 'invalid-argument') {
+            if (commentError.message?.includes('Unsupported field value')) {
+                errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
+            } else if (commentError.message?.includes('serverTimestamp')) {
+                errorMessage = "Erreur de timestamp serveur. Réessayez.";
+            }
         }
         toast({ title: 'Erreur', description: errorMessage, variant: 'destructive' });
     } finally {
@@ -597,8 +600,8 @@ export default function PartyDetailsPage() {
 
   // Sort comments safely, handling potential undefined timestamps
     const sortedComments = party.comments ? [...party.comments].sort((a, b) => {
-        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
-        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
+        const timeA = getDateFromTimestamp(a.timestamp as Timestamp)?.getTime() || 0; // Assert type for safety
+        const timeB = getDateFromTimestamp(b.timestamp as Timestamp)?.getTime() || 0;
         return timeB - timeA;
     }) : [];
 
@@ -755,7 +758,7 @@ export default function PartyDetailsPage() {
                        {sortedComments.length > 0 ? (
                         <div className="space-y-4">
                             {sortedComments.map((cmt, index) => {
-                                const commentDate = getDateFromTimestamp(cmt.timestamp);
+                                const commentDate = getDateFromTimestamp(cmt.timestamp as Timestamp); // Assert type
                                 return (
                                     <div key={index} className="flex items-start space-x-3">
                                         <Avatar className="h-8 w-8 border"> <AvatarImage src={cmt.avatar || undefined} alt={cmt.email}/> <AvatarFallback className="text-xs">{getInitials(cmt.email)}</AvatarFallback> </Avatar>
