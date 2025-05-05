@@ -8,14 +8,14 @@ export function HeroSection() {
     <div className="relative h-96 md:h-[500px] lg:h-[600px] w-full">
       {/* Background Image */}
       <Image
-        src="https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?q=80&w=1600&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D" // Updated image URL
-        alt="Groupe de jeunes s'amusant à une fête ou un concert" // Updated alt text for better description
+        src="https://i.ibb.co/NnTT13h0/Snapchat-1715506731.jpg" // Updated image URL
+        alt="Jeunes faisant la fête lors d'une soirée" // Updated alt text
         layout="fill"
         objectFit="cover"
         quality={85}
         priority // Load the hero image eagerly
         className="absolute inset-0 z-0"
-        data-ai-hint="fête jeunes concert foule" // Updated AI hint
+        data-ai-hint="fête jeunes soirée" // Updated AI hint
       />
 
       {/* Gradient Overlay */}
