@@ -2,31 +2,94 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Allow authenticated users to read party and user data
     match /parties/{partyId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      // Allow updates only by the creator or specifically for ratings/comments/media/participants by any authenticated user
+      // Allow anyone to read party data (for homepage, listings, details)
+      allow read: if true;
+
+      // Allow authenticated users to create parties with basic validation
+      allow create: if request.auth != null
+                   && request.resource.data.name is string
+                   && request.resource.data.name.size() >= 2
+                   && request.resource.data.name.size() <= 100
+                   && request.resource.data.date is timestamp
+                   && request.resource.data.createdBy == request.auth.uid
+                   && request.resource.data.creatorEmail == request.auth.email;
+
+      // Allow the creator to update their own party (with validation)
+      // Also allow authenticated users to update specific fields like ratings, comments, mediaUrls, participants
       allow update: if request.auth != null && (
-                      request.auth.uid == resource.data.createdBy || // Creator can update anything
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings', 'comments', 'mediaUrls', 'participants', 'participantEmails']) // Others can update specific fields
-                    );
-      allow delete: if false; // Only admins (via Cloud Functions) should delete
+                    // Creator can update core details
+                    (request.auth.uid == resource.data.createdBy
+                      && request.resource.data.name is string
+                      && request.resource.data.name.size() >= 2
+                      && request.resource.data.name.size() <= 100
+                      && request.resource.data.date is timestamp
+                      // Ensure creator fields are not changed
+                      && request.resource.data.createdBy == resource.data.createdBy
+                      && request.resource.data.creatorEmail == resource.data.creatorEmail
+                      // Allow changing description, location, coverPhotoUrl
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'date', 'location', 'coverPhotoUrl'])
+                    ) ||
+                    // Any authenticated user can add ratings (updating the ratings map)
+                    (request.resource.data.ratings.size() >= resource.data.ratings.size()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings'])
+                      // Ensure the rating added is for the current user
+                      && request.resource.data.ratings[request.auth.uid] is number
+                      && request.resource.data.ratings[request.auth.uid] >= 0.5
+                      && request.resource.data.ratings[request.auth.uid] <= 5
+                      // Ensure only the user's rating is being added/modified
+                      && request.resource.data.ratings.diff(resource.data.ratings).affectedKeys().hasOnly([request.auth.uid])
+                    ) ||
+                    // Any authenticated user can add comments (arrayUnion)
+                    (request.resource.data.comments.size() > resource.data.comments.size()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comments'])
+                      // Basic validation for the added comment
+                      && request.resource.data.comments[-1].userId == request.auth.uid
+                      && request.resource.data.comments[-1].email == request.auth.email
+                      && request.resource.data.comments[-1].text is string
+                      && request.resource.data.comments[-1].text.size() > 0
+                      && request.resource.data.comments[-1].text.size() <= 500
+                      && request.resource.data.comments[-1].timestamp == request.time // Ensure server timestamp is used
+                    ) ||
+                    // Any authenticated user can add mediaUrls (arrayUnion)
+                    (request.resource.data.mediaUrls.size() > resource.data.mediaUrls.size()
+                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaUrls'])
+                       // Ensure added URLs are strings (basic validation)
+                       && request.resource.data.mediaUrls[-1] is string
+                     ) ||
+                    // Creator or Admin (via Cloud Function typically) can add participants
+                    ( (request.auth.uid == resource.data.createdBy) // Creator check
+                      && request.resource.data.participants.size() > resource.data.participants.size()
+                      && request.resource.data.participantEmails.size() > resource.data.participantEmails.size()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants', 'participantEmails'])
+                    )
+                 );
+
+
+      // Disallow client-side deletion
+      allow delete: if false;
     }
 
     match /users/{userId} {
-      allow read: if request.auth != null;
-      // Allow user to create their own document or update their own document
-      allow create, update: if request.auth != null && request.auth.uid == userId;
-      allow delete: if false; // Or check for admin role via Cloud Function if needed
-    }
+      // Allow anyone to read user profiles
+      allow read: if true;
 
-     // If you have subcollections, define rules for them here
-     // Example for comments within parties:
-     match /parties/{partyId}/comments/{commentId} {
-       allow read: if request.auth != null;
-       allow create: if request.auth != null;
-       allow update, delete: if false; // Usually comments are not editable/deletable by users
-     }
+      // Allow users to create their own profile document only upon signup
+      // Ensure the document ID matches the user's UID
+      allow create: if request.auth != null && request.auth.uid == userId
+                   && request.resource.data.uid == request.auth.uid // Ensure UID field matches
+                   && request.resource.data.email == request.auth.email // Ensure email matches
+                   && request.resource.data.createdAt == request.time; // Ensure server timestamp is used
+
+      // Allow users to update only their own profile
+      allow update: if request.auth != null && request.auth.uid == userId
+                   // Prevent changing critical fields like UID, email, createdAt
+                   && request.resource.data.uid == resource.data.uid
+                   && request.resource.data.email == resource.data.email
+                   && request.resource.data.createdAt == resource.data.createdAt;
+
+      // Disallow client-side deletion of user profiles
+      allow delete: if false;
+    }
   }
 }
