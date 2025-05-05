@@ -36,8 +36,8 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   getFileType, // Import getFileType
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema // Import schema from dedicated file
 } from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
 
 
 import { Progress } from '@/components/ui/progress';
@@ -518,9 +518,8 @@ export default function CreateEventPage() {
                                   render={({ field }) => (
                                       <FormItem>
                                       <FormLabel className="sr-only">Ajouter des participants</FormLabel>
-                                      <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
-                                            <FormControl>
-                                                 {/* Replace simple input with a more complex component if needed */}
+                                        <FormControl>
+                                            <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
                                                  <Input
                                                      placeholder="Entrer l'email des participants... (bientôt disponible)"
                                                      disabled // Disabled until UI/backend is ready
@@ -528,11 +527,11 @@ export default function CreateEventPage() {
                                                      // Pass necessary props if using a simple input
                                                      {...field} // Pass field props to the underlying Input
                                                  />
-                                            </FormControl>
-                                           <Button type="button" variant="outline" className="bg-secondary hover:bg-accent border-border" disabled>
-                                              <UserPlus className="mr-2 h-4 w-4"/> Ajouter
-                                           </Button>
-                                      </div>
+                                               <Button type="button" variant="outline" className="bg-secondary hover:bg-accent border-border" disabled>
+                                                  <UserPlus className="mr-2 h-4 w-4"/> Ajouter
+                                               </Button>
+                                            </div>
+                                        </FormControl>
                                       <FormDescription>Fonctionnalité en développement.</FormDescription>
                                       <FormMessage />
                                       </FormItem>
