@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy, Timestamp, FirestoreError } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, FirestoreError, where } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import Link from 'next/link';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -12,6 +12,7 @@ import { AlertTriangle, Calendar, Users, MessageSquare, Star } from 'lucide-reac
 import { useFirebase } from '@/context/FirebaseContext';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import type { PartyData, CommentData } from '@/lib/party-utils'; // Import types
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
@@ -20,13 +21,13 @@ interface UserData {
     uid: string;
     email: string;
     displayName?: string;
-    pseudo?: string; // Added pseudo
+    pseudo?: string;
     avatarUrl?: string;
-    createdAt?: FirestoreTimestamp | Timestamp | Date; // Allow Date type as well after conversion
-    // Add fields for stats (might be populated by backend functions later)
-    eventCount?: number; // Number of events created/participated
-    commentCount?: number; // Total comments made by the user
-    averageRatingGiven?: number; // Average rating GIVEN by this user
+    createdAt?: FirestoreTimestamp | Timestamp | Date;
+    // Add fields for stats (will be calculated client-side for now)
+    eventCount: number;
+    commentCount: number;
+    averageRatingGiven: number;
 }
 
 // Helper Functions
@@ -49,19 +50,63 @@ const getInitials = (name: string | null | undefined, email: string): string => 
     return '?';
 };
 
+// --- Client-Side Stat Calculation Helpers (Temporary) ---
+// NOTE: These calculations should ideally be done on the backend (e.g., Cloud Functions)
+// for better performance and scalability, especially for a list view.
+// Calculating them here involves extra Firestore reads for each user in the list.
+
+const calculateUserStats = async (userId: string): Promise<{ eventCount: number; commentCount: number; averageRatingGiven: number }> => {
+    if (!db) return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
+
+    try {
+        // 1. Fetch parties the user participated in
+        const partiesRef = collection(db, 'parties');
+        const participatedQuery = query(partiesRef, where('participants', 'array-contains', userId));
+        const partiesSnapshot = await getDocs(participatedQuery);
+        const participatedParties: PartyData[] = partiesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PartyData));
+
+        // 2. Calculate stats from these parties
+        let totalRatingGiven = 0;
+        let ratingCount = 0;
+        let commentCount = 0;
+
+        participatedParties.forEach(party => {
+            // Rating stats
+            if (party.ratings && party.ratings[userId] !== undefined) {
+                totalRatingGiven += party.ratings[userId];
+                ratingCount++;
+            }
+            // Comment stats (count comments made by this user in these parties)
+            if (party.comments) {
+                commentCount += party.comments.filter(comment => comment.userId === userId).length;
+            }
+        });
+
+        const averageRatingGiven = ratingCount > 0 ? totalRatingGiven / ratingCount : 0;
+
+        return {
+            eventCount: participatedParties.length,
+            commentCount: commentCount,
+            averageRatingGiven: averageRatingGiven,
+        };
+
+    } catch (error) {
+        console.error(`Erreur lors du calcul des stats pour l'utilisateur ${userId}:`, error);
+        return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 }; // Return defaults on error
+    }
+};
+
 
 // --- Users List Page Component ---
 export default function UsersListPage() {
     const [users, setUsers] = useState<UserData[]>([]);
     const [loading, setLoading] = useState(true); // Combined loading state
     const [error, setError] = useState<string | null>(null);
-    // Use context for Firebase status and auth loading
     const { user: currentUser, firebaseInitialized, loading: authLoading, initializationFailed, initializationErrorMessage } = useFirebase();
 
     useEffect(() => {
         console.log("[UsersListPage useEffect] State Check - Initialized:", firebaseInitialized, "Init Failed:", initializationFailed, "Auth Loading:", authLoading);
 
-        // If Firebase init failed, set error and stop loading
         if (initializationFailed) {
           console.error("[UsersListPage useEffect] Firebase initialization failed. Setting error state.");
           setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
@@ -69,20 +114,16 @@ export default function UsersListPage() {
           return;
         }
 
-        // If Firebase is not yet initialized OR user auth state is still loading, keep showing loader
         if (!firebaseInitialized || authLoading) {
           console.log("[UsersListPage useEffect] Waiting for Firebase init and user auth state...");
-          setLoading(true); // Ensure loading stays true while waiting
+          setLoading(true);
           return;
         }
 
-        // --- Firebase is initialized and auth state is known ---
-
-         // Check if user is authenticated (required for listing users according to common rules)
          if (!currentUser) {
              console.log("[UsersListPage useEffect] User not authenticated. Cannot fetch user list.");
-             //setError("Veuillez vous connecter pour voir la liste des utilisateurs."); // Uncomment if you want to show an error instead
-             setUsers([]); // Ensure user list is empty
+             //setError("Veuillez vous connecter pour voir la liste des utilisateurs."); // Optionally show error
+             setUsers([]);
              setLoading(false);
              return;
          }
@@ -94,73 +135,69 @@ export default function UsersListPage() {
             return;
         }
 
-        const fetchUsers = async () => {
-            console.log("[fetchUsers] Starting user fetch. setLoading(true), setError(null).");
-            setLoading(true); // Keep loading true as fetch starts
-            setError(null); // Reset error for this attempt
+        const fetchUsersAndStats = async () => {
+            console.log("[fetchUsersAndStats] Starting user fetch. setLoading(true), setError(null).");
+            setLoading(true);
+            setError(null);
 
             try {
                 const usersCollectionRef = collection(db, 'users');
-                // Querying the users collection. Ensure Firestore rules allow this.
-                // Ordering by 'createdAt' descending. Ensure this field exists and is indexed.
                 const q = query(usersCollectionRef, orderBy('createdAt', 'desc'));
 
-                console.log("[fetchUsers] Executing Firestore query for users collection...");
+                console.log("[fetchUsersAndStats] Executing Firestore query for users collection...");
                 const querySnapshot = await getDocs(q);
-                console.log(`[fetchUsers] Firestore query executed. Found ${querySnapshot.size} documents.`); // Log snapshot size BEFORE mapping
+                console.log(`[fetchUsersAndStats] Firestore query executed. Found ${querySnapshot.size} user documents.`);
 
                 if (querySnapshot.empty) {
-                    console.log("[fetchUsers] No users found in 'users' collection.");
+                    console.log("[fetchUsersAndStats] No users found in 'users' collection.");
                     setUsers([]);
                 } else {
-                    console.log("[fetchUsers] Mapping user documents to UserData...");
-                    const usersData = querySnapshot.docs.map(doc => {
-                         const data = doc.data();
-                         // console.log(`[fetchUsers Mapping] Doc ID: ${doc.id}, Raw data:`, JSON.stringify(data)); // Verbose log
+                    console.log("[fetchUsersAndStats] Mapping user documents and calculating stats (client-side)...");
 
-                         // Basic validation
+                    // Map initial user data
+                    const initialUsersData = querySnapshot.docs.map(doc => {
+                         const data = doc.data();
                          if (!data.uid || !data.email) {
-                             console.warn(`[fetchUsers Mapping] Doc ${doc.id}: uid or email missing. Skipped. Data:`, data);
+                             console.warn(`[fetchUsersAndStats Mapping] Doc ${doc.id}: uid or email missing. Skipped. Data:`, data);
                              return null;
                          }
-                         // Use validated/converted timestamp or undefined
                          const createdAtTimestamp = getDateFromTimestamp(data.createdAt);
-
-                         const userDataObject: UserData = {
+                         return {
                             id: doc.id,
                             uid: data.uid,
                             email: data.email,
-                            displayName: data.displayName || data.email.split('@')[0], // Fallback display name
-                            pseudo: data.pseudo, // Include pseudo
+                            displayName: data.displayName || data.email.split('@')[0],
+                            pseudo: data.pseudo,
                             avatarUrl: data.avatarUrl,
-                            createdAt: createdAtTimestamp || undefined, // Use the validated/converted timestamp or undefined
-                            // NOTE: These stats (eventCount, commentCount, averageRatingGiven)
-                            // should ideally be calculated and updated in Firestore via backend logic (e.g., Cloud Functions)
-                            // for efficiency and accuracy, especially for a list view.
-                            // The frontend currently defaults them to 0 if not found in the document.
-                            eventCount: data.eventCount ?? 0, // Use nullish coalescing for default 0
-                            commentCount: data.commentCount ?? 0, // Use nullish coalescing for default 0
-                            averageRatingGiven: data.averageRatingGiven ?? 0, // Use nullish coalescing
+                            createdAt: createdAtTimestamp || undefined,
+                            // Initialize stats - will be updated later
+                            eventCount: 0,
+                            commentCount: 0,
+                            averageRatingGiven: 0,
                          };
-                         // console.log(`[fetchUsers Mapping] Doc ${doc.id} mapped successfully:`, userDataObject);
-                         return userDataObject;
-                    }).filter(user => user !== null) as UserData[]; // Filter out nulls from validation failures
+                    }).filter(user => user !== null) as UserData[];
 
-                     // Sort by createdAt DESCENDING *after* fetching and mapping
-                     // Firestore should handle sorting now with the orderBy clause, but this client-side sort is a fallback
-                    usersData.sort((a, b) => {
+                    // Fetch and calculate stats for each user (INEFFICIENT - See NOTE above)
+                    const usersWithStatsPromises = initialUsersData.map(async (user) => {
+                        const stats = await calculateUserStats(user.uid);
+                        return { ...user, ...stats };
+                    });
+
+                    const usersDataWithStats = await Promise.all(usersWithStatsPromises);
+
+                    // Sort again if necessary, though Firestore query should handle it
+                    usersDataWithStats.sort((a, b) => {
                         const timeA = getDateFromTimestamp(a.createdAt)?.getTime() || 0;
                         const timeB = getDateFromTimestamp(b.createdAt)?.getTime() || 0;
                         return timeB - timeA;
                     });
 
-                    console.log(`[fetchUsers] Mapped users data (after filter and sort): ${usersData.length} items`); // Log the mapped data AFTER filtering
-                    setUsers(usersData);
-                    console.log(`[fetchUsers] Users state updated with ${usersData.length} items.`);
+                    console.log(`[fetchUsersAndStats] Mapped users data with stats: ${usersDataWithStats.length} items`);
+                    setUsers(usersDataWithStats);
                 }
 
             } catch (fetchError: any) {
-                console.error('[fetchUsers] Error during Firestore query or mapping:', fetchError);
+                console.error('[fetchUsersAndStats] Error during Firestore query or mapping:', fetchError);
                 let userFriendlyError = "Impossible de charger la liste des utilisateurs.";
                  if (fetchError instanceof FirestoreError) {
                       if (fetchError.code === 'permission-denied' || fetchError.code === 'unauthenticated') {
@@ -179,23 +216,21 @@ export default function UsersListPage() {
                      userFriendlyError = `Erreur inattendue: ${fetchError.message}`;
                  }
                 setError(userFriendlyError);
-                setUsers([]); // Ensure users state is empty on error
+                setUsers([]);
             } finally {
-                 console.log("[fetchUsers] Fetch attempt finished. setLoading(false).");
-                setLoading(false); // Fetch is complete (success or error)
+                 console.log("[fetchUsersAndStats] Fetch attempt finished. setLoading(false).");
+                setLoading(false);
             }
         };
 
-        fetchUsers();
+        fetchUsersAndStats();
 
-    // Include all dependencies that trigger re-fetching or state checks
     }, [firebaseInitialized, authLoading, initializationFailed, initializationErrorMessage, currentUser]);
 
     // --- Render Logic ---
 
     console.log("[UsersListPage Render] Loading:", loading, "Auth Loading:", authLoading, "Error:", error, "Users Count:", users.length, "Firebase Initialized:", firebaseInitialized, "Init Failed:", !!initializationFailed);
 
-    // Show Skeleton Loader if EITHER context is loading OR page is fetching data
     if (loading) {
         console.log("[UsersListPage Render] Displaying Skeleton Loader.");
         return (
@@ -212,7 +247,6 @@ export default function UsersListPage() {
                                         <Skeleton className="h-4 w-40 bg-muted" />
                                     </div>
                                 </div>
-                                {/* Skeleton for stats */}
                                 <div className="hidden md:flex items-center gap-6 text-sm">
                                      <Skeleton className="h-5 w-16 bg-muted" />
                                      <Skeleton className="h-5 w-16 bg-muted" />
@@ -226,9 +260,8 @@ export default function UsersListPage() {
         );
     }
 
-    // Show Error Alert if initialization failed OR a fetch error occurred
-    if (error) { // Covers both initialization errors and fetch errors
-         const displayError = error; // Error state now holds the specific message
+    if (error) {
+         const displayError = error;
          console.error("[UsersListPage Render] Displaying Error Alert:", displayError);
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
@@ -259,7 +292,6 @@ export default function UsersListPage() {
         );
     }
 
-     // Handle case where user is not logged in (and fetch wasn't attempted or returned empty due to rules)
      if (!currentUser && !loading && !error) {
          return (
              <div className="container mx-auto px-4 py-12 text-center">
@@ -269,8 +301,8 @@ export default function UsersListPage() {
      }
 
 
-    // Display User List only if not loading and no errors
-     console.log("[UsersListPage Render] Displaying user list. Actual users in state:", users); // Log actual state data
+    // Display User List
+     console.log("[UsersListPage Render] Displaying user list. Actual users in state:", users);
     return (
         <div className="container mx-auto px-4 py-12">
             <h1 className="text-3xl font-bold mb-8 text-primary flex items-center gap-2">
@@ -282,12 +314,11 @@ export default function UsersListPage() {
                 <div className="space-y-3">
                     {users.map((usr) => {
                         const joinDate = getDateFromTimestamp(usr.createdAt);
-                        // Use pseudo if available, otherwise displayName, otherwise fallback
                         const displayUsername = usr.pseudo || usr.displayName || usr.email.split('@')[0];
-                        // Calculate average rating safely, default to '-' if 0 or undefined
+                        // Use the calculated stats from the user object
                         const avgRating = usr.averageRatingGiven ? usr.averageRatingGiven.toFixed(1) : '-';
-                        const eventCount = usr.eventCount ?? 0; // Use nullish coalescing for default 0
-                        const commentCount = usr.commentCount ?? 0; // Use nullish coalescing for default 0
+                        const eventCount = usr.eventCount;
+                        const commentCount = usr.commentCount;
 
                         return (
                             <Link href={`/user/${usr.uid}`} key={usr.id} className="block group">
@@ -320,19 +351,19 @@ export default function UsersListPage() {
                                             </div>
                                         </div>
 
-                                        {/* Stats - Use fetched data with defaults */}
+                                        {/* Stats - Use calculated data */}
                                         <div className="flex items-center justify-end gap-4 md:gap-6 text-xs md:text-sm text-muted-foreground w-full sm:w-auto mt-2 sm:mt-0">
                                             <div className="flex items-center gap-1" title={`${eventCount} événements participés/créés`}>
-                                                 <Users className="h-3.5 w-3.5 text-green-500" />
-                                                 <span>{eventCount}</span> {/* Display event count */}
+                                                 <Users className="h-3.5 w-3.5 text-primary" /> {/* Use theme color */}
+                                                 <span>{eventCount}</span>
                                             </div>
                                              <div className="flex items-center gap-1" title={`${commentCount} commentaires`}>
-                                                 <MessageSquare className="h-3.5 w-3.5 text-blue-500" />
-                                                 <span>{commentCount}</span> {/* Display comment count */}
+                                                 <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                                                 <span>{commentCount}</span>
                                             </div>
                                             <div className="flex items-center gap-1" title={`Note moyenne donnée: ${avgRating}`}>
-                                                <Star className="h-3.5 w-3.5 text-yellow-500" />
-                                                <span>{avgRating}</span> {/* Display average rating */}
+                                                <Star className="h-3.5 w-3.5 text-yellow-400" /> {/* Keep yellow for stars */}
+                                                <span>{avgRating}</span>
                                             </div>
                                         </div>
                                     </div>
