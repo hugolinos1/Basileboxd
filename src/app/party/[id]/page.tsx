@@ -39,13 +39,13 @@ import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
-// Interface Comment mise à jour pour accepter FieldValue lors de la création
+// Revert Comment interface timestamp type
 interface Comment {
     userId: string;
     email: string;
     avatar?: string | null;
     text: string;
-    timestamp: Timestamp | FirestoreTimestamp | Date | FieldValue; // Accept FieldValue
+    timestamp: Timestamp | FirestoreTimestamp | Date; // Reverted: Removed FieldValue here
 }
 interface MediaItem { url: string; type: 'image' | 'video' | 'audio' | 'autre'; }
 interface PartyData {
@@ -257,7 +257,7 @@ export default function PartyDetailsPage() {
      }
   };
 
-   const handleAddComment = async () => {
+  const handleAddComment = async () => {
     if (!user || !party || !comment.trim() || !db || !firebaseInitialized) {
       toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' });
       return;
@@ -265,17 +265,17 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const partyDocRef = doc(db, 'parties', party.id);
-      // Use serverTimestamp directly for FieldValue type
-      const newComment: Comment = {
+      // Correctly create the comment object WITH serverTimestamp() for the timestamp field
+      const newCommentData = {
         userId: user.uid,
         email: user.email || 'anonyme',
-        avatar: user.photoURL ?? null, // Ensure null instead of undefined
+        avatar: user.photoURL ?? null, // Use null instead of undefined
         text: comment.trim(),
-        timestamp: serverTimestamp() // Use FieldValue directly
+        timestamp: serverTimestamp() // Use the server timestamp function here
       };
 
       await updateDoc(partyDocRef, {
-        comments: arrayUnion(newComment)
+        comments: arrayUnion(newCommentData) // Pass the prepared object
       });
 
       setComment('');
@@ -296,30 +296,7 @@ export default function PartyDetailsPage() {
     }
 };
 
-  // Test timestamp function
-    async function getServerTime(): Promise<Timestamp> {
-        // A hack to get server time: write a temp doc with serverTimestamp, read it, then delete.
-        // Note: This is inefficient and not recommended for frequent use.
-        // It's better to rely on the serverTimestamp during the actual write operation.
-        if (!db) throw new Error("Firestore not initialized");
-        const tempDocRef = doc(collection(db, '_serverTimeTest'));
-        await setDoc(tempDocRef, { time: serverTimestamp() });
-        const snapshot = await getDoc(tempDocRef);
-        await deleteDoc(tempDocRef);
-        const serverTime = snapshot.data()?.time as Timestamp;
-        return serverTime.toDate();
-    }
 
-    const handleGetServerTime = async () => {
-        try {
-            const serverTime = await getServerTime();
-            console.log('Heure du serveur récupérée :', serverTime);
-            toast({ title: 'Succès', description: `Timestamp serveur : ${serverTime}`, duration: 10000 });
-        } catch (error) {
-            console.error('Erreur lors de la récupération de l\'heure du serveur :', error);
-            toast({ title: 'Erreur', description: `Impossible de récupérer l'heure du serveur: ${error}`, variant: 'destructive' });
-        }
-    };
 
 
   // --- Souvenir Upload Handlers ---
@@ -768,7 +745,6 @@ export default function PartyDetailsPage() {
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
-
                                 </div>
                             </div>
                         </div>
