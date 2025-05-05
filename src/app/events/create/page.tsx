@@ -39,10 +39,12 @@ import { Video, Music, File as FileIcon } from 'lucide-react'; // Renamed File t
 
 // Schema Definition remains similar, add coverPhoto, initialRating, initialComment
 const MAX_FILE_SIZE = {
-  image: 1 * 1024 * 1024, // 1MB
+  image: 10 * 1024 * 1024, // Increased to 10MB for initial upload
   video: 10 * 1024 * 1024, // 10MB
   audio: 5 * 1024 * 1024, // 5MB
 };
+const COMPRESSED_COVER_PHOTO_MAX_SIZE_MB = 1; // Compress cover photos to 1MB
+
 const ACCEPTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'audio/mpeg', 'audio/wav'];
 const ACCEPTED_COVER_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -64,9 +66,9 @@ const coverPhotoSchema = fileSchema
     .refine(
         (file) => {
             if (!isBrowser || !(file instanceof File)) return true; // Skip validation server-side or if not a File
-            return file.size <= MAX_FILE_SIZE.image;
+            return file.size <= MAX_FILE_SIZE.image; // Check against the initial larger upload size
         },
-        `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
+        `La photo de couverture initiale ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
     )
     .optional(); // Make cover photo optional
 
@@ -188,9 +190,9 @@ export default function CreateEventPage() {
         const file = event.target.files?.[0];
         console.log("Fichier sélectionné pour la couverture:", file); // Log file info
         if (file) {
-             // Validate the file against the schema before setting value and preview
+             // Validate the file against the schema (initial size check)
              const validationResult = coverPhotoSchema.safeParse(file);
-             console.log("Résultat de la validation de la couverture:", validationResult); // Log validation result
+             console.log("Résultat de la validation initiale de la couverture:", validationResult); // Log validation result
 
              if (validationResult.success) {
                  form.setValue('coverPhoto', file, { shouldValidate: true });
@@ -267,7 +269,7 @@ export default function CreateEventPage() {
     }, [mediaPreviews, coverPhotoPreview]);
 
 
-    // Simplified upload logic (based on existing party/create)
+    // Updated upload logic with cover photo compression
     const uploadFile = async (file: File, partyId: string, isCover: boolean = false): Promise<string> => {
         if (!storage) {
             throw new Error("Le service de stockage n'est pas disponible.");
@@ -275,49 +277,63 @@ export default function CreateEventPage() {
         return new Promise(async (resolve, reject) => {
             const fileType = getFileType(file);
             let fileToUpload = file;
-            let targetSizeMB = 0;
-            let maxSize = 0;
+            let maxSize = Infinity; // Default to no limit unless specified
+            let targetSizeMBForCompression = 0; // Target for compression
 
+            // Determine max size and compression target based on type
             if (fileType === 'image') {
-                targetSizeMB = MAX_FILE_SIZE.image / (1024 * 1024);
-                maxSize = MAX_FILE_SIZE.image;
+                maxSize = MAX_FILE_SIZE.image; // Initial upload limit
+                targetSizeMBForCompression = isCover ? COMPRESSED_COVER_PHOTO_MAX_SIZE_MB : MAX_FILE_SIZE.image / (1024 * 1024); // Use specific target for cover, otherwise general image target
             } else if (fileType === 'video') {
-                targetSizeMB = MAX_FILE_SIZE.video / (1024 * 1024);
-                 maxSize = MAX_FILE_SIZE.video;
+                maxSize = MAX_FILE_SIZE.video;
+                targetSizeMBForCompression = MAX_FILE_SIZE.video / (1024 * 1024);
             } else if (fileType === 'audio') {
-                targetSizeMB = MAX_FILE_SIZE.audio / (1024 * 1024);
-                 maxSize = MAX_FILE_SIZE.audio;
-            } else if (!isCover) { // Don't reject if it's just not an image/video/audio for general media
-                 console.warn(`Type de fichier non supporté pour la compression : ${file.type}`);
-                 maxSize = 50 * 1024 * 1024; // Allow other types up to 50MB for now
-            }
-             else { // Reject unsupported cover photo types
-                 reject(new Error('Type de fichier non supporté pour la photo de couverture'));
-                 return;
+                maxSize = MAX_FILE_SIZE.audio;
+                targetSizeMBForCompression = MAX_FILE_SIZE.audio / (1024 * 1024);
+            } else {
+                // Handle 'autre' types - currently no compression, allow up to 50MB
+                console.warn(`Type de fichier non supporté pour la compression : ${file.type}`);
+                maxSize = 50 * 1024 * 1024;
             }
 
-            // Compress images
+             // Initial size check (before compression attempt)
+             if (file.size > maxSize) {
+                 reject(new Error(`Le fichier initial ${file.name} dépasse la limite de taille autorisée (${(maxSize / 1024 / 1024).toFixed(1)}Mo).`));
+                 return;
+             }
+
+            // Compress image (cover or general) if it's an image type
             if (fileType === 'image') {
                 try {
-                    const compressedBlobResult = await compressMedia(file, { maxSizeMB: targetSizeMB });
+                    console.log(`Compression de l'image ${file.name} vers ${targetSizeMBForCompression}Mo...`);
+                    const compressedBlobResult = await compressMedia(file, { maxSizeMB: targetSizeMBForCompression });
                     const compressedBlob = compressedBlobResult.blob;
                     fileToUpload = compressedBlob instanceof File ? compressedBlob : new File([compressedBlob], file.name, { type: compressedBlob.type });
-                    // Use compressed file only if smaller
-                    if(fileToUpload.size >= file.size) {
-                        fileToUpload = file;
-                        console.log(`Compression n'a pas réduit la taille pour ${file.name}, utilisation de l'original.`);
+
+                    // Log compression result
+                    if (fileToUpload.size < file.size) {
+                         console.log(`Compression réussie pour ${file.name}, nouvelle taille : ${(fileToUpload.size / 1024 / 1024).toFixed(2)} Mo`);
+                    } else {
+                        console.log(`Compression pour ${file.name} n'a pas réduit la taille. Utilisation du fichier original.`);
+                        fileToUpload = file; // Revert to original if compression didn't help
                     }
                 } catch (compressionError) {
                     console.warn(`Impossible de compresser l'image ${file.name}:`, compressionError);
                     fileToUpload = file; // Proceed with original if compression fails
                 }
             }
+            // Note: Video/Audio compression is not implemented here.
 
-            // Check final size
-            if (maxSize !== Infinity && fileToUpload.size > maxSize) {
-                 reject(new Error(`Le fichier ${file.name} dépasse la limite de taille autorisée (${(maxSize / 1024 / 1024).toFixed(1)}Mo).`));
+            // Final size check after potential compression (only relevant if compression happened)
+            // For cover photos, this implicitly checks against the compressed target size.
+            // For other types, it re-checks against their respective limits if compression was attempted.
+            // This check might be redundant if compression always meets the target, but good failsafe.
+            const finalMaxSizeCheck = fileType === 'image' && isCover ? (COMPRESSED_COVER_PHOTO_MAX_SIZE_MB * 1024 * 1024) : maxSize;
+             if (fileToUpload.size > finalMaxSizeCheck) {
+                 reject(new Error(`Le fichier final ${fileToUpload.name} après traitement dépasse la limite de taille autorisée (${(finalMaxSizeCheck / 1024 / 1024).toFixed(1)}Mo).`));
                  return;
-            }
+             }
+
 
             const filePath = isCover
                 ? `parties/${partyId}/cover/${Date.now()}_${fileToUpload.name}`
@@ -415,6 +431,7 @@ export default function CreateEventPage() {
         if (values.coverPhoto) {
             try {
                 console.log("Téléversement de la photo de couverture...");
+                // uploadFile will now compress the cover photo before uploading
                 coverPhotoUrl = await uploadFile(values.coverPhoto, partyId, true);
                  console.log("URL de la photo de couverture téléversée:", coverPhotoUrl);
             } catch (error: any) {
@@ -432,6 +449,7 @@ export default function CreateEventPage() {
          if (values.media && values.media.length > 0) {
               console.log(`Téléversement de ${values.media.length} fichier(s) média...`);
              const uploadPromises = values.media.map(file =>
+                  // uploadFile will compress general images based on standard settings
                  uploadFile(file, partyId).catch(error => {
                      toast({
                          title: `Échec du téléversement pour ${file.name}`,
@@ -620,7 +638,7 @@ export default function CreateEventPage() {
                                                      ) : (
                                                          <div className="flex flex-col items-center justify-center text-center h-full">
                                                              <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
-                                                             <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo pour personnaliser votre soirée.</p>
+                                                             <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo (max {MAX_FILE_SIZE.image / 1024 / 1024}Mo, sera compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo).</p>
                                                              <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}>
                                                                  <Upload className="mr-2 h-4 w-4" />
                                                                  Ajouter une photo
@@ -770,7 +788,7 @@ export default function CreateEventPage() {
                                             Importer Souvenirs (Photos, Vidéos, Sons)
                                         </Button>
                                          <FormDescription>
-                                            Max {MAX_FILE_SIZE.image/1024/1024}Mo/Image, {MAX_FILE_SIZE.video/1024/1024}Mo/Vidéo, {MAX_FILE_SIZE.audio/1024/1024}Mo/Son.
+                                            Max {MAX_FILE_SIZE.image/1024/1024}Mo/Image (sera compressée), {MAX_FILE_SIZE.video/1024/1024}Mo/Vidéo, {MAX_FILE_SIZE.audio/1024/1024}Mo/Son.
                                         </FormDescription>
                                         <FormMessage />
                                         </FormItem>
