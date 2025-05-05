@@ -49,7 +49,7 @@ const ACCEPTED_COVER_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 // Use z.any() on the server and refine on the client
 const isBrowser = typeof window !== 'undefined';
 
-const fileSchemaClient = z.instanceof(File, { message: 'Veuillez télécharger un fichier' });
+const fileSchemaClient = z.instanceof(isBrowser ? File : Object, { message: 'Veuillez télécharger un fichier' }); // Use Object as fallback for SSR
 const fileSchemaServer = z.any();
 const fileSchema = isBrowser ? fileSchemaClient : fileSchemaServer;
 
@@ -186,47 +186,59 @@ export default function CreateEventPage() {
      // Cover Photo Handling
     const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
+        console.log("Fichier sélectionné pour la couverture:", file); // Log file info
         if (file) {
              // Validate the file against the schema before setting value and preview
-             // Use safeParse for better type checking if needed
-             const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; // Skip validation if not browser or not File
+             const validationResult = coverPhotoSchema.safeParse(file);
+             console.log("Résultat de la validation de la couverture:", validationResult); // Log validation result
 
              if (validationResult.success) {
                  form.setValue('coverPhoto', file, { shouldValidate: true });
                  if (coverPhotoPreview) {
                      URL.revokeObjectURL(coverPhotoPreview); // Clean up previous preview
                  }
-                 setCoverPhotoPreview(URL.createObjectURL(file));
+                 const newPreviewUrl = URL.createObjectURL(file);
+                 console.log("URL de l'aperçu de la couverture créée:", newPreviewUrl); // Log new preview URL
+                 setCoverPhotoPreview(newPreviewUrl);
              } else {
-                 // Show validation error only if validationResult has errors
-                 // Use optional chaining to safely access error properties
+                 // Show validation error
                  const errorMessage = validationResult.error?.errors?.[0]?.message || 'Validation a échoué.';
+                 console.error("Erreur de validation de la photo de couverture:", errorMessage); // Log error
                  form.setError('coverPhoto', { type: 'manual', message: errorMessage });
+                 toast({ // Add toast notification for user
+                    title: "Erreur de Photo de Couverture",
+                    description: errorMessage,
+                    variant: "destructive"
+                 });
 
                  // Clear the input and preview
                  form.setValue('coverPhoto', undefined, { shouldValidate: true });
                  if (coverPhotoPreview) {
-                   URL.revokeObjectURL(coverPhotoPreview);
+                    console.log("Révoquer l'URL de l'aperçu précédent:", coverPhotoPreview); // Log URL revocation
+                    URL.revokeObjectURL(coverPhotoPreview);
                  }
                  setCoverPhotoPreview(null);
-                 // Explicitly cast to HTMLInputElement to access 'value' property
                  const inputElement = event.target as HTMLInputElement;
                  if (inputElement) {
                     inputElement.value = ''; // Clear file input
                  }
              }
         } else {
+             console.log("Aucun fichier sélectionné pour la couverture."); // Log if no file selected
             form.setValue('coverPhoto', undefined, { shouldValidate: true });
             if (coverPhotoPreview) {
+                 console.log("Révoquer l'URL de l'aperçu précédent:", coverPhotoPreview); // Log URL revocation
                 URL.revokeObjectURL(coverPhotoPreview);
             }
             setCoverPhotoPreview(null);
         }
     };
 
+
      const removeCoverPhoto = () => {
         form.setValue('coverPhoto', undefined, { shouldValidate: true });
         if (coverPhotoPreview) {
+            console.log("Retrait de l'aperçu de la couverture:", coverPhotoPreview);
             URL.revokeObjectURL(coverPhotoPreview);
         }
         setCoverPhotoPreview(null);
@@ -235,14 +247,20 @@ export default function CreateEventPage() {
         if (input) {
             input.value = '';
         }
+         console.log("Photo de couverture retirée.");
     };
 
 
     // Cleanup previews on unmount
     useEffect(() => {
         return () => {
-            mediaPreviews.forEach(url => URL.revokeObjectURL(url));
+            console.log("Nettoyage des aperçus de médias au démontage...");
+            mediaPreviews.forEach(url => {
+                console.log("Révoquer l'URL de l'aperçu média:", url);
+                URL.revokeObjectURL(url);
+            });
             if (coverPhotoPreview) {
+                console.log("Révoquer l'URL de l'aperçu de la couverture:", coverPhotoPreview);
                 URL.revokeObjectURL(coverPhotoPreview);
             }
         }
@@ -396,7 +414,9 @@ export default function CreateEventPage() {
         let coverPhotoUrl = '';
         if (values.coverPhoto) {
             try {
+                console.log("Téléversement de la photo de couverture...");
                 coverPhotoUrl = await uploadFile(values.coverPhoto, partyId, true);
+                 console.log("URL de la photo de couverture téléversée:", coverPhotoUrl);
             } catch (error: any) {
                  toast({
                     title: `Échec du téléversement de la photo de couverture`,
@@ -410,6 +430,7 @@ export default function CreateEventPage() {
         // 3. Upload Media Files (if any)
          const mediaUrls: string[] = [];
          if (values.media && values.media.length > 0) {
+              console.log(`Téléversement de ${values.media.length} fichier(s) média...`);
              const uploadPromises = values.media.map(file =>
                  uploadFile(file, partyId).catch(error => {
                      toast({
@@ -424,6 +445,7 @@ export default function CreateEventPage() {
              results.forEach(url => {
                  if (url) mediaUrls.push(url); // Only add successful URLs
              });
+              console.log("URLs des médias téléversés:", mediaUrls);
              if (values.media.length > 0 && mediaUrls.length === 0 && !coverPhotoUrl) {
                  // All uploads failed, and no cover photo either
                  throw new Error("Tous les téléversements de médias ont échoué. Création de l'événement annulée.");
@@ -431,6 +453,7 @@ export default function CreateEventPage() {
          }
 
         // 4. Update party document with media and cover URLs
+         console.log("Mise à jour du document de la fête avec les URLs...");
          await updateDoc(partyDocRef, {
             mediaUrls: mediaUrls,
             coverPhotoUrl: coverPhotoUrl || '' // Use uploaded URL or empty string
@@ -611,7 +634,13 @@ export default function CreateEventPage() {
                                                          accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
                                                          onChange={handleCoverPhotoChange}
                                                          className="sr-only"
-                                                         // RHF handles ref, name, onBlur, onChange internally through Controller
+                                                          // RHF handles ref, name, onBlur, onChange internally through Controller
+                                                          // We only need to handle the change event.
+                                                          // Remove unnecessary RHF props: ref, onBlur, name, disabled
+                                                          // ref={field.ref}
+                                                          // onBlur={field.onBlur}
+                                                          // name={field.name}
+                                                          // disabled={field.disabled}
                                                      />
                                                    </div>
                                                 </FormControl>
