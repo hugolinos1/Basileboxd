@@ -22,7 +22,7 @@ interface UserData {
     displayName?: string;
     pseudo?: string; // Added pseudo
     avatarUrl?: string;
-    createdAt?: FirestoreTimestamp | Timestamp;
+    createdAt?: FirestoreTimestamp | Timestamp | Date; // Allow Date type as well after conversion
     // Add fields for stats (might be populated by backend functions later)
     eventCount?: number;
     commentCount?: number;
@@ -30,11 +30,12 @@ interface UserData {
 }
 
 // Helper Functions
-const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefined): Date | null => {
+const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date | undefined): Date | null => {
     if (!timestamp) return null;
     try {
         if (timestamp instanceof Timestamp) return timestamp.toDate();
-        if (typeof timestamp === 'object' && typeof timestamp.seconds === 'number') {
+        if (timestamp instanceof Date) return timestamp; // Already a Date object
+        if (typeof timestamp === 'object' && 'seconds' in timestamp && typeof timestamp.seconds === 'number') {
             const date = new Date(timestamp.seconds * 1000);
             return isNaN(date.getTime()) ? null : date;
         }
@@ -100,9 +101,9 @@ export default function UsersListPage() {
 
             try {
                 const usersCollectionRef = collection(db, 'users');
-                // IMPORTANT: Ensure 'createdAt' field exists on ALL user documents for ordering to work reliably.
-                // Also ensure Firestore rules allow 'list' operation on /users for authenticated users
-                const q = query(usersCollectionRef, orderBy('createdAt', 'desc')); // Order by creation time
+                 // Querying the users collection. Ensure Firestore rules allow this.
+                // Ordering by 'createdAt' descending. Ensure this field exists and is indexed.
+                const q = query(usersCollectionRef, orderBy('createdAt', 'desc')); // Try ordering again
 
                 console.log("[fetchUsers] Executing Firestore query for users collection...");
                 const querySnapshot = await getDocs(q);
@@ -142,7 +143,15 @@ export default function UsersListPage() {
                          return userDataObject;
                     }).filter(user => user !== null) as UserData[]; // Filter out nulls from validation failures
 
-                    console.log(`[fetchUsers] Mapped users data (after filter): ${usersData.length} items`); // Log the mapped data AFTER filtering
+                     // Sort by createdAt DESCENDING *after* fetching and mapping
+                     // Firestore should handle sorting now with the orderBy clause, but this client-side sort is a fallback
+                    usersData.sort((a, b) => {
+                        const timeA = getDateFromTimestamp(a.createdAt)?.getTime() || 0;
+                        const timeB = getDateFromTimestamp(b.createdAt)?.getTime() || 0;
+                        return timeB - timeA;
+                    });
+
+                    console.log(`[fetchUsers] Mapped users data (after filter and sort): ${usersData.length} items`); // Log the mapped data AFTER filtering
                     setUsers(usersData);
                     console.log(`[fetchUsers] Users state updated with ${usersData.length} items.`);
                 }
@@ -215,9 +224,9 @@ export default function UsersListPage() {
     }
 
     // Show Error Alert if initialization failed OR a fetch error occurred
-    if (error) {
-        const displayError = error;
-        console.error("[UsersListPage Render] Displaying Error Alert:", displayError); // Log error before returning JSX
+    if (error) { // Covers both initialization errors and fetch errors
+         const displayError = error; // Error state now holds the specific message
+        // Note: Removed console.error here, Alert component handles display
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
@@ -228,7 +237,7 @@ export default function UsersListPage() {
                          {/* Specific hints based on error */}
                          {(error.includes("Permission refusée") || error.includes("unauthenticated")) && (
                             <p className="mt-2 text-xs">
-                                Conseil : Vérifiez que vous êtes connecté et que les règles de sécurité Firestore pour la collection `/users` autorisent l'opération `list` ou `get` pour les utilisateurs authentifiés (ex: `allow list: if request.auth != null;`).
+                                Conseil : Vérifiez que vous êtes connecté et que les règles de sécurité Firestore pour la collection `/users` autorisent l'opération `list` ou `get` pour les utilisateurs authentifiés (ex: `allow read: if request.auth != null;`).
                             </p>
                          )}
                           {(error.includes("Index Firestore manquant")) && (
@@ -274,6 +283,8 @@ export default function UsersListPage() {
                         const displayUsername = usr.pseudo || usr.displayName || usr.email.split('@')[0];
                         // Calculate average rating safely
                         const avgRating = usr.averageRatingGiven ? usr.averageRatingGiven.toFixed(1) : '-';
+                        const eventCount = usr.eventCount ?? 0; // Use nullish coalescing for default 0
+                        const commentCount = usr.commentCount ?? 0; // Use nullish coalescing for default 0
 
                         return (
                             <Link href={`/user/${usr.uid}`} key={usr.id} className="block group">
@@ -308,13 +319,13 @@ export default function UsersListPage() {
 
                                         {/* Stats - Use fetched data with defaults */}
                                         <div className="flex items-center justify-end gap-4 md:gap-6 text-xs md:text-sm text-muted-foreground w-full sm:w-auto mt-2 sm:mt-0">
-                                            <div className="flex items-center gap-1" title={`${usr.eventCount || 0} événements participés/créés`}>
+                                            <div className="flex items-center gap-1" title={`${eventCount} événements participés/créés`}>
                                                  <Users className="h-3.5 w-3.5 text-green-500" />
-                                                 <span>{usr.eventCount || 0}</span>
+                                                 <span>{eventCount}</span>
                                             </div>
-                                             <div className="flex items-center gap-1" title={`${usr.commentCount || 0} commentaires`}>
+                                             <div className="flex items-center gap-1" title={`${commentCount} commentaires`}>
                                                  <MessageSquare className="h-3.5 w-3.5 text-blue-500" />
-                                                 <span>{usr.commentCount || 0}</span>
+                                                 <span>{commentCount}</span>
                                             </div>
                                             <div className="flex items-center gap-1" title={`Note moyenne donnée: ${avgRating}`}>
                                                 <Star className="h-3.5 w-3.5 text-yellow-500" />
@@ -331,3 +342,4 @@ export default function UsersListPage() {
         </div>
     );
 }
+
