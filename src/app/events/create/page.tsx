@@ -37,8 +37,9 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   getFileType,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema // Import coverPhotoSchema from service
 } from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
+
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,9 +50,10 @@ import { Video, Music, File as FileIcon } from 'lucide-react';
 const isBrowser = typeof window !== 'undefined';
 
 // Use zod directly for file schema validation
-const fileSchema = z.instanceof(isBrowser ? File : Object, { message: 'Veuillez télécharger un fichier' });
+const fileSchemaClient = z.instanceof(isBrowser ? File : Object, { message: 'Veuillez télécharger un fichier' });
+const fileSchemaServer = z.any(); // Fallback for SSR where File is not available
+const fileSchema = isBrowser ? fileSchemaClient : fileSchemaServer;
 
-// Remove local coverPhotoSchema definition, it's imported now
 
 const mediaFileSchema = fileSchema.refine(
     (file) => {
@@ -227,6 +229,7 @@ export default function CreateEventPage() {
 
      // Cover Photo Handling
     const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const isBrowser = typeof window !== 'undefined';
         const file = event.target.files?.[0];
         if (file) {
              // Validate the file against the schema before setting value and preview
@@ -464,33 +467,33 @@ export default function CreateEventPage() {
                                     name="coverPhoto"
                                     render={({ field }) => (
                                         <FormItem className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
-                                            <FormControl>
-                                                {/* Visual feedback and trigger */}
-                                                {coverPhotoPreview ? (
-                                                    <div className="relative w-full h-full">
-                                                        <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
-                                                        <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10" onClick={removeCoverPhoto}> <X className="h-4 w-4" /> <span className="sr-only">Retirer photo</span> </Button>
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex flex-col items-center justify-center text-center h-full">
-                                                        <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
-                                                        <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo (max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo).</p>
-                                                        <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}> <Upload className="mr-2 h-4 w-4" /> Ajouter une photo </Button>
-                                                    </div>
-                                                )}
-                                            </FormControl>
-                                            {/* Hidden Input - Manual handling */}
-                                            <Input
-                                                id="cover-photo-input"
-                                                type="file"
-                                                accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
-                                                onChange={handleCoverPhotoChange}
-                                                className="sr-only"
-                                                ref={field.ref} // Still needed for RHF to track the field
-                                                onBlur={field.onBlur} // Needed for RHF validation trigger
-                                                name={field.name} // Needed for RHF
-                                                disabled={field.disabled} // Needed for RHF
-                                            />
+                                             {/* Hidden Input - Manual handling */}
+                                             <FormControl>
+                                                 <Input
+                                                     id="cover-photo-input"
+                                                     type="file"
+                                                     accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                                     onChange={handleCoverPhotoChange}
+                                                     className="sr-only"
+                                                     ref={field.ref} // Still needed for RHF to track the field
+                                                     onBlur={field.onBlur} // Needed for RHF validation trigger
+                                                     name={field.name} // Needed for RHF
+                                                     disabled={field.disabled} // Needed for RHF
+                                                 />
+                                             </FormControl>
+                                            {/* Visual feedback and trigger */}
+                                            {coverPhotoPreview ? (
+                                                <div className="relative w-full h-full">
+                                                    <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
+                                                    <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10" onClick={removeCoverPhoto}> <X className="h-4 w-4" /> <span className="sr-only">Retirer photo</span> </Button>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col items-center justify-center text-center h-full">
+                                                    <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
+                                                    <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo (max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo).</p>
+                                                    <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}> <Upload className="mr-2 h-4 w-4" /> Ajouter une photo </Button>
+                                                </div>
+                                            )}
                                             <FormMessage className="absolute bottom-2 left-2 right-2 text-xs"/>
                                         </FormItem>
                                     )}
@@ -523,7 +526,7 @@ export default function CreateEventPage() {
                            </CardContent>
                        </Card>
 
-                        {/* --- Participants Card --- */}
+                         {/* --- Participants Card --- */}
                         <Card className="bg-card border border-border">
                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
                                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</div>
@@ -565,20 +568,20 @@ export default function CreateEventPage() {
                                     name="media"
                                     render={({ field }) => (
                                         <FormItem>
-                                        <FormControl>
-                                             <Input
-                                                id="media-upload-input"
-                                                type="file"
-                                                multiple
-                                                accept={ACCEPTED_MEDIA_TYPES.join(',')}
-                                                onChange={handleMediaFileChange}
-                                                className="sr-only"
-                                                ref={field.ref}
-                                                onBlur={field.onBlur}
-                                                name={field.name}
-                                                disabled={field.disabled}
-                                            />
-                                        </FormControl>
+                                            <FormControl>
+                                                <Input
+                                                    id="media-upload-input"
+                                                    type="file"
+                                                    multiple
+                                                    accept={ACCEPTED_MEDIA_TYPES.join(',')}
+                                                    onChange={handleMediaFileChange}
+                                                    className="sr-only"
+                                                    ref={field.ref}
+                                                    onBlur={field.onBlur}
+                                                    name={field.name}
+                                                    disabled={field.disabled}
+                                                />
+                                            </FormControl>
                                         <Button type="button" variant="outline" className="w-full sm:w-auto bg-secondary hover:bg-accent border-border" onClick={() => document.getElementById('media-upload-input')?.click()}>
                                             <Upload className="mr-2 h-4 w-4" />
                                             Importer Souvenirs
@@ -671,4 +674,3 @@ export default function CreateEventPage() {
     </div>
   );
 }
-
