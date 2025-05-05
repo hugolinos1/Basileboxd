@@ -5,8 +5,7 @@ import { AddPartySection } from '@/components/home/AddPartySection';
 import { Separator } from '@/components/ui/separator';
 import { collection, getDocs, query, orderBy, limit, Timestamp } from 'firebase/firestore';
 import { db } from '@/config/firebase';
-import { calculatePartyAverageRating, getDateFromTimestamp, PartyData } from '@/lib/party-utils'; // Assuming party utils exist
-
+import { calculatePartyAverageRating, PartyData } from '@/lib/party-utils'; // Import getDateFromTimestamp if needed for sorting by date
 
 // Define a structure for the data passed to components
 interface TopPartyDisplayData {
@@ -33,59 +32,70 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
   }
 
   try {
+    console.log("Fetching party data from Firestore...");
     const partiesCollectionRef = collection(db, 'parties');
     const recentQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(15));
-    // For top parties, we need to fetch all (or a larger set) and sort client-side by calculated average rating
-    // Note: Firestore doesn't directly support ordering by computed fields like average rating.
-    // Fetching a reasonable number (e.g., 50) and sorting is a common approach for moderate datasets.
-    // For very large datasets, a backend aggregation/ranking mechanism would be better.
-    const allPartiesQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(50)); // Fetch more for ranking
+    // Fetch more parties to ensure a good pool for ranking, ordered by creation time as a base.
+    const allPartiesQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(50));
 
     const [recentSnapshot, allPartiesSnapshot] = await Promise.all([
         getDocs(recentQuery),
         getDocs(allPartiesQuery)
     ]);
+    console.log(`Fetched ${allPartiesSnapshot.size} parties for ranking, ${recentSnapshot.size} for recent.`);
 
     const allPartiesData: PartyData[] = allPartiesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PartyData));
 
     // Calculate average ratings and sort for Top 10
-    const partiesWithAvgRating = allPartiesData.map(party => ({
-        ...party,
-        averageRating: calculatePartyAverageRating(party)
-    })).sort((a, b) => b.averageRating - a.averageRating); // Sort descending by average rating
+    const partiesWithAvgRating = allPartiesData
+      .map(party => ({
+          ...party,
+          averageRating: calculatePartyAverageRating(party)
+      }))
+      .filter(party => party.averageRating > 0) // Optionally filter out unrated parties
+      .sort((a, b) => b.averageRating - a.averageRating); // Sort descending by average rating
 
-    const topParties: TopPartyDisplayData[] = partiesWithAvgRating.slice(0, 10).map((party, index) => ({
-      id: party.id,
-      name: party.name || 'Événement sans nom',
-      imageUrl: party.coverPhotoUrl, // Use coverPhotoUrl
-      rating: party.averageRating,
-      rank: index + 1,
-    }));
+    const topParties: TopPartyDisplayData[] = partiesWithAvgRating.slice(0, 10).map((party, index) => {
+        console.log(`Top Party ${index + 1}: ${party.name}, Cover URL: ${party.coverPhotoUrl}`); // Log cover URL
+        return {
+          id: party.id,
+          name: party.name || 'Événement sans nom',
+          imageUrl: party.coverPhotoUrl || undefined, // Explicitly use coverPhotoUrl, fallback to undefined
+          rating: party.averageRating,
+          rank: index + 1,
+        };
+    });
 
     // Prepare recent parties data
     const recentParties: RecentPartyDisplayData[] = recentSnapshot.docs.map(doc => {
       const party = { id: doc.id, ...doc.data() } as PartyData;
       const averageRating = calculatePartyAverageRating(party);
-      // Fetch participant avatars might require another query or denormalization
+      // Ensure participants array is handled safely
       const participants = (party.participantEmails || []).slice(0, 5).map((email, index) => ({
-          id: party.participants?.[index] || `user-${index}`, // Use UID if available, else fallback
-          // TODO: Fetch avatarUrl based on UID/email from a 'users' collection if needed
-          avatarUrl: `https://picsum.photos/seed/${party.participants?.[index] || email}/50/50` // Placeholder
+          id: party.participants?.[index] || `user-${index}-${email}`, // Use UID if available, else fallback with email uniqueness
+          // TODO: Fetch actual avatarUrl based on UID/email from a 'users' collection if needed and available
+          avatarUrl: undefined // Start with undefined, fetch if necessary elsewhere or pass if already denormalized
       }));
 
+       console.log(`Recent Party: ${party.name}, Cover URL: ${party.coverPhotoUrl}`); // Log cover URL
       return {
         id: party.id,
         name: party.name || 'Événement sans nom',
-        imageUrl: party.coverPhotoUrl, // Use coverPhotoUrl
+        imageUrl: party.coverPhotoUrl || undefined, // Explicitly use coverPhotoUrl, fallback to undefined
         rating: averageRating.toFixed(1),
         participants: participants,
       };
     });
 
+    console.log(`Prepared ${topParties.length} top parties and ${recentParties.length} recent parties.`);
     return { topParties, recentParties };
 
   } catch (error) {
     console.error("Erreur lors de la récupération des fêtes:", error);
+     // Check for permission errors specifically
+     if (error instanceof Error && (error.message.includes('permission-denied') || error.message.includes('insufficient permissions'))) {
+         console.error("FIREBASE PERMISSION ERROR: Check Firestore security rules for the 'parties' collection. Ensure reads are allowed.");
+     }
     return { topParties: [], recentParties: [] }; // Return empty arrays on error
   }
 }

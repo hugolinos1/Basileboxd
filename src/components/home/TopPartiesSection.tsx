@@ -65,7 +65,7 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
         className="flex space-x-4 md:space-x-6 overflow-x-auto pb-6 scrollbar-hide top10-slider" // Added top10-slider class
       >
         {parties.length === 0 && (
-            <p className="text-muted-foreground text-center w-full">Chargement des meilleurs événements...</p> // Loading or empty state
+            <p className="text-muted-foreground text-center w-full">Aucun événement dans le top 10 pour le moment.</p> // Updated empty state message
         )}
         {parties.map((party, index) => (
           <Link href={`/party/${party.id}`} key={party.id} className="block flex-shrink-0">
@@ -87,6 +87,11 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
                        className="transition-transform duration-300 group-hover/item:scale-110"
                        loading="lazy"
                        data-ai-hint="fête événement célébration"
+                       onError={(e) => {
+                        console.error(`Error loading image for Top Party ${party.rank} (${party.id}): ${party.imageUrl}`, e);
+                        // Optionally, set a state to show a fallback icon if the image fails
+                       }}
+                       unoptimized={party.imageUrl.includes('localhost')} // Keep for local emulator if needed
                      />
                    ) : (
                      <div className="flex items-center justify-center h-full">

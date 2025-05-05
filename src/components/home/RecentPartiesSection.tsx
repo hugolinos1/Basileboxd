@@ -49,7 +49,11 @@ export function RecentPartiesSection({ parties }: RecentPartiesSectionProps) {
                             className="transition-transform duration-300 group-hover:scale-105"
                             loading="lazy" // Lazy load images
                             data-ai-hint="fête rassemblement social"
-                            onError={(e) => console.error(`Failed to load image: ${party.imageUrl}`, e)} // Add error handling
+                            onError={(e) => {
+                              console.error(`Error loading image for Recent Party (${party.id}): ${party.imageUrl}`, e);
+                              // Optionally, set a state to show a fallback icon if the image fails
+                            }}
+                             unoptimized={party.imageUrl.includes('localhost')} // Keep for local emulator if needed
                         />
                     ) : (
                          <div className="flex items-center justify-center h-full">
@@ -100,4 +104,3 @@ export function RecentPartiesSection({ parties }: RecentPartiesSectionProps) {
     </div>
   );
 }
-
