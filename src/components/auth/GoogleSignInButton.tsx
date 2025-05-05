@@ -91,6 +91,7 @@ export function GoogleSignInButton() {
 
                if (Object.keys(updates).length > 0) {
                    await updateDoc(userDocRef, updates);
+                   console.log(`Document utilisateur mis à jour pour ${user.email}:`, updates);
                }
                 toast({
                     title: 'Connexion réussie',

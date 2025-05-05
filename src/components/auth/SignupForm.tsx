@@ -61,41 +61,41 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
 
       console.log("Inscription Auth réussie. UID Utilisateur:", user.uid);
 
-      // Create user document in Firestore
-      if (db) { // Check if db is not null
-        console.log(`Tentative de création du document Firestore pour ${user.email}...`);
-        try {
-          const userDocRef = doc(db, 'users', user.uid);
-          await setDoc(userDocRef, {
-            email: user.email,
-            uid: user.uid,
-            createdAt: serverTimestamp(), // Utiliser serverTimestamp pour la cohérence
-            displayName: user.displayName || user.email?.split('@')[0] || 'Nouvel utilisateur',
-            pseudo: '', // Initialize pseudo as empty string
-            avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100` // Avatar Google ou placeholder
-          });
-          console.log("Document utilisateur créé avec succès dans Firestore pour :", user.email);
-        } catch (firestoreError) {
-          console.error("Erreur lors de la création du document utilisateur dans Firestore :", firestoreError);
-          toast({
-            title: "Erreur partielle d'inscription",
-            description: `Votre compte d'authentification a été créé, mais une erreur s'est produite lors de la sauvegarde des informations de profil. Détail: ${(firestoreError as Error).message}`,
-            variant: "warning",
-            duration: 7000 // Longer duration for warning
-          });
-          // Continue even if Firestore write fails, as Auth succeeded.
-        }
-      } else {
-        console.log("Instance Firestore est nulle. Création du document ignorée.");
-        console.error("Erreur : l'instance Firestore (db) est nulle. Impossible de créer le document utilisateur.");
-        // Optionally notify the user, though signup still succeeded in Auth
-        toast({
-          title: "Erreur de configuration",
-          description: "Le service de base de données n'est pas disponible.",
-          variant: "warning",
-          duration: 7000
-        });
-      }
+       // Create user document in Firestore
+       if (db) { // Check if db is not null
+           console.log(`Tentative de création du document Firestore pour ${user.email}...`);
+           try {
+                const userDocRef = doc(db, 'users', user.uid);
+                await setDoc(userDocRef, {
+                    email: user.email,
+                    uid: user.uid,
+                    createdAt: serverTimestamp(), // Utiliser serverTimestamp pour la cohérence
+                    displayName: user.email?.split('@')[0] || 'Nouvel utilisateur', // Default display name
+                    pseudo: '', // Initialize pseudo as empty string
+                    avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100` // Placeholder avatar
+                });
+                console.log("Document utilisateur créé avec succès dans Firestore pour :", user.email);
+           } catch (firestoreError) {
+                console.error("Erreur lors de la création du document utilisateur dans Firestore :", firestoreError);
+                toast({
+                  title: "Erreur partielle d'inscription",
+                  description: `Votre compte d'authentification a été créé, mais une erreur s'est produite lors de la sauvegarde des informations de profil. Détail: ${(firestoreError as Error).message}`,
+                  variant: "warning",
+                  duration: 7000 // Longer duration for warning
+                });
+                // Continue even if Firestore write fails, as Auth succeeded.
+           }
+       } else {
+             console.log("Instance Firestore est nulle. Création du document ignorée.");
+             console.error("Erreur : l'instance Firestore (db) est nulle. Impossible de créer le document utilisateur.");
+             // Optionally notify the user, though signup still succeeded in Auth
+             toast({
+               title: "Erreur de configuration",
+               description: "Le service de base de données n'est pas disponible.",
+               variant: "warning",
+               duration: 7000
+             });
+       }
 
       toast({
         title: 'Inscription réussie',
