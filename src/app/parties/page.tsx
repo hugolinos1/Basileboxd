@@ -9,10 +9,11 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Star, CalendarDays, MapPin, Image as ImageIcon, Loader2, AlertTriangle } from 'lucide-react';
+import { Star, CalendarDays, MapPin, Image as ImageIcon, Loader2, AlertTriangle, PlusCircle } from 'lucide-react'; // Added PlusCircle
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useFirebase } from '@/context/FirebaseContext';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button'; // Added Button import
 
 interface FirestoreTimestamp {
     seconds: number;
@@ -51,7 +52,7 @@ const calculateAverageRating = (ratings: { [userId: string]: number } | undefine
 };
 
 // Helper to safely convert timestamp
-const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefined): Date | null => {
+const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date | undefined): Date | null => {
     if (!timestamp) {
         // console.warn("getDateFromTimestamp: Timestamp is undefined or null."); // Less verbose
         return null;
@@ -66,7 +67,10 @@ const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefi
                  return null;
              }
              return date;
-        } else {
+        } else if (timestamp instanceof Date) {
+            return timestamp; // Handle if it's already a Date object (e.g., from client-side creation)
+        }
+        else {
              // console.warn("getDateFromTimestamp: Unrecognized timestamp format:", timestamp); // Less verbose
             return null;
         }
@@ -82,7 +86,7 @@ export default function PartiesListPage() {
   const [loading, setLoading] = useState(true); // Start loading initially
   const [error, setError] = useState<string | null>(null);
   // Use context for initialization status AND actual user loading state
-  const { firebaseInitialized, initializationFailed, initializationErrorMessage, loading: userLoading } = useFirebase();
+  const { user, firebaseInitialized, initializationFailed, initializationErrorMessage, loading: userLoading } = useFirebase();
 
   useEffect(() => {
     console.log("[PartiesListPage useEffect] State Check - Initialized:", firebaseInitialized, "Init Failed:", initializationFailed, "User Loading:", userLoading);
@@ -224,7 +228,10 @@ export default function PartiesListPage() {
     console.log("[PartiesListPage Render] Displaying Skeleton Loader.");
     return (
       <div className="container mx-auto px-4 py-12">
-        <Skeleton className="h-8 w-1/3 mb-8 bg-muted" />
+        <div className="flex justify-between items-center mb-8">
+            <Skeleton className="h-8 w-1/3 bg-muted" />
+            <Skeleton className="h-9 w-36 bg-muted" />
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {Array.from({ length: 8 }).map((_, i) => (
             <Card key={i} className="overflow-hidden bg-card border border-border/50">
@@ -246,7 +253,7 @@ export default function PartiesListPage() {
   // Show Error Alert if initialization failed OR a fetch error occurred
   if (initializationFailed || error) {
      const displayError = initializationFailed ? (initializationErrorMessage || "Échec de l'initialisation de Firebase.") : (error || "Une erreur inconnue est survenue.");
-     console.log("[PartiesListPage Render] Displaying Error Alert:", displayError);
+     console.error("[PartiesListPage Render] Displaying Error Alert:", displayError);
     return (
       <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
         <Alert variant="destructive" className="max-w-lg">
@@ -255,6 +262,12 @@ export default function PartiesListPage() {
            <AlertDescription>
                 {displayError}
                 {initializationFailed && <p className="mt-2 text-xs">Assurez-vous que les variables d'environnement sont correctes et que le serveur a été redémarré.</p>}
+                {/* Provide specific advice for permission errors */}
+                {error?.includes("Permission refusée") && (
+                    <p className="mt-2 text-xs">
+                       Conseil : Vérifiez que vous êtes connecté et que les règles de sécurité Firestore pour la collection `/parties` autorisent l'opération `list` ou `get` (ex: `allow read: if request.auth != null;` ou `allow read: if true;`).
+                    </p>
+                )}
             </AlertDescription>
         </Alert>
       </div>
@@ -265,11 +278,26 @@ export default function PartiesListPage() {
   console.log("[PartiesListPage Render] Displaying party list.");
   return (
     <div className="container mx-auto px-4 py-12">
-      <h1 className="text-3xl font-bold mb-8 text-primary">Tous les Événements</h1>
+        <div className="flex justify-between items-center mb-8">
+            <h1 className="text-3xl font-bold text-primary">Tous les Événements</h1>
+             {user && (
+                <Link href="/events/create" passHref>
+                    <Button>
+                        <PlusCircle className="mr-2 h-4 w-4" />
+                        Créer un Event
+                    </Button>
+                </Link>
+             )}
+        </div>
       {parties.length === 0 ? (
          <div className="text-center py-10">
              <p className="text-muted-foreground text-lg">Aucun événement trouvé pour le moment.</p>
-             <p className="text-muted-foreground mt-2">Soyez le premier à <Link href="/events/create" className="text-primary hover:underline">créer un événement</Link> !</p>
+              {user && ( // Only show create link if user is logged in
+                 <p className="text-muted-foreground mt-2">Soyez le premier à <Link href="/events/create" className="text-primary hover:underline">créer un événement</Link> !</p>
+              )}
+              {!user && ( // Prompt to log in if not logged in
+                 <p className="text-muted-foreground mt-2"><Link href="/auth" className="text-primary hover:underline">Connectez-vous</Link> pour voir ou créer des événements.</p>
+              )}
          </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -297,7 +325,7 @@ export default function PartiesListPage() {
                           sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
                           loading="lazy"
                            onError={(e) => console.error(`Error loading image for party ${party.id}: ${party.coverPhotoUrl}`, e)}
-                           unoptimized={party.coverPhotoUrl.includes('localhost')} // Add this if using local emulator URLs
+                           unoptimized={party.coverPhotoUrl.includes('localhost') || !party.coverPhotoUrl.startsWith('https')} // Add this if using local emulator URLs or URLs without protocol
                           data-ai-hint="couverture fête événement"
                         />
                       ) : (
