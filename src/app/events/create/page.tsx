@@ -18,7 +18,6 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Slider } from '@/components/ui/slider';
 import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -294,7 +293,7 @@ export default function CreateEventPage() {
 
 
   async function onSubmit(values: EventFormValues) {
-    if (!user) { toast({ title: 'Non authentifié', description: "Connectez-vous d'abord.", variant: 'destructive' }); return; }
+    if (!user) { toast({ title: 'Non authentifié', description: "Veuillez vous connecter d'abord.", variant: 'destructive' }); return; }
     if (!db || !storage) { toast({ title: 'Erreur de service', description: 'Firebase non disponible.', variant: 'destructive' }); return; }
 
     setIsLoading(true);
