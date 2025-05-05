@@ -588,10 +588,32 @@ export default function CreateEventPage() {
                                         </div>
                                     ))}
                                 </div>
-                                <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
-                                      <Button type="button" variant="outline" className="flex-1 bg-secondary hover:bg-accent border-border" disabled> <UserPlus className="mr-2 h-4 w-4"/> Ajouter </Button>
-                                </div>
-                                <FormField control={form.control} name="participants" render={() => ( <FormDescription> Fonctionnalité en développement. </FormDescription> )}/>
+                                {/* Updated Participants FormField */}
+                                <FormField
+                                  control={form.control}
+                                  name="participants"
+                                  render={({ field }) => (
+                                      <FormItem>
+                                      <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
+                                          {/* Input for email */}
+                                           <FormControl>
+                                              <Input
+                                                placeholder="Entrer l'email des participants... (bientôt disponible)"
+                                                disabled // Disabled until UI/backend is ready
+                                                className="bg-input border-border flex-grow"
+                                                // In a real implementation, this would likely be a more complex component
+                                                // for searching and adding users, updating field.value accordingly.
+                                              />
+                                           </FormControl>
+                                           <Button type="button" variant="outline" className="bg-secondary hover:bg-accent border-border" disabled>
+                                              <UserPlus className="mr-2 h-4 w-4"/> Ajouter
+                                           </Button>
+                                      </div>
+                                      <FormDescription>Fonctionnalité en développement.</FormDescription>
+                                      <FormMessage />
+                                      </FormItem>
+                                  )}
+                                />
                            </CardContent>
                       </Card>
                  </div>
