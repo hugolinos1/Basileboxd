@@ -47,7 +47,7 @@ export function Navbar() {
           <Link href="/" className="flex items-center space-x-2">
             {/* Replace placeholder with actual logo image */}
             <Image
-                src="https://i.ibb.co/nMGMZNPq/logo2.png"
+                src="https://i.ibb.co/Sb6CJ8X/cornes-du-diable-autocollant.jpg" // Updated logo URL
                 alt="BaliseBoxd Logo"
                 width={24} // Adjust width as needed
                 height={24} // Adjust height as needed
@@ -75,7 +75,7 @@ export function Navbar() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Rechercher des fêtes..."
+              placeholder="Rechercher des Events..."
               className="w-full pl-10 pr-4 py-2 h-9 bg-secondary border-border focus:bg-background focus:border-primary"
             />
           </div>
@@ -151,3 +151,6 @@ export function Navbar() {
 
 
 
+
+
+    
