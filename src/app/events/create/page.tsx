@@ -36,8 +36,8 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   getFileType, // Import getFileType
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema // Import coverPhotoSchema directly
 } from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
 
 
 import { Progress } from '@/components/ui/progress';
@@ -108,15 +108,7 @@ const participantColors = [
 ];
 
 // --- Helper Functions (Consider moving if used elsewhere) ---
-// Function to get file type (ensure this isn't duplicated in media-uploader)
-// If it exists in media-uploader, remove this one and import it.
-// const getFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => {
-//   if (!file || !file.type) return 'autre';
-//   if (file.type.startsWith('image/')) return 'image';
-//   if (file.type.startsWith('video/')) return 'video';
-//   if (file.type.startsWith('audio/')) return 'audio';
-//   return 'autre';
-// };
+// Moved getFileType to media-uploader.ts
 
 
 // --- Component ---
@@ -242,6 +234,7 @@ export default function CreateEventPage() {
 
      // Cover Photo Handling
     const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const isBrowser = typeof window !== 'undefined';
         const file = event.target.files?.[0];
         if (file) {
              // Validate the file against the schema before setting value and preview
@@ -502,6 +495,55 @@ export default function CreateEventPage() {
                           </CardContent>
                       </Card>
 
+                       {/* --- Participants Card --- */}
+                        <Card className="bg-card border border-border">
+                           <CardHeader className="flex flex-row items-center space-x-2 pb-4">
+                               <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</div>
+                               <CardTitle className="text-lg font-semibold">Participants</CardTitle>
+                           </CardHeader>
+                           <CardContent className="space-y-4">
+                                <p className="text-sm font-medium text-muted-foreground">Liste des participants</p>
+                                <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+                                     {mockParticipants.map((p, index) => (
+                                        <div key={p.id} className="flex items-center justify-between">
+                                            <div className="flex items-center space-x-3">
+                                                <Avatar className="h-8 w-8"> <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}> {p.initials} </AvatarFallback> </Avatar>
+                                                <span className="text-sm font-medium">{p.name}</span>
+                                            </div>
+                                            <span className="text-xs text-muted-foreground">{p.status}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                {/* Updated Participants FormField */}
+                                <FormField
+                                  control={form.control}
+                                  name="participants"
+                                  render={({ field }) => (
+                                      <FormItem>
+                                      <FormLabel className="sr-only">Ajouter des participants</FormLabel>
+                                      <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
+                                           <FormControl>
+                                              <Input
+                                                placeholder="Entrer l'email des participants... (bientôt disponible)"
+                                                disabled // Disabled until UI/backend is ready
+                                                className="bg-input border-border flex-grow"
+                                                // Pass field props to Input
+                                                {...field}
+                                              />
+                                           </FormControl>
+                                           <Button type="button" variant="outline" className="bg-secondary hover:bg-accent border-border" disabled>
+                                              <UserPlus className="mr-2 h-4 w-4"/> Ajouter
+                                           </Button>
+                                      </div>
+                                      <FormDescription>Fonctionnalité en développement.</FormDescription>
+                                      <FormMessage />
+                                      </FormItem>
+                                  )}
+                                />
+                           </CardContent>
+                      </Card>
+
+
                        {/* --- Photo de l'Event Card (Cover Photo) --- */}
                        <Card className="bg-card border border-border">
                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
@@ -582,53 +624,7 @@ export default function CreateEventPage() {
                            </CardContent>
                        </Card>
 
-                         {/* --- Participants Card --- */}
-                        <Card className="bg-card border border-border">
-                           <CardHeader className="flex flex-row items-center space-x-2 pb-4">
-                               <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</div>
-                               <CardTitle className="text-lg font-semibold">Participants</CardTitle>
-                           </CardHeader>
-                           <CardContent className="space-y-4">
-                                <p className="text-sm font-medium text-muted-foreground">Liste des participants</p>
-                                <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
-                                     {mockParticipants.map((p, index) => (
-                                        <div key={p.id} className="flex items-center justify-between">
-                                            <div className="flex items-center space-x-3">
-                                                <Avatar className="h-8 w-8"> <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}> {p.initials} </AvatarFallback> </Avatar>
-                                                <span className="text-sm font-medium">{p.name}</span>
-                                            </div>
-                                            <span className="text-xs text-muted-foreground">{p.status}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                                {/* Updated Participants FormField */}
-                                <FormField
-                                  control={form.control}
-                                  name="participants"
-                                  render={({ field }) => (
-                                      <FormItem>
-                                      <FormLabel className="sr-only">Ajouter des participants</FormLabel>
-                                      <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
-                                           <FormControl>
-                                              <Input
-                                                placeholder="Entrer l'email des participants... (bientôt disponible)"
-                                                disabled // Disabled until UI/backend is ready
-                                                className="bg-input border-border flex-grow"
-                                                // In a real implementation, this would likely be a more complex component
-                                                // for searching and adding users, updating field.value accordingly.
-                                              />
-                                           </FormControl>
-                                           <Button type="button" variant="outline" className="bg-secondary hover:bg-accent border-border" disabled>
-                                              <UserPlus className="mr-2 h-4 w-4"/> Ajouter
-                                           </Button>
-                                      </div>
-                                      <FormDescription>Fonctionnalité en développement.</FormDescription>
-                                      <FormMessage />
-                                      </FormItem>
-                                  )}
-                                />
-                           </CardContent>
-                      </Card>
+
                  </div>
 
                  {/* Column 2: Import Souvenirs, Evaluation & Submit */}
