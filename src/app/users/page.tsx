@@ -100,11 +100,12 @@ export default function UsersListPage() {
             try {
                 const usersCollectionRef = collection(db, 'users');
                 // Ensure Firestore rules allow 'list' operation on /users for authenticated users
+                // IMPORTANT: Ensure 'createdAt' field exists on ALL user documents for ordering to work reliably.
                 const q = query(usersCollectionRef, orderBy('createdAt', 'desc')); // Order by creation date
 
                 console.log("[fetchUsers] Executing Firestore query for users...");
                 const querySnapshot = await getDocs(q);
-                console.log(`[fetchUsers] Firestore query executed. Found ${querySnapshot.size} user documents.`);
+                console.log(`[fetchUsers] Firestore query executed. Found ${querySnapshot.size} user documents.`); // Log snapshot size
 
                 if (querySnapshot.empty) {
                     console.log("[fetchUsers] No users found in collection.");
@@ -118,6 +119,15 @@ export default function UsersListPage() {
                              console.warn(`[fetchUsers Mapping] Doc ${doc.id}: uid or email missing. Skipped.`);
                              return null;
                          }
+                         // Validate createdAt existence for ordering
+                         if (!data.createdAt) {
+                             console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' field missing. Ordering might be unreliable. Skipped for now.`);
+                             // Depending on requirements, you might want to handle this differently
+                             // e.g., provide a default date or filter out users without createdAt.
+                             // For now, skipping to avoid potential issues if the field is consistently missing.
+                             return null;
+                         }
+
                          // TODO: Fetch stats per user (event count, comment count) - potentially inefficient for many users.
                          // Consider denormalization or fetching stats on the user profile page instead.
                          return {
@@ -134,6 +144,7 @@ export default function UsersListPage() {
                          } as UserData;
                     }).filter(user => user !== null) as UserData[];
 
+                    console.log("[fetchUsers] Mapped users data:", usersData); // Log the mapped data
                     setUsers(usersData);
                      console.log(`[fetchUsers] Users state updated with ${usersData.length} items.`);
                 }
@@ -148,7 +159,11 @@ export default function UsersListPage() {
                           console.error("Firestore Permission Denied: Check your security rules for the 'users' collection. Ensure authenticated users have 'list' permission. Example rule: `match /users/{userId} { allow list: if request.auth != null; }`");
                      } else if (fetchError.code === 'unavailable') {
                          userFriendlyError = 'Service Firestore indisponible. Veuillez réessayer plus tard.';
-                     } else {
+                     } else if (fetchError.code === 'failed-precondition' && fetchError.message.includes('index')) {
+                          userFriendlyError = "Index Firestore manquant pour la requête. Vérifiez la console Firebase pour créer l'index requis (généralement pour `createdAt`).";
+                          console.error("Firestore Index Missing: The query requires an index. Check the Firebase console error message for a link to create it automatically. This is often needed for `orderBy` clauses combined with other filters.");
+                     }
+                      else {
                          userFriendlyError = `Erreur Firestore (${fetchError.code}): ${fetchError.message}`;
                      }
                  } else {
@@ -207,7 +222,7 @@ export default function UsersListPage() {
     if (error) { // Covers both initialization errors and fetch errors
         const displayError = error; // Error state now holds the specific message
         // Log error specifically here to guide the user
-        // Note: Removed console.error here, Alert component handles display
+         console.error("[UsersListPage Render] Displaying Error Alert:", displayError);
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
@@ -218,9 +233,14 @@ export default function UsersListPage() {
                          {/* Specific hint for permission errors */}
                          {(error.includes("Permission refusée") || error.includes("unauthenticated")) && (
                             <p className="mt-2 text-xs">
-                                Conseil : Vérifiez que vous êtes connecté et que les règles de sécurité Firestore pour `/users` autorisent l'opération `list` pour les utilisateurs authentifiés (ex: `allow list: if request.auth != null;`).
+                                Conseil : Vérifiez que vous êtes connecté et que les règles de sécurité Firestore pour la collection `/users` autorisent l'opération `list` pour les utilisateurs authentifiés (ex: `allow list: if request.auth != null;`).
                             </p>
                          )}
+                          {(error.includes("Index Firestore manquant")) && (
+                             <p className="mt-2 text-xs">
+                                 Conseil : La requête nécessite un index Firestore. Ouvrez la console Firebase, allez dans Firestore Database -&gt; Index, et créez l'index composite suggéré dans les messages d'erreur de la console Firebase (souvent pour le champ `createdAt` ordonné).
+                             </p>
+                          )}
                           {initializationFailed && (
                             <p className="mt-2 text-xs">
                                 Assurez-vous que les variables d'environnement Firebase (commençant par NEXT_PUBLIC_) sont correctement définies dans `.env.local` et que le serveur de développement a été redémarré (`npm run dev`).
