@@ -1,4 +1,3 @@
-
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -47,27 +46,29 @@ const MAX_FILE_SIZE = {
 const ACCEPTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'audio/mpeg', 'audio/wav'];
 const ACCEPTED_COVER_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
-// Use z.instanceof for better type checking across environments
-// Ensure 'File' here refers to the global browser File object, not the icon
-const fileSchema = typeof window !== 'undefined'
-  ? z.instanceof(File, { message: 'Veuillez télécharger un fichier' })
-  : z.any(); // Fallback for server-side rendering
+// Use z.any() on the server and refine on the client
+const isBrowser = typeof window !== 'undefined';
 
-const coverPhotoSchema = fileSchema.refine(
-    (file) => {
-        // Check if in browser environment AND if it's a File instance before accessing file properties
-        const isFile = typeof window !== 'undefined' && file instanceof File;
-        // Ensure file properties are accessed only if it's a valid File object
-        return isFile ? ACCEPTED_COVER_PHOTO_TYPES.includes(file.type) : true; // Allow validation to pass server-side
-    },
-    "Type de photo non supporté."
-).refine(
-    (file) => {
-        const isFile = typeof window !== 'undefined' && file instanceof File;
-        return isFile ? file.size <= MAX_FILE_SIZE.image : true; // Allow validation to pass server-side
-    },
-     `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
-).optional(); // Make cover photo optional
+const fileSchemaClient = z.instanceof(File, { message: 'Veuillez télécharger un fichier' });
+const fileSchemaServer = z.any();
+const fileSchema = isBrowser ? fileSchemaClient : fileSchemaServer;
+
+const coverPhotoSchema = fileSchema
+    .refine(
+        (file) => {
+            if (!isBrowser || !(file instanceof File)) return true; // Skip validation server-side or if not a File
+            return ACCEPTED_COVER_PHOTO_TYPES.includes(file.type);
+        },
+        "Type de photo non supporté."
+    )
+    .refine(
+        (file) => {
+            if (!isBrowser || !(file instanceof File)) return true; // Skip validation server-side or if not a File
+            return file.size <= MAX_FILE_SIZE.image;
+        },
+        `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
+    )
+    .optional(); // Make cover photo optional
 
 
 const formSchema = z.object({
@@ -82,14 +83,15 @@ const formSchema = z.object({
   initialComment: z.string().max(500, { message: "Le commentaire ne peut pas dépasser 500 caractères." }).optional(),
 });
 
+// Corrected syntax for type inference
 type EventFormValues = z.infer<typeof formSchema>;
 
 // Helper to get file type category
-const getFileType = (file: File): 'image' | 'video' | 'audio' | 'other' => {
+const getFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => {
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('video/')) return 'video';
   if (file.type.startsWith('audio/')) return 'audio';
-  return 'other';
+  return 'autre';
 };
 
 // Couleurs Tailwind pour les avatars des participants
@@ -187,7 +189,8 @@ export default function CreateEventPage() {
         if (file) {
              // Validate the file against the schema before setting value and preview
              // Use safeParse for better type checking if needed
-             const validationResult = typeof window !== 'undefined' && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true };
+             const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; // Skip validation if not browser or not File
+
              if (validationResult.success) {
                  form.setValue('coverPhoto', file, { shouldValidate: true });
                  if (coverPhotoPreview) {
@@ -195,20 +198,22 @@ export default function CreateEventPage() {
                  }
                  setCoverPhotoPreview(URL.createObjectURL(file));
              } else {
-                 // Show validation error only if validationResult has errors (client-side only)
-                  if (validationResult.error?.errors?.[0]?.message) {
-                      form.setError('coverPhoto', { type: 'manual', message: validationResult.error.errors[0].message });
-                  } else {
-                      // Fallback error message if validationResult is somehow invalid
-                      form.setError('coverPhoto', { type: 'manual', message: 'Validation a échoué.' });
-                  }
-                 // Optionally clear the input and preview
-                  form.setValue('coverPhoto', undefined, { shouldValidate: true });
-                  if (coverPhotoPreview) {
-                    URL.revokeObjectURL(coverPhotoPreview);
-                  }
-                  setCoverPhotoPreview(null);
-                  (event.target as HTMLInputElement).value = ''; // Clear file input
+                 // Show validation error only if validationResult has errors
+                 // Use optional chaining to safely access error properties
+                 const errorMessage = validationResult.error?.errors?.[0]?.message || 'Validation a échoué.';
+                 form.setError('coverPhoto', { type: 'manual', message: errorMessage });
+
+                 // Clear the input and preview
+                 form.setValue('coverPhoto', undefined, { shouldValidate: true });
+                 if (coverPhotoPreview) {
+                   URL.revokeObjectURL(coverPhotoPreview);
+                 }
+                 setCoverPhotoPreview(null);
+                 // Explicitly cast to HTMLInputElement to access 'value' property
+                 const inputElement = event.target as HTMLInputElement;
+                 if (inputElement) {
+                    inputElement.value = ''; // Clear file input
+                 }
              }
         } else {
             form.setValue('coverPhoto', undefined, { shouldValidate: true });
@@ -573,7 +578,7 @@ export default function CreateEventPage() {
                                             {/* Outer container for the visual dropzone area and preview */}
                                             <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                                 <FormControl>
-                                                   {/* Wrap multiple children in a single div */}
+                                                   {/* Single Child Wrapper */}
                                                    <div>
                                                      {coverPhotoPreview ? (
                                                          <div className="relative w-full h-full">
@@ -599,18 +604,14 @@ export default function CreateEventPage() {
                                                              </Button>
                                                          </div>
                                                      )}
-                                                      {/* Hidden actual input - controlled by React Hook Form */}
+                                                      {/* Hidden actual input */}
                                                      <Input
                                                          id="cover-photo-input"
                                                          type="file"
                                                          accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
                                                          onChange={handleCoverPhotoChange}
                                                          className="sr-only"
-                                                         ref={field.ref}
-                                                         onBlur={field.onBlur}
-                                                         name={field.name}
-                                                         disabled={field.disabled}
-                                                         // Remove value and onChange from here, RHF handles it
+                                                         // RHF handles ref, name, onBlur, onChange internally through Controller
                                                      />
                                                    </div>
                                                 </FormControl>
@@ -621,7 +622,7 @@ export default function CreateEventPage() {
                                 />
 
 
-                               {/* Preview Card */}
+                               {/* Preview Card -- Moved Inside Column 1 */}
                                <div className="w-full md:w-64 flex-shrink-0">
                                     <Card className="bg-secondary border-border overflow-hidden">
                                         <CardHeader className="p-0 relative">
@@ -798,7 +799,7 @@ export default function CreateEventPage() {
                                 <CardTitle className="text-lg font-semibold">Évaluation Initiale</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
-                                {/* Rating Slider */}
+                                {/* Rating Slider -- */}
                                 <FormField
                                     control={form.control}
                                     name="initialRating"
@@ -827,7 +828,7 @@ export default function CreateEventPage() {
                                         </FormItem>
                                     )}
                                 />
-                                {/* Comment Textarea */}
+                                {/* Comment Textarea -- */}
                                 <FormField
                                     control={form.control}
                                     name="initialComment"
@@ -850,7 +851,7 @@ export default function CreateEventPage() {
                         </Card>
 
 
-                       {/* Submit Button */}
+                       {/* Submit Button -- */}
                        <Button type="submit" className="w-full bg-primary hover:bg-primary/90 mt-8" disabled={isLoading}>
                             {isLoading ? (
                                 <>
