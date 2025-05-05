@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -79,7 +80,9 @@ export default function UsersListPage() {
          // Check if user is authenticated (required for listing users according to common rules)
          if (!currentUser) {
              console.log("[UsersListPage useEffect] User not authenticated. Cannot fetch user list.");
-             setError("Veuillez vous connecter pour voir la liste des utilisateurs.");
+             // Don't set error here, maybe show a message indicating login is required
+             // setError("Veuillez vous connecter pour voir la liste des utilisateurs.");
+             setUsers([]); // Ensure user list is empty
              setLoading(false);
              return;
          }
@@ -101,14 +104,15 @@ export default function UsersListPage() {
                 const usersCollectionRef = collection(db, 'users');
                 // Ensure Firestore rules allow 'list' operation on /users for authenticated users
                 // IMPORTANT: Ensure 'createdAt' field exists on ALL user documents for ordering to work reliably.
+                // If 'createdAt' might be missing, consider ordering by a different reliable field or fetching without ordering first.
                 const q = query(usersCollectionRef, orderBy('createdAt', 'desc')); // Order by creation date
 
                 console.log("[fetchUsers] Executing Firestore query for users...");
                 const querySnapshot = await getDocs(q);
-                console.log(`[fetchUsers] Firestore query executed. Found ${querySnapshot.size} user documents.`); // Log snapshot size
+                console.log(`[fetchUsers] Firestore query executed. Snapshot size: ${querySnapshot.size}`); // Log snapshot size BEFORE mapping
 
                 if (querySnapshot.empty) {
-                    console.log("[fetchUsers] No users found in collection.");
+                    console.log("[fetchUsers] No users found in collection based on query.");
                     setUsers([]);
                 } else {
                     console.log("[fetchUsers] Mapping user documents to UserData...");
@@ -116,17 +120,24 @@ export default function UsersListPage() {
                          const data = doc.data();
                          // Basic validation
                          if (!data.uid || !data.email) {
-                             console.warn(`[fetchUsers Mapping] Doc ${doc.id}: uid or email missing. Skipped.`);
+                             console.warn(`[fetchUsers Mapping] Doc ${doc.id}: uid or email missing. Skipped. Data:`, data);
                              return null;
                          }
-                         // Validate createdAt existence for ordering
-                         if (!data.createdAt) {
-                             console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' field missing. Ordering might be unreliable. Skipped for now.`);
-                             // Depending on requirements, you might want to handle this differently
-                             // e.g., provide a default date or filter out users without createdAt.
-                             // For now, skipping to avoid potential issues if the field is consistently missing.
+                         // --- DEBUGGING: Temporarily relax 'createdAt' check ---
+                         // if (!data.createdAt) {
+                         //     console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' field missing or invalid. Ordering might be unreliable. Data:`, data);
+                         //     // Keep the user for now, but log the issue. Handle potential null dates in rendering.
+                         //     // return null; // <-- Temporarily commented out
+                         // }
+                         // --- END DEBUGGING ---
+
+                         // Check if createdAt is a valid timestamp *type* if it exists
+                         if (data.createdAt && !(data.createdAt instanceof Timestamp) && typeof data.createdAt.seconds !== 'number') {
+                             console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' is not a valid Timestamp object. Data:`, data.createdAt);
+                             // Decide how to handle this - skip, use default, or try conversion carefully
                              return null;
                          }
+
 
                          // TODO: Fetch stats per user (event count, comment count) - potentially inefficient for many users.
                          // Consider denormalization or fetching stats on the user profile page instead.
@@ -136,17 +147,17 @@ export default function UsersListPage() {
                             email: data.email,
                             displayName: data.displayName || data.email.split('@')[0], // Fallback display name
                             avatarUrl: data.avatarUrl,
-                            createdAt: data.createdAt,
+                            createdAt: data.createdAt, // Keep the original format (or null/undefined if missing)
                             // Placeholder stats - replace with actual data if fetched
                             eventCount: data.eventCount || 0, // Assume 0 if not present
                             commentCount: data.commentCount || 0, // Assume 0 if not present
                             averageRating: data.averageRating || 0, // Assume 0 if not present
                          } as UserData;
-                    }).filter(user => user !== null) as UserData[];
+                    }).filter(user => user !== null) as UserData[]; // Filter out nulls from validation failures
 
-                    console.log("[fetchUsers] Mapped users data:", usersData); // Log the mapped data
+                    console.log(`[fetchUsers] Mapped users data (after filter): ${usersData.length} items`, usersData); // Log the mapped data AFTER filtering
                     setUsers(usersData);
-                     console.log(`[fetchUsers] Users state updated with ${usersData.length} items.`);
+                    console.log(`[fetchUsers] Users state updated with ${usersData.length} items.`);
                 }
 
             } catch (fetchError: any) {
@@ -160,8 +171,8 @@ export default function UsersListPage() {
                      } else if (fetchError.code === 'unavailable') {
                          userFriendlyError = 'Service Firestore indisponible. Veuillez réessayer plus tard.';
                      } else if (fetchError.code === 'failed-precondition' && fetchError.message.includes('index')) {
-                          userFriendlyError = "Index Firestore manquant pour la requête. Vérifiez la console Firebase pour créer l'index requis (généralement pour `createdAt`).";
-                          console.error("Firestore Index Missing: The query requires an index. Check the Firebase console error message for a link to create it automatically. This is often needed for `orderBy` clauses combined with other filters.");
+                          userFriendlyError = "Index Firestore manquant pour la requête (`users` collection, ordering by `createdAt` descending). Vérifiez la console Firebase pour créer l'index requis.";
+                          console.error("Firestore Index Missing: The query requires an index. Check the Firebase console error message for a link to create it automatically. This is often needed for `orderBy` clauses combined with other filters (like implicit authentication checks). Index needed: Collection='users', Field='createdAt', Order='Descending'.");
                      }
                       else {
                          userFriendlyError = `Erreur Firestore (${fetchError.code}): ${fetchError.message}`;
@@ -221,8 +232,7 @@ export default function UsersListPage() {
     // Show Error Alert if initialization failed OR a fetch error occurred
     if (error) { // Covers both initialization errors and fetch errors
         const displayError = error; // Error state now holds the specific message
-        // Log error specifically here to guide the user
-         console.error("[UsersListPage Render] Displaying Error Alert:", displayError);
+        console.error("[UsersListPage Render] Displaying Error Alert:", displayError); // Log error specifically here to guide the user
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
@@ -238,7 +248,7 @@ export default function UsersListPage() {
                          )}
                           {(error.includes("Index Firestore manquant")) && (
                              <p className="mt-2 text-xs">
-                                 Conseil : La requête nécessite un index Firestore. Ouvrez la console Firebase, allez dans Firestore Database -&gt; Index, et créez l'index composite suggéré dans les messages d'erreur de la console Firebase (souvent pour le champ `createdAt` ordonné).
+                                 Conseil : La requête nécessite un index Firestore. Ouvrez la console Firebase, allez dans Firestore Database -&gt; Index, et créez l'index composite suggéré dans les messages d'erreur de la console Firebase (Collection='users', Field='createdAt', Order='Descending').
                              </p>
                           )}
                           {initializationFailed && (
@@ -251,6 +261,16 @@ export default function UsersListPage() {
             </div>
         );
     }
+
+     // Handle case where user is not logged in (and fetch wasn't attempted or returned empty due to rules)
+     if (!currentUser && !loading && !error) {
+         return (
+             <div className="container mx-auto px-4 py-12 text-center">
+                 <p className="text-muted-foreground text-lg">Veuillez vous <Link href="/auth" className="text-primary hover:underline">connecter</Link> pour voir la liste des utilisateurs.</p>
+             </div>
+         );
+     }
+
 
     // Display User List only if not loading and no errors
      console.log("[UsersListPage Render] Displaying user list.");
