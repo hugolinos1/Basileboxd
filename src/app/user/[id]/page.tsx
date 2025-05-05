@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Star, MessageSquare, CalendarDays, Edit2, Loader2, AlertTriangle, ImageIcon } from 'lucide-react';
+import { Star, MessageSquare, CalendarDays, Edit2, Loader2, AlertTriangle, ImageIcon, Users } from 'lucide-react'; // Added Users icon
 import { format, formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from 'recharts';
@@ -23,12 +23,14 @@ import type { ChartConfig } from "@/components/ui/chart";
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
+// Updated UserData interface to match Firestore structure
 interface UserData {
+    id: string; // Document ID from Firestore (useful if needed later)
     uid: string;
     email: string;
     displayName?: string;
     avatarUrl?: string;
-    createdAt?: FirestoreTimestamp | Timestamp;
+    createdAt?: FirestoreTimestamp | Timestamp; // Assuming this field exists in Firestore doc
 }
 interface PartyData {
     id: string;
@@ -38,6 +40,7 @@ interface PartyData {
     date?: FirestoreTimestamp | Timestamp;
     comments?: CommentData[];
     participants?: string[]; // Array of user UIDs
+    createdBy: string; // Added createdBy field
     createdAt?: FirestoreTimestamp | Timestamp;
 }
 interface CommentData {
@@ -61,6 +64,7 @@ const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefi
     } catch (e) { console.error("Erreur conversion timestamp:", timestamp, e); return null; }
 }
 
+// Calculate average rating GIVEN BY this specific user across all parties they rated
 const calculateAverageRatingGiven = (parties: PartyData[], userId: string): number => {
     let totalRating = 0;
     let ratingCount = 0;
@@ -73,6 +77,7 @@ const calculateAverageRatingGiven = (parties: PartyData[], userId: string): numb
     return ratingCount > 0 ? totalRating / ratingCount : 0;
 };
 
+// Calculate the distribution of ratings GIVEN BY this specific user
 const calculateRatingDistribution = (parties: PartyData[], userId: string): { rating: number; votes: number; fill: string }[] => {
     const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 10 }, (_, i) => ({ rating: (i + 1) * 0.5, votes: 0, fill: '' }));
     parties.forEach(party => {
@@ -88,26 +93,43 @@ const calculateRatingDistribution = (parties: PartyData[], userId: string): { ra
      return counts.map(c => ({ ...c, fill: "hsl(var(--primary))" }));
 };
 
+// Helper to calculate overall average rating RECEIVED by a party (across all users)
+const calculatePartyAverageRating = (party: PartyData): number => {
+    if (!party.ratings) return 0;
+    const allRatings = Object.values(party.ratings);
+    if (allRatings.length === 0) return 0;
+    const sum = allRatings.reduce((acc, rating) => acc + rating, 0);
+    return sum / allRatings.length;
+};
+
+const getInitials = (name: string | null | undefined, email: string): string => {
+    if (name) return name.charAt(0).toUpperCase();
+    if (email) return email.charAt(0).toUpperCase();
+    return '?';
+};
+
 
 // --- User Profile Page Component ---
 export default function UserProfilePage() {
     const params = useParams();
-    const userId = params.id as string;
+    const profileUserId = params.id as string; // The ID of the user whose profile we're viewing
     const router = useRouter();
-    const { user: currentUser, loading: authLoading, firebaseInitialized } = useFirebase();
+    const { user: currentUser, loading: authLoading, firebaseInitialized } = useFirebase(); // Logged-in user
 
-    const [userData, setUserData] = useState<UserData | null>(null);
-    const [userParties, setUserParties] = useState<PartyData[]>([]); // Parties created or participated in
-    const [userComments, setUserComments] = useState<CommentData[]>([]);
+    const [profileUserData, setProfileUserData] = useState<UserData | null>(null); // Data of the profile being viewed
+    const [userParties, setUserParties] = useState<PartyData[]>([]); // Parties created or participated in BY THE PROFILE USER
+    const [userComments, setUserComments] = useState<CommentData[]>([]); // Comments made BY THE PROFILE USER
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const isOwnProfile = currentUser?.uid === profileUserId;
 
     useEffect(() => {
         if (!firebaseInitialized || authLoading) {
             setLoading(true);
             return;
         }
-        if (!userId) {
+        if (!profileUserId) {
             setError("ID utilisateur manquant.");
             setLoading(false);
             return;
@@ -121,36 +143,42 @@ export default function UserProfilePage() {
         const fetchData = async () => {
             setLoading(true);
             setError(null);
+            console.log(`[UserProfilePage] Récupération des données pour l'utilisateur ${profileUserId}`);
             try {
-                // 1. Fetch User Data
-                const userDocRef = doc(db, 'users', userId);
+                // 1. Fetch Profile User Data from 'users' collection
+                const userDocRef = doc(db, 'users', profileUserId);
                 const userDocSnap = await getDoc(userDocRef);
 
                 if (!userDocSnap.exists()) {
+                    console.error(`[UserProfilePage] Utilisateur ${profileUserId} non trouvé dans Firestore.`);
                     throw new Error("Utilisateur non trouvé.");
                 }
-                const fetchedUserData = userDocSnap.data() as UserData;
-                setUserData(fetchedUserData);
+                const fetchedUserData = { id: userDocSnap.id, ...userDocSnap.data() } as UserData;
+                console.log("[UserProfilePage] Données utilisateur récupérées:", fetchedUserData);
+                setProfileUserData(fetchedUserData);
 
-                // 2. Fetch User's Parties (created or participated) & Comments
+                // 2. Fetch Parties where the profile user is a participant
+                // We need ALL parties the user participated in to calculate stats accurately.
                 const partiesRef = collection(db, 'parties');
-                // Query for parties where user is a participant OR creator
-                 const participatedQuery = query(partiesRef, where('participants', 'array-contains', userId));
-                 // const createdQuery = query(partiesRef, where('createdBy', '==', userId)); // Included in participant query
+                const participatedQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
 
+                console.log(`[UserProfilePage] Récupération des fêtes pour l'utilisateur ${profileUserId}`);
                 const partiesSnapshot = await getDocs(participatedQuery);
+                console.log(`[UserProfilePage] ${partiesSnapshot.size} fêtes trouvées.`);
+
                 const partiesData: PartyData[] = partiesSnapshot.docs.map(docSnap => ({
                     id: docSnap.id,
                     ...docSnap.data()
                 } as PartyData));
-                setUserParties(partiesData);
+                setUserParties(partiesData); // Store all participated parties
 
-                 // 3. Fetch User's Comments (Efficiently - Iterate through fetched parties)
+                 // 3. Extract User's Comments from the fetched parties data
+                 console.log(`[UserProfilePage] Extraction des commentaires pour l'utilisateur ${profileUserId}`);
                 const commentsData: CommentData[] = [];
                 partiesData.forEach(party => {
                     if (party.comments) {
                          party.comments.forEach(comment => {
-                            if (comment.userId === userId) {
+                            if (comment.userId === profileUserId) {
                                 commentsData.push({
                                     ...comment,
                                     partyId: party.id, // Add partyId
@@ -166,56 +194,64 @@ export default function UserProfilePage() {
                      const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
                      return timeB - timeA;
                  });
+                 console.log(`[UserProfilePage] ${commentsData.length} commentaires trouvés pour l'utilisateur.`);
                  setUserComments(commentsData);
 
 
             } catch (err: any) {
                 console.error("Erreur lors de la récupération des données utilisateur:", err);
-                setError(err.message || "Impossible de charger le profil.");
-                setUserData(null); // Reset data on error
+                 let userFriendlyError = err.message || "Impossible de charger le profil.";
+                  if (err instanceof FirestoreError && err.code === 'permission-denied') {
+                     userFriendlyError = "Permission refusée. Vérifiez les règles Firestore.";
+                 }
+                setError(userFriendlyError);
+                setProfileUserData(null); // Reset data on error
                 setUserParties([]);
                 setUserComments([]);
             } finally {
+                console.log("[UserProfilePage] Récupération des données terminée.");
                 setLoading(false);
             }
         };
 
         fetchData();
 
-    }, [userId, firebaseInitialized, authLoading]); // Add authLoading dependency
+    }, [profileUserId, firebaseInitialized, authLoading]); // Re-run if profileUserId changes or Firebase init status changes
 
     // --- Memoized Calculations ---
     const stats = useMemo(() => {
-        if (!userData || !userParties) return { eventCount: 0, commentCount: 0, averageRating: 0 };
-        const avgRating = calculateAverageRatingGiven(userParties, userId);
+        if (!profileUserData || !userParties) return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
+        const avgRatingGiven = calculateAverageRatingGiven(userParties, profileUserId);
         return {
-            eventCount: userParties.length,
+            eventCount: userParties.length, // Total parties participated in/created
             commentCount: userComments.length,
-            averageRating: avgRating,
+            averageRatingGiven: avgRatingGiven, // Average rating this user GAVE
         };
-    }, [userData, userParties, userComments, userId]);
+    }, [profileUserData, userParties, userComments, profileUserId]); // Depend on profileUserId
 
-     const ratingDistribution = useMemo(() => {
-        if (!userParties || !userId) return [];
-         return calculateRatingDistribution(userParties, userId);
-    }, [userParties, userId]);
+     const ratingDistributionGiven = useMemo(() => {
+        if (!userParties || !profileUserId) return [];
+         return calculateRatingDistribution(userParties, profileUserId); // Distribution of ratings GIVEN by this user
+    }, [userParties, profileUserId]); // Depend on profileUserId
 
-     const topRatedParties = useMemo(() => {
+     // Parties CREATED by this user, sorted by overall average rating (descending)
+     const topRatedCreatedParties = useMemo(() => {
+        return userParties
+            .filter(party => party.createdBy === profileUserId) // Filter for created parties
+            .sort((a, b) => {
+                const overallAvgA = calculatePartyAverageRating(a);
+                const overallAvgB = calculatePartyAverageRating(b);
+                return overallAvgB - overallAvgA; // Sort descending by overall average
+            })
+            .slice(0, 4);
+    }, [userParties, profileUserId]); // Depend on profileUserId
+
+    // Parties PARTICIPATED IN (including created), sorted by date (descending)
+    const recentParticipatedParties = useMemo(() => {
         return [...userParties].sort((a, b) => {
-            const avgA = calculateAverageRatingGiven([a], userId); // Recalculate for single party if needed or use precalculated overall rating
-             const avgB = calculateAverageRatingGiven([b], userId);
-            // A more robust way: calculate overall average rating for each party
-            const overallAvgA = calculateAverageRatingGiven([a], a.id); // Assuming this calculates for all users
-            const overallAvgB = calculateAverageRatingGiven([b], b.id);
-             return overallAvgB - overallAvgA; // Sort descending by overall average
-        }).slice(0, 4);
-    }, [userParties, userId]); // Add userId dependency
-
-    const recentParties = useMemo(() => {
-        return [...userParties].sort((a, b) => {
-            const timeA = getDateFromTimestamp(a.createdAt ?? a.date)?.getTime() || 0;
-            const timeB = getDateFromTimestamp(b.createdAt ?? b.date)?.getTime() || 0;
-            return timeB - timeA; // Sort descending by creation/event date
+            const timeA = getDateFromTimestamp(a.date ?? a.createdAt)?.getTime() || 0; // Use event date primarily
+            const timeB = getDateFromTimestamp(b.date ?? b.createdAt)?.getTime() || 0;
+            return timeB - timeA; // Sort descending by event date
         }).slice(0, 4);
     }, [userParties]);
 
@@ -261,21 +297,23 @@ export default function UserProfilePage() {
         );
     }
 
-    if (!userData) {
+    if (!profileUserData) {
+        // This case should be covered by the error state if fetch failed,
+        // but good to have a fallback.
         return <div className="container mx-auto px-4 py-12 text-center">Utilisateur non trouvé.</div>;
     }
 
-    const joinDate = getDateFromTimestamp(userData.createdAt);
+    const joinDate = getDateFromTimestamp(profileUserData.createdAt);
 
     return (
         <div className="container mx-auto max-w-6xl px-4 py-8">
             {/* User Header */}
             <div className="flex flex-col md:flex-row items-center md:items-end gap-4 md:gap-6 mb-8 border-b border-border pb-8">
                 <Avatar className="h-24 w-24 md:h-32 md:w-32 border-2 border-primary relative group">
-                    <AvatarImage src={userData.avatarUrl || undefined} alt={userData.displayName || userData.email} />
-                    <AvatarFallback className="text-4xl bg-muted">{userData.displayName?.[0]?.toUpperCase() ?? userData.email[0].toUpperCase()}</AvatarFallback>
+                    <AvatarImage src={profileUserData.avatarUrl || undefined} alt={profileUserData.displayName || profileUserData.email} />
+                    <AvatarFallback className="text-4xl bg-muted">{getInitials(profileUserData.displayName, profileUserData.email)}</AvatarFallback>
                     {/* Edit button - only visible to the logged-in user viewing their own profile */}
-                     {currentUser?.uid === userId && (
+                     {isOwnProfile && (
                         <button className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer">
                             <Edit2 className="h-8 w-8 text-white" />
                             <span className="sr-only">Modifier photo</span>
@@ -284,8 +322,8 @@ export default function UserProfilePage() {
                      )}
                 </Avatar>
                 <div className="flex-1 space-y-1 text-center md:text-left">
-                    <h1 className="text-2xl md:text-3xl font-bold text-foreground">{userData.displayName || userData.email.split('@')[0]}</h1>
-                    <p className="text-sm text-muted-foreground">{userData.email}</p>
+                    <h1 className="text-2xl md:text-3xl font-bold text-foreground">{profileUserData.displayName || profileUserData.email.split('@')[0]}</h1>
+                    <p className="text-sm text-muted-foreground">{profileUserData.email}</p>
                      {joinDate && <p className="text-xs text-muted-foreground">Membre depuis {formatDistanceToNow(joinDate, { addSuffix: true, locale: fr })}</p>}
                 </div>
                 <div className="flex gap-4 md:gap-8 text-center">
@@ -298,7 +336,7 @@ export default function UserProfilePage() {
                         <p className="text-xs text-muted-foreground uppercase">Commentaires</p>
                     </div>
                      <div>
-                        <p className="text-xl md:text-2xl font-bold text-primary">{stats.averageRating.toFixed(1)} ★</p>
+                        <p className="text-xl md:text-2xl font-bold text-primary">{stats.averageRatingGiven.toFixed(1)} ★</p>
                         <p className="text-xs text-muted-foreground uppercase">Note Moy.</p>
                     </div>
                 </div>
@@ -313,16 +351,16 @@ export default function UserProfilePage() {
                     <TabsTrigger value="stats" className="data-[state=active]:bg-card data-[state=active]:text-foreground">Statistiques</TabsTrigger>
                 </TabsList>
 
-                {/* Activité Récente */}
+                {/* Activité Récente (Last Participated Parties) */}
                 <TabsContent value="activity">
                     <Card className="bg-card border-border">
                         <CardHeader>
                             <CardTitle>4 Derniers Événements Participés</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            {recentParties.length > 0 ? (
+                            {recentParticipatedParties.length > 0 ? (
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    {recentParties.map(party => (
+                                    {recentParticipatedParties.map(party => (
                                         <Link href={`/party/${party.id}`} key={party.id} className="block group">
                                             <Card className="overflow-hidden h-full bg-secondary hover:border-primary/50">
                                                 <div className="aspect-video relative w-full bg-muted">
@@ -347,42 +385,46 @@ export default function UserProfilePage() {
                     </Card>
                 </TabsContent>
 
-                 {/* Mieux Notés */}
+                 {/* Mieux Notés (Top Rated CREATED Parties) */}
                 <TabsContent value="top-rated">
                     <Card className="bg-card border-border">
                         <CardHeader>
-                            <CardTitle>4 Événements Mieux Notés (par l'utilisateur)</CardTitle>
+                            <CardTitle>4 Événements Créés Mieux Notés</CardTitle>
+                             <CardDescription>Les événements créés par cet utilisateur, triés par leur note moyenne globale.</CardDescription>
                          </CardHeader>
                          <CardContent>
-                             {topRatedParties.length > 0 ? (
+                             {topRatedCreatedParties.length > 0 ? (
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    {topRatedParties.map(party => (
-                                        <Link href={`/party/${party.id}`} key={party.id} className="block group">
-                                            <Card className="overflow-hidden h-full bg-secondary hover:border-primary/50">
-                                                <div className="aspect-video relative w-full bg-muted">
-                                                   {party.coverPhotoUrl ? (
-                                                        <Image src={party.coverPhotoUrl} alt={party.name} layout="fill" objectFit="cover" className="group-hover:scale-105 transition-transform"/>
-                                                   ) : (
-                                                       <div className="flex items-center justify-center h-full"> <ImageIcon className="h-10 w-10 text-muted-foreground/50"/></div>
-                                                   )}
-                                                     {/* Display user's rating for this party */}
-                                                     {party.ratings?.[userId] && (
-                                                         <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white text-xs font-semibold px-2 py-1 rounded-full flex items-center space-x-1">
-                                                            <Star className="h-3 w-3 text-yellow-400 fill-current" />
-                                                            <span>{party.ratings[userId].toFixed(1)}</span>
-                                                        </div>
-                                                     )}
-                                                </div>
-                                                <CardContent className="p-3">
-                                                     <p className="text-sm font-semibold truncate text-foreground group-hover:text-primary">{party.name}</p>
-                                                     {getDateFromTimestamp(party.date) && <p className="text-xs text-muted-foreground"><CalendarDays className="inline h-3 w-3 mr-1"/> {format(getDateFromTimestamp(party.date)!, 'P', { locale: fr })}</p>}
-                                                </CardContent>
-                                            </Card>
-                                        </Link>
-                                    ))}
+                                    {topRatedCreatedParties.map(party => {
+                                         const overallAvg = calculatePartyAverageRating(party); // Calculate overall average
+                                        return (
+                                             <Link href={`/party/${party.id}`} key={party.id} className="block group">
+                                                 <Card className="overflow-hidden h-full bg-secondary hover:border-primary/50">
+                                                     <div className="aspect-video relative w-full bg-muted">
+                                                        {party.coverPhotoUrl ? (
+                                                             <Image src={party.coverPhotoUrl} alt={party.name} layout="fill" objectFit="cover" className="group-hover:scale-105 transition-transform"/>
+                                                        ) : (
+                                                            <div className="flex items-center justify-center h-full"> <ImageIcon className="h-10 w-10 text-muted-foreground/50"/></div>
+                                                        )}
+                                                          {/* Display OVERALL average rating for the party */}
+                                                          {overallAvg > 0 && (
+                                                              <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white text-xs font-semibold px-2 py-1 rounded-full flex items-center space-x-1">
+                                                                 <Star className="h-3 w-3 text-yellow-400 fill-current" />
+                                                                 <span>{overallAvg.toFixed(1)}</span>
+                                                             </div>
+                                                          )}
+                                                     </div>
+                                                     <CardContent className="p-3">
+                                                          <p className="text-sm font-semibold truncate text-foreground group-hover:text-primary">{party.name}</p>
+                                                          {getDateFromTimestamp(party.date) && <p className="text-xs text-muted-foreground"><CalendarDays className="inline h-3 w-3 mr-1"/> {format(getDateFromTimestamp(party.date)!, 'P', { locale: fr })}</p>}
+                                                     </CardContent>
+                                                 </Card>
+                                             </Link>
+                                         );
+                                    })}
                                 </div>
                             ) : (
-                                <p className="text-muted-foreground text-sm text-center py-4">Aucun événement noté pour le moment.</p>
+                                <p className="text-muted-foreground text-sm text-center py-4">Cet utilisateur n'a pas encore créé d'événements ou aucun n'a été noté.</p>
                             )}
                         </CardContent>
                     </Card>
@@ -420,12 +462,12 @@ export default function UserProfilePage() {
                      <Card className="bg-card border-border">
                          <CardHeader>
                             <CardTitle>Répartition des Notes Données</CardTitle>
-                             <CardDescription>Distribution des notes attribuées par {userData.displayName || userData.email.split('@')[0]}.</CardDescription>
+                             <CardDescription>Distribution des notes attribuées par {profileUserData.displayName || profileUserData.email.split('@')[0]}.</CardDescription>
                          </CardHeader>
                          <CardContent className="pl-2">
-                              {stats.averageRating > 0 ? (
+                              {stats.averageRatingGiven > 0 ? (
                                   <ChartContainer config={chartConfig} className="h-[150px] w-full">
-                                     <BarChart accessibilityLayer data={ratingDistribution} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
+                                     <BarChart accessibilityLayer data={ratingDistributionGiven} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
                                           <XAxis dataKey="rating" tickLine={false} tickMargin={10} axisLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12} interval={1} tickFormatter={(value) => `${value}`} />
                                          <YAxis tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12} width={30} />
                                          <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel hideIndicator />} formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating} étoiles`]} />
@@ -442,4 +484,3 @@ export default function UserProfilePage() {
         </div>
     );
 }
-    
