@@ -42,7 +42,7 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
 
   return (
     <div className="container mx-auto px-4 md:px-6 relative group">
-      <h2 className="text-2xl md:text-3xl font-bold mb-6 text-white">Top 10 des Fêtes</h2>
+      <h2 className="text-2xl md:text-3xl font-bold mb-6 text-white">TOP10 des Events</h2>
 
       {/* Scroll Arrows - visible on hover */}
       <button
