@@ -3,7 +3,8 @@
 
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc, updateDoc, arrayUnion, serverTimestamp, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore'; // Import necessary Firestore functions
+// Import necessary Firestore functions, including FieldValue
+import { doc, getDoc, updateDoc, arrayUnion, serverTimestamp, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore';
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
@@ -32,13 +33,20 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema // Import the coverPhotoSchema
 } from '@/services/media-uploader';
-import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
+import { coverPhotoSchema } from '@/services/media-uploader'; // Import schema from dedicated file
+import { Skeleton } from '@/components/ui/skeleton';
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
-interface Comment { userId: string; email: string; avatar?: string | null; text: string; timestamp: FieldValue; } // Changed timestamp type to FieldValue
+// Interface Comment mise à jour pour accepter FieldValue lors de la création
+interface Comment {
+    userId: string;
+    email: string;
+    avatar?: string | null;
+    text: string;
+    timestamp: FieldValue | Timestamp | FirestoreTimestamp; // Type ajusté
+}
 interface MediaItem { url: string; type: 'image' | 'video' | 'audio' | 'autre'; }
 interface PartyData {
     id: string;
@@ -53,7 +61,7 @@ interface PartyData {
     mediaUrls: string[];
     coverPhotoUrl?: string;
     ratings: { [userId: string]: number };
-    comments: Comment[]; // Changed to use updated Comment interface
+    comments: Comment[];
     createdAt: FirestoreTimestamp | Timestamp;
 }
 // Interface for User data fetched from Firestore 'users' collection
@@ -67,23 +75,20 @@ interface UserProfile {
 
 // --- Helper Functions ---
 
-// Helper to get server timestamp (for testing)
-async function getServerTime(): Promise<FieldValue> {
-  // Simply returns the serverTimestamp placeholder.
-  // Firestore replaces this placeholder on the server.
-  // We can't get the actual server time on the client *before* writing.
+// Helper pour obtenir l'heure serveur (conceptuel, retourne le placeholder)
+async function getServerTimePlaceholder(): Promise<FieldValue> {
   return serverTimestamp();
 }
 
-// --- Components ---
+// --- Composants ---
 
-// StarRating (unchanged)
+// StarRating (inchangé)
 const StarRating = ({ totalStars = 5, rating, onRate, disabled = false, size = 'h-6 w-6' }: { totalStars?: number, rating: number, onRate: (rating: number) => void, disabled?: boolean, size?: string }) => {
   const [hoverRating, setHoverRating] = useState(0);
   return ( <div className={`flex space-x-1 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}> {[...Array(totalStars)].map((_, index) => { const starValue = index + 1; const isHalf = starValue - 0.5 === (hoverRating || rating); const filled = starValue <= (hoverRating || rating); return ( <Star key={index} className={cn( size, 'transition-colors duration-150', filled ? 'text-yellow-400 fill-current' : 'text-gray-600', !disabled && 'hover:text-yellow-300', isHalf && 'text-yellow-400' )} onClick={() => !disabled && onRate(starValue)} onMouseEnter={() => !disabled && setHoverRating(starValue)} onMouseLeave={() => !disabled && setHoverRating(0)} /> ); })} </div> );
 };
 
-// RatingDistributionChart (unchanged)
+// RatingDistributionChart (inchangé)
 const RatingDistributionChart = ({ ratings }: { ratings: { [userId: string]: number } }) => {
   const ratingCounts = useMemo(() => { const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 10 }, (_, i) => ({ rating: (i + 1) * 0.5, votes: 0, fill: '' })); Object.values(ratings).forEach(rating => { const index = Math.round(rating * 2) - 1; if (index >= 0 && index < 10) { counts[index].votes++; } }); return counts.map(c => ({ ...c, fill: "hsl(var(--primary))" })); }, [ratings]);
   const totalVotes = useMemo(() => Object.keys(ratings).length, [ratings]);
@@ -92,16 +97,16 @@ const RatingDistributionChart = ({ ratings }: { ratings: { [userId: string]: num
   return ( <div className="w-full"> <div className="flex justify-between items-center mb-2 px-1"> <p className="text-sm font-medium text-muted-foreground">Répartition</p> <p className="text-sm font-medium text-muted-foreground">{totalVotes} vote{totalVotes > 1 ? 's' : ''}</p> </div> <ChartContainer config={chartConfig} className="h-[100px] w-full"> <BarChart accessibilityLayer data={ratingCounts} margin={{ top: 5, right: 5, left: -30, bottom: -10 }} barCategoryGap={2} > <XAxis dataKey="rating" tickLine={false} axisLine={false} tickMargin={4} tickFormatter={(value) => value % 1 === 0 ? `${value}.0` : `${value}`} fontSize={10} interval={1} /> <YAxis hide={true} /> <RechartsTooltip cursor={false} content={<ChartTooltipContent hideLabel hideIndicator />} formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating} étoiles`]} /> <Bar dataKey="votes" radius={2} /> </BarChart> </ChartContainer> <div className="flex justify-between items-center mt-1 px-1"> <Star className="h-4 w-4 text-yellow-400 fill-current" /> <Star className="h-4 w-4 text-yellow-400 fill-current" /> <Star className="h-4 w-4 text-yellow-400 fill-current" /> <Star className="h-4 w-4 text-yellow-400 fill-current" /> <Star className="h-4 w-4 text-yellow-400 fill-current" /> </div> </div> );
 };
 
-// --- Main Page Component ---
+// --- Composant Principal ---
 export default function PartyDetailsPage() {
   const params = useParams();
   const partyId = params.id as string;
   const router = useRouter();
-  const { user, firebaseInitialized, loading: userLoading, initializationFailed, initializationErrorMessage, isAdmin } = useFirebase(); // Added isAdmin from context
+  const { user, firebaseInitialized, loading: userLoading, initializationFailed, initializationErrorMessage, isAdmin } = useFirebase();
   const { toast } = useToast();
 
   const [party, setParty] = useState<PartyData | null>(null);
-  const [pageLoading, setPageLoading] = useState(true); // State specifically for page data loading
+  const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [comment, setComment] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
@@ -118,22 +123,19 @@ export default function PartyDetailsPage() {
   const [newCoverFile, setNewCoverFile] = useState<File | null>(null);
   const [newCoverPreview, setNewCoverPreview] = useState<string | null>(null);
   const [isUploadingCover, setIsUploadingCover] = useState(false);
-  const [showAddParticipantDialog, setShowAddParticipantDialog] = useState(false); // State for Add Participant Dialog
-  const [participantEmail, setParticipantEmail] = useState(''); // State for participant email input
-  const [isAddingParticipant, setIsAddingParticipant] = useState(false); // Loading state for adding participant
+  const [showAddParticipantDialog, setShowAddParticipantDialog] = useState(false);
+  const [participantEmail, setParticipantEmail] = useState('');
+  const [isAddingParticipant, setIsAddingParticipant] = useState(false);
 
 
   const isCreator = useMemo(() => user && party && user.uid === party.createdBy, [user, party]);
-  // Check if the current user is the creator OR an admin
   const canManageParticipants = useMemo(() => user && party && (user.uid === party.createdBy || isAdmin), [user, party, isAdmin]);
 
 
-  // Participant Colors & Initials (unchanged)
   const participantColors = [ 'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', ];
   const getInitials = (email: string | null | undefined): string => { if (!email) return '?'; const parts = email.split('@')[0]; return parts[0]?.toUpperCase() || '?'; };
 
-  // Helper to safely convert timestamp
-    const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefined): Date | null => {
+  const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefined): Date | null => {
         if (!timestamp) return null;
         try {
             if (timestamp instanceof Timestamp) return timestamp.toDate();
@@ -147,14 +149,12 @@ export default function PartyDetailsPage() {
 
   // --- Effects ---
   useEffect(() => {
-    // Wait for Firebase init and user auth state
     if (!firebaseInitialized || userLoading) {
        console.log("[PartyDetailsPage] En attente de l'init/auth Firebase...");
        setPageLoading(true);
        return;
     }
 
-    // Handle Firebase init failure
      if (initializationFailed) {
          console.error("[PartyDetailsPage] Echec init Firebase:", initializationErrorMessage);
          setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
@@ -162,7 +162,6 @@ export default function PartyDetailsPage() {
          return;
      }
 
-    // Validate partyId and db instance
     if (!partyId) { setError("ID de la fête manquant."); setPageLoading(false); return; }
     if (!db) { setError("La base de données Firestore n'est pas disponible."); setPageLoading(false); return; }
 
@@ -177,12 +176,12 @@ export default function PartyDetailsPage() {
         const data = { id: docSnap.id, ...docSnap.data() } as PartyData;
         setParty(data);
         calculateAndSetAverageRating(data.ratings);
-        if (user && data.ratings && data.ratings[user.uid]) { // Check data.ratings exists
+        if (user && data.ratings && data.ratings[user.uid]) {
             setUserRating(data.ratings[user.uid]);
         } else {
             setUserRating(0);
         }
-        setPageLoading(false); // Data loaded
+        setPageLoading(false);
       } else {
         console.log(`[PartyDetailsPage] Document ${partyId} n'existe pas.`);
         setError('Fête non trouvée.');
@@ -202,15 +201,13 @@ export default function PartyDetailsPage() {
         setPageLoading(false);
     });
 
-    // Cleanup listener
     return () => {
         console.log(`[PartyDetailsPage] Nettoyage du listener snapshot pour ${partyId}`);
         unsubscribe();
     }
 
-  }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage]); // Added context dependencies
+  }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage]);
 
-   // Cleanup Preview URLs on Unmount
    useEffect(() => {
         return () => {
             souvenirPreviews.forEach(URL.revokeObjectURL);
@@ -220,11 +217,11 @@ export default function PartyDetailsPage() {
 
 
   // --- Helper Functions ---
-  const calculateAndSetAverageRating = (ratings: { [userId: string]: number } | undefined) => { // Added undefined check
-    if (!ratings) { setAverageRating(0); return; } // Handle case where ratings field might be missing
+  const calculateAndSetAverageRating = (ratings: { [userId: string]: number } | undefined) => {
+    if (!ratings) { setAverageRating(0); return; }
     const allRatings = Object.values(ratings);
     if (allRatings.length === 0) { setAverageRating(0); return; }
-    const sum = allRatings.reduce((acc, rating) => acc + rating, 0);
+    const sum = allRatings.reduce((acc, rating) => acc + (rating || 0), 0);
     setAverageRating(sum / allRatings.length);
   };
 
@@ -237,7 +234,6 @@ export default function PartyDetailsPage() {
      if (isVideo) { return ( <div key={index} className="aspect-video bg-black rounded-lg overflow-hidden relative shadow-md"> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement vidéo</div>} <ReactPlayer url={url} controls width="100%" height="100%" onError={onError} className="absolute top-0 left-0" config={{ file: { attributes: { controlsList: 'nodownload' } } }} /> </div> ); }
      else if (isAudio) { return ( <div key={index} className="w-full bg-card p-3 rounded-lg shadow"> <ReactPlayer url={url} controls width="100%" height="40px" onError={onError}/> {playerError && <p className="text-destructive text-xs mt-1">Erreur chargement audio</p>} </div> ); }
      else if (isImage) { return ( <div key={index} className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={url} alt={`Souvenir ${index + 1}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="souvenir fête photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
-     // Added FileIcon for generic files
      return ( <div key={index} className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> Média {index + 1} </a> </div> );
    };
 
@@ -248,11 +244,9 @@ export default function PartyDetailsPage() {
      setIsRating(true);
      try {
          const partyDocRef = doc(db, 'parties', party.id);
-         // Use dot notation for updating nested fields directly
          await updateDoc(partyDocRef, {
-             [`ratings.${user.uid}`]: newRating // Update specific user's rating
+             [`ratings.${user.uid}`]: newRating
          });
-         // Local state updated via onSnapshot listener
          toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating} étoiles.` });
      } catch (rateError: any) {
          console.error("Erreur note:", rateError);
@@ -268,39 +262,35 @@ export default function PartyDetailsPage() {
 
   const handleAddComment = async () => {
     if (!user || !party || !comment.trim() || !db || !firebaseInitialized) {
-        toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' });
-        return;
+      toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' });
+      return;
     }
     setIsSubmittingComment(true);
-    console.log("Tentative d'ajout de commentaire..."); // Log start
-
     try {
-        const partyDocRef = doc(db, 'parties', party.id);
-        const newComment: Comment = {
-            userId: user.uid,
-            email: user.email || 'anonyme',
-            avatar: user.photoURL ?? null, // Ensure null instead of undefined
-            text: comment.trim(),
-            timestamp: serverTimestamp() // Use FieldValue directly
-        };
+      const partyDocRef = doc(db, 'parties', party.id);
+      // Utiliser serverTimestamp directement pour le type FieldValue
+      const newComment: Comment = {
+        userId: user.uid,
+        email: user.email || 'anonyme',
+        avatar: user.photoURL ?? null, // Assurer null au lieu de undefined
+        text: comment.trim(),
+        timestamp: serverTimestamp() // Utiliser FieldValue directement
+      };
 
-        console.log("Nouveau commentaire prêt:", newComment); // Log comment data
+      await updateDoc(partyDocRef, {
+        comments: arrayUnion(newComment)
+      });
 
-        await updateDoc(partyDocRef, {
-            comments: arrayUnion(newComment) // Use arrayUnion to add to the array
-        });
-
-        console.log("Commentaire ajouté avec succès à Firestore."); // Log success
-        setComment('');
-        toast({ title: 'Commentaire ajouté' });
-
+      setComment('');
+      toast({ title: 'Commentaire ajouté' });
     } catch (commentError: any) {
-        console.error('Erreur lors de l\'ajout du commentaire:', commentError); // Log detailed error
+        console.error('Erreur commentaire:', commentError);
         let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
         if (commentError.code === 'invalid-argument') {
-            if (commentError.message?.includes('Unsupported field value') || commentError.message?.includes('serverTimestamp')) {
-                errorMessage = "Erreur de format de données (timestamp). Veuillez réessayer.";
-                 console.error('Invalid argument detail:', commentError.message);
+            if (commentError.message?.includes('Unsupported field value')) {
+                errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
+            } else if (commentError.message?.includes('serverTimestamp')) {
+                errorMessage = "Erreur de timestamp serveur. Réessayez.";
             }
         } else if (commentError.code === 'permission-denied') {
              errorMessage = "Permissions insuffisantes pour ajouter un commentaire.";
@@ -308,18 +298,16 @@ export default function PartyDetailsPage() {
         toast({ title: 'Erreur', description: errorMessage, variant: 'destructive' });
     } finally {
         setIsSubmittingComment(false);
-        console.log("Fin de la tentative d'ajout de commentaire."); // Log end
     }
 };
 
-  // Function to test server timestamp
+    // Fonction pour tester le timestamp serveur
     const handleGetServerTime = async () => {
         console.log("Test de l'heure du serveur...");
         try {
-            // We can't *get* the server time directly without writing.
-            // This function conceptually shows the placeholder exists.
-            const timestampPlaceholder = await getServerTime();
+            const timestampPlaceholder = await getServerTimePlaceholder();
             console.log('Placeholder Timestamp Serveur obtenu :', timestampPlaceholder);
+             // We cannot get the actual time without writing, so show a confirmation
             toast({ title: 'Test Timestamp', description: `Le placeholder serverTimestamp() est prêt. L'heure réelle sera définie lors de l'écriture.`, duration: 7000 });
         } catch (error: any) {
             console.error('Erreur lors de la tentative d\'obtention du placeholder timestamp :', error);
@@ -337,7 +325,6 @@ export default function PartyDetailsPage() {
             const newPreviews: string[] = [];
 
             newFilesArray.forEach(file => {
-                 // Basic client-side validation (can refine with zod later if needed)
                  if (!ACCEPTED_MEDIA_TYPES.includes(file.type)) {
                      toast({ title: `Type non supporté : ${file.name}`, description: `Type ${file.type} non accepté.`, variant: 'destructive' });
                      return;
@@ -347,7 +334,6 @@ export default function PartyDetailsPage() {
                  if (fileType === 'image') maxSize = MAX_FILE_SIZE.image;
                  else if (fileType === 'video') maxSize = MAX_FILE_SIZE.video;
                  else if (fileType === 'audio') maxSize = MAX_FILE_SIZE.audio;
-                 // No specific size check for 'autre' here, rely on server-side if needed
 
                  if (maxSize > 0 && file.size > maxSize) {
                       toast({ title: `Fichier trop volumineux : ${file.name}`, description: `La taille dépasse la limite de ${(maxSize / 1024 / 1024).toFixed(1)}Mo.`, variant: 'destructive' });
@@ -360,7 +346,6 @@ export default function PartyDetailsPage() {
             setSouvenirFiles(prev => [...prev, ...validNewFiles]);
             setSouvenirPreviews(prev => [...prev, ...newPreviews]);
 
-             // Clear the input
              if(event.target) event.target.value = '';
         }
     };
@@ -371,7 +356,6 @@ export default function PartyDetailsPage() {
         const previewUrl = souvenirPreviews[index];
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setSouvenirPreviews(prev => prev.filter((_, i) => i !== index));
-        // Remove progress if it exists
         if (fileToRemove?.name && souvenirUploadProgress[fileToRemove.name] !== undefined) {
              setSouvenirUploadProgress(prev => {
                  const newProgress = { ...prev };
@@ -384,20 +368,20 @@ export default function PartyDetailsPage() {
     const handleUploadSouvenirs = async () => {
         if (!user || !party || souvenirFiles.length === 0) return;
         setIsUploadingSouvenirs(true);
-        setSouvenirUploadProgress({}); // Reset progress
+        setSouvenirUploadProgress({});
 
         const uploadPromises = souvenirFiles.map(file =>
             uploadFile(
                 file,
                 party.id,
-                false, // Not a cover photo
+                false,
                 (progress) => setSouvenirUploadProgress(prev => ({ ...prev, [file.name]: progress }))
-            ).then(url => ({ url, file })) // Return URL and original file for potential Firestore update
+            ).then(url => ({ url, file }))
              .catch(error => {
                  console.error(`Échec téléversement ${file.name}:`, error);
-                 setSouvenirUploadProgress(prev => ({ ...prev, [file.name]: -1 })); // Error state
+                 setSouvenirUploadProgress(prev => ({ ...prev, [file.name]: -1 }));
                  toast({ title: `Échec téléversement ${file.name}`, description: error.message, variant: 'destructive' });
-                 return null; // Indicate failure
+                 return null;
              })
         );
 
@@ -408,7 +392,7 @@ export default function PartyDetailsPage() {
             if (successfulUploadUrls.length > 0) {
                 const partyDocRef = doc(db, 'parties', party.id);
                 await updateDoc(partyDocRef, {
-                    mediaUrls: arrayUnion(...successfulUploadUrls) // Add new URLs to the existing array
+                    mediaUrls: arrayUnion(...successfulUploadUrls)
                 });
                 toast({ title: 'Souvenirs ajoutés !', description: `${successfulUploadUrls.length} fichier(s) ajouté(s) à l'événement.` });
             }
@@ -417,10 +401,9 @@ export default function PartyDetailsPage() {
                  toast({ title: 'Certains téléversements ont échoué', variant: 'warning' });
             }
 
-            // Close dialog and reset state only after Firestore update (or if no successful uploads)
             setShowAddSouvenirDialog(false);
             setSouvenirFiles([]);
-            setSouvenirPreviews(prev => { prev.forEach(URL.revokeObjectURL); return []; }); // Cleanup previews
+            setSouvenirPreviews(prev => { prev.forEach(URL.revokeObjectURL); return []; });
             setSouvenirUploadProgress({});
 
         } catch (error: any) {
@@ -428,7 +411,6 @@ export default function PartyDetailsPage() {
             toast({ title: 'Erreur Firestore', description: "Impossible de sauvegarder les liens des souvenirs.", variant: 'destructive' });
         } finally {
             setIsUploadingSouvenirs(false);
-            // Don't reset files here, let the successful update handle it or allow retry
         }
     };
 
@@ -437,14 +419,13 @@ export default function PartyDetailsPage() {
         const isBrowser = typeof window !== 'undefined';
         const file = event.target.files?.[0];
         if (file) {
-            // Validate using Zod schema for cover photos
-            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; // Only validate on client
+            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true };
             if (validationResult.success) {
                 setNewCoverFile(file);
                 if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
                 setNewCoverPreview(URL.createObjectURL(file));
             } else {
-                const errorMessage = validationResult.error?.errors[0]?.message || 'Fichier invalide.'; // Added optional chaining
+                const errorMessage = validationResult.error?.errors[0]?.message || 'Fichier invalide.';
                 toast({ title: "Erreur Photo de Couverture", description: errorMessage, variant: "destructive" });
                 setNewCoverFile(null);
                 if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
@@ -455,11 +436,11 @@ export default function PartyDetailsPage() {
              if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
              setNewCoverPreview(null);
         }
-        if (event.target) event.target.value = ''; // Clear input
+        if (event.target) event.target.value = '';
     };
 
     const handleUpdateCoverPhoto = async () => {
-        if (!user || !party || !newCoverFile || !db) { // Removed !isCreator check, rely on Firestore rules
+        if (!user || !party || !newCoverFile || !db) {
             toast({ title: 'Erreur', description: 'Impossible de mettre à jour la photo pour le moment.', variant: 'destructive' });
             return;
         }
@@ -468,8 +449,8 @@ export default function PartyDetailsPage() {
         try {
             console.log("Téléversement de la nouvelle photo de couverture...");
             const newCoverUrl = await uploadFile(newCoverFile, party.id, true, (progress) => {
-                console.log(`Progression couverture : ${progress}%`); // Optional progress logging
-            }); // isCover = true
+                console.log(`Progression couverture : ${progress}%`);
+            });
 
             const partyDocRef = doc(db, 'parties', party.id);
             await updateDoc(partyDocRef, {
@@ -477,11 +458,10 @@ export default function PartyDetailsPage() {
             });
 
             toast({ title: 'Photo de couverture mise à jour !' });
-            // Reset state and close dialog on success
             setNewCoverFile(null);
             if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
             setNewCoverPreview(null);
-            setShowEditCoverDialog(false); // Close dialog
+            setShowEditCoverDialog(false);
 
         } catch (error: any) {
             console.error("Erreur lors de la mise à jour de la photo de couverture:", error);
@@ -489,12 +469,11 @@ export default function PartyDetailsPage() {
             if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied') {
                 userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité.";
             } else if (error.message?.includes('storage/object-not-found')) {
-                userFriendlyError = "Le fichier d'origine est introuvable."; // Unlikely here, but good practice
+                userFriendlyError = "Le fichier d'origine est introuvable.";
             } else {
                  userFriendlyError = error.message || userFriendlyError;
             }
             toast({ title: 'Échec de la mise à jour', description: userFriendlyError, variant: 'destructive' });
-            // Keep the dialog open and state as is for potential retry
         } finally {
             setIsUploadingCover(false);
         }
@@ -502,19 +481,18 @@ export default function PartyDetailsPage() {
 
     // --- Add Participant Handler ---
     const handleAddParticipant = async () => {
-        if (!user || !party || !canManageParticipants || !db || !participantEmail.trim()) { // Check canManageParticipants
+        if (!user || !party || !canManageParticipants || !db || !participantEmail.trim()) {
             toast({ title: 'Erreur', description: 'Permissions insuffisantes ou informations manquantes.', variant: 'destructive' });
             return;
         }
 
         setIsAddingParticipant(true);
-        const emailToAdd = participantEmail.trim().toLowerCase(); // Normalize email
+        const emailToAdd = participantEmail.trim().toLowerCase();
 
-        // Check if user is already a participant
          if (party.participantEmails?.map(e => e.toLowerCase()).includes(emailToAdd)) {
             toast({ title: 'Info', description: `${emailToAdd} est déjà participant.`, variant: 'default' });
             setIsAddingParticipant(false);
-            setParticipantEmail(''); // Clear input
+            setParticipantEmail('');
             setShowAddParticipantDialog(false);
             return;
          }
@@ -522,7 +500,7 @@ export default function PartyDetailsPage() {
         try {
              console.log(`Recherche de l'utilisateur avec l'email : ${emailToAdd}`);
              const usersRef = collection(db, 'users');
-             const q = query(usersRef, where("email", "==", emailToAdd), limit(1)); // Query users collection by email
+             const q = query(usersRef, where("email", "==", emailToAdd), limit(1));
              const querySnapshot = await getDocs(q);
 
              if (querySnapshot.empty) {
@@ -533,21 +511,20 @@ export default function PartyDetailsPage() {
              }
 
              const userDoc = querySnapshot.docs[0];
-             const userData = userDoc.data() as UserProfile; // Assume UserProfile interface matches Firestore structure
-             const userIdToAdd = userDoc.id; // or userData.uid if uid is stored in the document
+             const userData = userDoc.data() as UserProfile;
+             const userIdToAdd = userDoc.id;
 
               console.log(`Utilisateur trouvé : ${userData.displayName || userData.email} (UID: ${userIdToAdd})`);
 
-             // Update the party document using arrayUnion
              const partyDocRef = doc(db, 'parties', party.id);
              await updateDoc(partyDocRef, {
-                 participants: arrayUnion(userIdToAdd), // Add UID to participants array
-                 participantEmails: arrayUnion(userData.email) // Add email to participantEmails array
+                 participants: arrayUnion(userIdToAdd),
+                 participantEmails: arrayUnion(userData.email)
              });
 
              toast({ title: 'Participant ajouté', description: `${userData.displayName || userData.email} a été ajouté à l'événement.` });
-             setParticipantEmail(''); // Clear input
-             setShowAddParticipantDialog(false); // Close dialog
+             setParticipantEmail('');
+             setShowAddParticipantDialog(false);
 
         } catch (error: any) {
              console.error("Erreur lors de l'ajout du participant:", error);
@@ -564,7 +541,6 @@ export default function PartyDetailsPage() {
 
 
   // --- Render Logic ---
-  // Combine page and user loading state for initial Skeleton
   const showSkeleton = pageLoading || userLoading;
 
   if (showSkeleton) {
@@ -635,12 +611,10 @@ export default function PartyDetailsPage() {
 
   if (!party) { return <div className="container mx-auto px-4 py-12 text-center">Fête non trouvée.</div>; }
 
-  // Safely attempt date conversion only if party.date exists and is valid
   const partyDate = getDateFromTimestamp(party.date);
 
-  // Sort comments safely, handling potential undefined timestamps
     const sortedComments = party.comments ? [...party.comments].sort((a, b) => {
-        const timeA = getDateFromTimestamp(a.timestamp as Timestamp)?.getTime() || 0; // Assert type for safety
+        const timeA = getDateFromTimestamp(a.timestamp as Timestamp)?.getTime() || 0;
         const timeB = getDateFromTimestamp(b.timestamp as Timestamp)?.getTime() || 0;
         return timeB - timeA;
     }) : [];
@@ -651,13 +625,12 @@ export default function PartyDetailsPage() {
       <Card className="bg-card border border-border overflow-hidden shadow-lg">
         {/* Header Section */}
         <CardHeader className="p-0 relative border-b border-border/50">
-           <div className="relative h-48 md:h-64 lg:h-80 w-full group"> {/* Added group for hover effect */}
+           <div className="relative h-48 md:h-64 lg:h-80 w-full group">
                {party.coverPhotoUrl ? (
                    <Image src={party.coverPhotoUrl} alt={`Couverture ${party.name}`} layout="fill" objectFit="cover" quality={80} priority data-ai-hint="fête couverture événement" />
                ) : (
                    <div className="absolute inset-0 bg-gradient-to-br from-secondary via-muted to-secondary flex items-center justify-center"> <ImageIcon className="h-16 w-16 text-muted-foreground/50" /> </div>
                )}
-                {/* Edit Cover Button (only for creator or admin - Firestore rules enforce this) */}
                 {(isCreator || isAdmin) && (
                     <Dialog open={showEditCoverDialog} onOpenChange={setShowEditCoverDialog}>
                         <DialogTrigger asChild>
@@ -719,8 +692,7 @@ export default function PartyDetailsPage() {
                 <CardContent className="p-4 md:p-6">
                     <div className="flex justify-between items-center mb-4">
                          <h3 className="text-xl font-semibold text-foreground">Souvenirs ({party.mediaUrls?.length || 0})</h3>
-                         {/* Add Souvenir Button */}
-                         {user && ( // Only show button if user is logged in
+                         {user && (
                             <Dialog open={showAddSouvenirDialog} onOpenChange={setShowAddSouvenirDialog}>
                                 <DialogTrigger asChild>
                                      <Button variant="outline" size="sm"> <Upload className="mr-2 h-4 w-4" /> Ajouter des souvenirs </Button>
@@ -732,7 +704,6 @@ export default function PartyDetailsPage() {
                                     </DialogHeader>
                                     <div className="grid gap-4 py-4">
                                         <Input id="souvenir-upload-input" type="file" multiple accept={ACCEPTED_MEDIA_TYPES.join(',')} onChange={handleSouvenirFileChange} className="col-span-3" />
-                                        {/* Previews & Progress for Souvenirs */}
                                          {souvenirFiles.length > 0 && (
                                              <div className="space-y-3 mt-4 max-h-60 overflow-y-auto border p-3 rounded-md">
                                                   <p className="text-sm font-medium">Fichiers à téléverser :</p>
@@ -775,7 +746,6 @@ export default function PartyDetailsPage() {
                             </Dialog>
                          )}
                      </div>
-                     {/* Ensure mediaUrls exists before mapping */}
                     {party.mediaUrls && party.mediaUrls.length > 0 ? (
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4"> {party.mediaUrls.map(renderMedia)} </div>
                     ) : ( <p className="text-muted-foreground text-sm">Aucun souvenir importé.</p> )}
@@ -790,7 +760,7 @@ export default function PartyDetailsPage() {
                             <Avatar className="h-9 w-9 border mt-1"> <AvatarImage src={user.photoURL || undefined} alt={user.email || ''}/> <AvatarFallback>{getInitials(user.email)}</AvatarFallback> </Avatar>
                             <div className="flex-1">
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
-                                <div className="flex gap-2"> {/* Added container for buttons */}
+                                <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
                                     {/* Add the test button */}
                                     <Button onClick={handleGetServerTime} variant="outline" size="sm">Tester Timestamp</Button>
@@ -829,8 +799,7 @@ export default function PartyDetailsPage() {
                  <CardContent className="p-4 md:p-6 border-t border-border/50">
                       <div className="flex justify-between items-center mb-4">
                            <h3 className="text-xl font-semibold text-foreground">Participants ({party.participantEmails?.length || 1})</h3>
-                            {/* Add Participant Button (only for creator or admin) */}
-                            {canManageParticipants && ( // Updated condition
+                            {canManageParticipants && (
                                 <Dialog open={showAddParticipantDialog} onOpenChange={setShowAddParticipantDialog}>
                                     <DialogTrigger asChild>
                                         <Button variant="outline" size="sm"> <UserPlus className="mr-2 h-4 w-4" /> Ajouter </Button>
@@ -866,7 +835,6 @@ export default function PartyDetailsPage() {
                          {(party.participantEmails || [party.creatorEmail]).map((email, index) => (
                             <div key={email || index} className="flex items-center space-x-3 p-2 rounded-md hover:bg-secondary/50">
                                 <Avatar className="h-8 w-8 border">
-                                     {/* TODO: Fetch actual avatarUrl from 'users' collection based on email/UID if needed */}
                                      <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}> {getInitials(email)} </AvatarFallback>
                                  </Avatar>
                                  <span className="text-sm font-medium text-foreground truncate">{email || 'Créateur'}</span>
@@ -883,7 +851,9 @@ export default function PartyDetailsPage() {
   );
 }
 
-// Helper for class names (unchanged, keep it)
+// Helper pour les noms de classe (à conserver)
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
+    
