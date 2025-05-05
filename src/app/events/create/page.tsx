@@ -237,7 +237,7 @@ export default function CreateEventPage() {
         if (file) {
              // Validate the file against the schema before setting value and preview
              // Use safeParse for better type checking if needed
-             const validationResult = typeof window !== 'undefined' && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true };
+             const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true };
 
              if (validationResult.success) {
                  form.setValue('coverPhoto', file, { shouldValidate: true });
@@ -749,4 +749,3 @@ export default function CreateEventPage() {
     </div>
   );
 }
-    
