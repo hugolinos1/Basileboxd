@@ -36,14 +36,16 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   getFileType,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  coverPhotoSchema // Import schema from dedicated file
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
+
 
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Video, Music, File as FileIcon } from 'lucide-react';
+import { Slider } from '@/components/ui/slider'; // Added Slider import
 
 // --- Schema Definition ---
 const isBrowser = typeof window !== 'undefined';
@@ -77,7 +79,7 @@ const mediaFileSchema = fileSchema.refine(
         if (!ACCEPTED_MEDIA_TYPES.includes(file.type)) {
             return { message: `Type de fichier non supporté (${file.type}).` };
         }
-        if (maxSizeMB > 0 && file.size > MAX_FILE_SIZE[fileType as keyof typeof MAX_FILE_SIZE]) { // Added type assertion
+        if (maxSizeMB > 0 && fileType in MAX_FILE_SIZE && file.size > MAX_FILE_SIZE[fileType as keyof typeof MAX_FILE_SIZE]) { // Added type assertion and check if fileType is a valid key
              return { message: `Fichier trop volumineux (${(file.size / (1024 * 1024)).toFixed(1)}Mo). Max ${maxSizeMB.toFixed(1)}Mo.` };
         }
         return { message: 'Fichier invalide.' }; // Default fallback
