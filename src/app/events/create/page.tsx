@@ -36,7 +36,8 @@ import {
   ACCEPTED_MEDIA_TYPES,
   ACCEPTED_COVER_PHOTO_TYPES,
   getFileType,
-  COMPRESSED_COVER_PHOTO_MAX_SIZE_MB
+  COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  coverPhotoSchema // Import coverPhotoSchema from service
 } from '@/services/media-uploader';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
@@ -50,22 +51,7 @@ const fileSchemaClient = z.instanceof(isBrowser ? File : Object, { message: 'Veu
 const fileSchemaServer = z.any(); // Fallback for SSR where File is not available
 const fileSchema = isBrowser ? fileSchemaClient : fileSchemaServer;
 
-const coverPhotoSchema = fileSchema
-    .refine(
-        (file) => {
-            if (!isBrowser || !(file instanceof File)) return true;
-            return ACCEPTED_COVER_PHOTO_TYPES.includes(file.type);
-        },
-        "Type de photo non supporté."
-    )
-    .refine(
-        (file) => {
-            if (!isBrowser || !(file instanceof File)) return true;
-            return file.size <= MAX_FILE_SIZE.image; // Check against initial upload size
-        },
-        `La photo de couverture initiale ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
-    )
-    .optional(); // Make cover photo optional
+// Remove local coverPhotoSchema definition, it's imported now
 
 const mediaFileSchema = fileSchema.refine(
     (file) => {
@@ -90,7 +76,7 @@ const mediaFileSchema = fileSchema.refine(
         if (!ACCEPTED_MEDIA_TYPES.includes(file.type)) {
             return { message: `Type de fichier non supporté (${file.type}).` };
         }
-        if (maxSizeMB > 0 && file.size > MAX_FILE_SIZE[fileType]) {
+        if (maxSizeMB > 0 && file.size > MAX_FILE_SIZE[fileType as keyof typeof MAX_FILE_SIZE]) { // Added type assertion
              return { message: `Fichier trop volumineux (${(file.size / (1024 * 1024)).toFixed(1)}Mo). Max ${maxSizeMB.toFixed(1)}Mo.` };
         }
         return { message: 'Fichier invalide.' }; // Default fallback
@@ -105,7 +91,7 @@ const formSchema = z.object({
   location: z.string().max(150).optional(),
   participants: z.array(z.string().email()).optional(), // Feature in development
   media: z.array(mediaFileSchema).optional(), // Array of files for general media
-  coverPhoto: coverPhotoSchema, // Optional single cover photo
+  coverPhoto: coverPhotoSchema, // Use imported schema
   initialRating: z.number().min(0.5).max(5).step(0.5).optional(),
   initialComment: z.string().max(500).optional(),
 });
@@ -243,7 +229,9 @@ export default function CreateEventPage() {
     const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
-             const validationResult = coverPhotoSchema.safeParse(file);
+             // Validate the file against the schema before setting value and preview
+             // Use safeParse for better type checking if needed
+             const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; // Only validate on client
              if (validationResult.success) {
                  form.setValue('coverPhoto', file, { shouldValidate: true });
                  if (coverPhotoPreview) {
@@ -463,42 +451,39 @@ export default function CreateEventPage() {
                                 <FormField
                                     control={form.control}
                                     name="coverPhoto"
-                                    render={({ field }) => ( // RHF handles the value/onChange, we use the render prop correctly
-                                        <FormItem className="flex-1">
-                                            <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
-                                                 {/* Visual feedback and trigger */}
-                                                 {coverPhotoPreview ? (
-                                                     <div className="relative w-full h-full">
-                                                         <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
-                                                         <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10" onClick={removeCoverPhoto}> <X className="h-4 w-4" /> <span className="sr-only">Retirer photo</span> </Button>
-                                                     </div>
-                                                 ) : (
-                                                     <div className="flex flex-col items-center justify-center text-center h-full">
-                                                         <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
-                                                         <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo (max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo).</p>
-                                                         <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}> <Upload className="mr-2 h-4 w-4" /> Ajouter une photo </Button>
-                                                     </div>
-                                                 )}
-                                                {/* Hidden Input - RHF doesn't need direct control here, just onChange */}
-                                                <FormControl>
-                                                    <Input
-                                                        id="cover-photo-input"
-                                                        type="file"
-                                                        accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
-                                                        onChange={handleCoverPhotoChange} // We handle the change manually
-                                                        className="sr-only"
-                                                        ref={field.ref} // Still needed for RHF to track the field
-                                                        onBlur={field.onBlur} // Needed for RHF validation trigger
-                                                        name={field.name} // Needed for RHF
-                                                        disabled={field.disabled} // Needed for RHF
-                                                    />
-                                                </FormControl>
-                                                <FormMessage className="absolute bottom-2 left-2 right-2 text-xs"/>
-                                            </div>
+                                    render={({ field }) => (
+                                        <FormItem className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
+                                            <FormControl>
+                                                {/* Visual feedback and trigger */}
+                                                {coverPhotoPreview ? (
+                                                    <div className="relative w-full h-full">
+                                                        <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
+                                                        <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10" onClick={removeCoverPhoto}> <X className="h-4 w-4" /> <span className="sr-only">Retirer photo</span> </Button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-col items-center justify-center text-center h-full">
+                                                        <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
+                                                        <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo (max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo).</p>
+                                                        <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}> <Upload className="mr-2 h-4 w-4" /> Ajouter une photo </Button>
+                                                    </div>
+                                                )}
+                                            </FormControl>
+                                            {/* Hidden Input - Manual handling */}
+                                            <Input
+                                                id="cover-photo-input"
+                                                type="file"
+                                                accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                                onChange={handleCoverPhotoChange}
+                                                className="sr-only"
+                                                ref={field.ref} // Still needed for RHF to track the field
+                                                onBlur={field.onBlur} // Needed for RHF validation trigger
+                                                name={field.name} // Needed for RHF
+                                                disabled={field.disabled} // Needed for RHF
+                                            />
+                                            <FormMessage className="absolute bottom-2 left-2 right-2 text-xs"/>
                                         </FormItem>
                                     )}
                                 />
-
 
                                {/* Preview Card -- Moved Inside Column 1 */}
                                <div className="w-full md:w-64 flex-shrink-0">

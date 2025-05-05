@@ -2,6 +2,7 @@
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/config/firebase';
 import { compressMedia } from '@/services/media-compressor';
+import * as z from 'zod'; // Import Zod
 
 // Constants (Consider moving to a shared constants file if used elsewhere)
 export const MAX_FILE_SIZE = {
@@ -12,6 +13,32 @@ export const MAX_FILE_SIZE = {
 export const COMPRESSED_COVER_PHOTO_MAX_SIZE_MB = 1; // Compress cover photos to 1MB
 export const ACCEPTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'audio/mpeg', 'audio/wav'];
 export const ACCEPTED_COVER_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+// Helper to check if running in the browser
+const isBrowser = typeof window !== 'undefined';
+
+// --- Define File Schema ---
+const fileSchemaClient = z.instanceof(isBrowser ? File : Object, { message: 'Veuillez télécharger un fichier' });
+const fileSchemaServer = z.any(); // Fallback for SSR where File is not available
+const fileSchema = isBrowser ? fileSchemaClient : fileSchemaServer;
+
+// --- Define and Export Cover Photo Schema ---
+export const coverPhotoSchema = fileSchema
+    .refine(
+        (file) => {
+            if (!isBrowser || !(file instanceof File)) return true;
+            return ACCEPTED_COVER_PHOTO_TYPES.includes(file.type);
+        },
+        "Type de photo non supporté."
+    )
+    .refine(
+        (file) => {
+            if (!isBrowser || !(file instanceof File)) return true;
+            return file.size <= MAX_FILE_SIZE.image; // Check against initial upload size
+        },
+        `La photo de couverture initiale ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
+    )
+    .optional(); // Make cover photo optional
 
 // Helper to get file type category
 export const getFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => {

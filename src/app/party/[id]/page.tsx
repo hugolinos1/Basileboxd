@@ -32,7 +32,7 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema // Import the coverPhotoSchema
+  coverPhotoSchema // Correctly import the schema
 } from '@/services/media-uploader';
 import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 
@@ -67,7 +67,7 @@ const StarRating = ({ totalStars = 5, rating, onRate, disabled = false, size = '
 
 // RatingDistributionChart (unchanged)
 const RatingDistributionChart = ({ ratings }: { ratings: { [userId: string]: number } }) => {
-  const ratingCounts = useMemo(() => { const counts: { rating: number; votes: number }[] = Array.from({ length: 10 }, (_, i) => ({ rating: (i + 1) * 0.5, votes: 0, })); Object.values(ratings).forEach(rating => { const index = Math.round(rating * 2) - 1; if (index >= 0 && index < 10) { counts[index].votes++; } }); return counts.map(c => ({ ...c, fill: "hsl(var(--primary))" })); }, [ratings]);
+  const ratingCounts = useMemo(() => { const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 10 }, (_, i) => ({ rating: (i + 1) * 0.5, votes: 0, fill: '' })); Object.values(ratings).forEach(rating => { const index = Math.round(rating * 2) - 1; if (index >= 0 && index < 10) { counts[index].votes++; } }); return counts.map(c => ({ ...c, fill: "hsl(var(--primary))" })); }, [ratings]);
   const totalVotes = useMemo(() => Object.keys(ratings).length, [ratings]);
   const chartConfig = { votes: { label: "Votes", color: "hsl(var(--primary))", }, } satisfies ChartConfig
   if (totalVotes === 0) { return <p className="text-sm text-muted-foreground text-center py-4">Pas encore de notes.</p>; }
@@ -117,21 +117,21 @@ export default function PartyDetailsPage() {
                 return isNaN(date.getTime()) ? null : date;
             }
             return null;
-        } catch (e) { console.error("Error converting timestamp:", timestamp, e); return null; }
+        } catch (e) { console.error("Erreur conversion timestamp:", timestamp, e); return null; }
     }
 
   // --- Effects ---
   useEffect(() => {
     // Wait for Firebase init and user auth state
     if (!firebaseInitialized || userLoading) {
-       console.log("[PartyDetailsPage] Waiting for Firebase init/auth...");
+       console.log("[PartyDetailsPage] En attente de l'init/auth Firebase...");
        setPageLoading(true);
        return;
     }
 
     // Handle Firebase init failure
      if (initializationFailed) {
-         console.error("[PartyDetailsPage] Firebase init failed:", initializationErrorMessage);
+         console.error("[PartyDetailsPage] Echec init Firebase:", initializationErrorMessage);
          setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
          setPageLoading(false);
          return;
@@ -141,14 +141,14 @@ export default function PartyDetailsPage() {
     if (!partyId) { setError("ID de la fête manquant."); setPageLoading(false); return; }
     if (!db) { setError("La base de données Firestore n'est pas disponible."); setPageLoading(false); return; }
 
-    console.log(`[PartyDetailsPage] Initialized. Setting up snapshot listener for party ${partyId}`);
+    console.log(`[PartyDetailsPage] Initialisé. Mise en place du listener snapshot pour la fête ${partyId}`);
     setPageLoading(true);
     setError(null);
     const partyDocRef = doc(db, 'parties', partyId);
 
     const unsubscribe = onSnapshot(partyDocRef, (docSnap) => {
       if (docSnap.exists()) {
-        console.log(`[PartyDetailsPage] Snapshot received for ${partyId}.`);
+        console.log(`[PartyDetailsPage] Snapshot reçu pour ${partyId}.`);
         const data = { id: docSnap.id, ...docSnap.data() } as PartyData;
         setParty(data);
         calculateAndSetAverageRating(data.ratings);
@@ -159,7 +159,7 @@ export default function PartyDetailsPage() {
         }
         setPageLoading(false); // Data loaded
       } else {
-        console.log(`[PartyDetailsPage] Document ${partyId} does not exist.`);
+        console.log(`[PartyDetailsPage] Document ${partyId} n'existe pas.`);
         setError('Fête non trouvée.');
         setParty(null);
         setPageLoading(false);
@@ -172,7 +172,7 @@ export default function PartyDetailsPage() {
 
     // Cleanup listener
     return () => {
-        console.log(`[PartyDetailsPage] Cleaning up snapshot listener for ${partyId}`);
+        console.log(`[PartyDetailsPage] Nettoyage du listener snapshot pour ${partyId}`);
         unsubscribe();
     }
 
@@ -346,10 +346,11 @@ export default function PartyDetailsPage() {
 
      // --- Edit Cover Photo Handlers ---
     const handleNewCoverFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+        const isBrowser = typeof window !== 'undefined';
         const file = event.target.files?.[0];
         if (file) {
             // Validate using Zod schema for cover photos
-            const validationResult = coverPhotoSchema.safeParse(file);
+            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; // Only validate on client
             if (validationResult.success) {
                 setNewCoverFile(file);
                 if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
