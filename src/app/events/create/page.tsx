@@ -48,20 +48,22 @@ const ACCEPTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp
 const ACCEPTED_COVER_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 // Use z.instanceof for better type checking across environments
-const fileSchema = z.instanceof(typeof window !== 'undefined' ? File : Object, { message: 'Veuillez télécharger un fichier' });
+const fileSchema = typeof window !== 'undefined'
+  ? z.instanceof(File, { message: 'Veuillez télécharger un fichier' })
+  : z.any(); // Fallback for server-side rendering
 
 const coverPhotoSchema = fileSchema.refine(
     (file) => {
         // Check if in browser environment AND if it's a File instance before accessing file properties
         const isFile = typeof window !== 'undefined' && file instanceof File;
         // Ensure file properties are accessed only if it's a valid File object
-        return isFile ? ACCEPTED_COVER_PHOTO_TYPES.includes(file.type) : false;
+        return isFile ? ACCEPTED_COVER_PHOTO_TYPES.includes(file.type) : true; // Allow validation to pass server-side
     },
     "Type de photo non supporté."
 ).refine(
     (file) => {
         const isFile = typeof window !== 'undefined' && file instanceof File;
-        return isFile ? file.size <= MAX_FILE_SIZE.image : false;
+        return isFile ? file.size <= MAX_FILE_SIZE.image : true; // Allow validation to pass server-side
     },
      `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
 ).optional(); // Make cover photo optional
@@ -564,7 +566,7 @@ export default function CreateEventPage() {
                                             {/* Outer container for the visual dropzone area and preview */}
                                             <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                                 <FormControl>
-                                                   <>
+                                                   {/* Removed the unnecessary React.Fragment that caused the error */}
                                                      {coverPhotoPreview ? (
                                                          <div className="relative w-full h-full">
                                                              <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
@@ -602,7 +604,7 @@ export default function CreateEventPage() {
                                                          disabled={field.disabled}
                                                          // Remove value and onChange from here, RHF handles it
                                                      />
-                                                   </>
+
                                                 </FormControl>
                                                 <FormMessage className="absolute bottom-2 left-2 right-2 text-xs"/>
                                             </div>
@@ -858,5 +860,3 @@ export default function CreateEventPage() {
     </div>
   );
 }
-
-    
