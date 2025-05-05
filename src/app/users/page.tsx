@@ -51,52 +51,62 @@ const getInitials = (name: string | null | undefined, email: string): string => 
 // --- Users List Page Component ---
 export default function UsersListPage() {
     const [users, setUsers] = useState<UserData[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true); // Combined loading state
     const [error, setError] = useState<string | null>(null);
+    // Use context for Firebase status and auth loading
     const { firebaseInitialized, loading: authLoading, initializationFailed, initializationErrorMessage } = useFirebase();
 
     useEffect(() => {
-        if (!firebaseInitialized || authLoading) {
-            console.log("[UsersListPage] En attente de l'init/auth Firebase...");
-            setLoading(true); // Keep loading while context initializes
-            return;
+        console.log("[UsersListPage useEffect] State Check - Initialized:", firebaseInitialized, "Init Failed:", initializationFailed, "Auth Loading:", authLoading);
+
+        // If Firebase init failed, set error and stop loading
+        if (initializationFailed) {
+          console.error("[UsersListPage useEffect] Firebase initialization failed. Setting error state.");
+          setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
+          setLoading(false);
+          return;
         }
 
-        if (initializationFailed) {
-            console.error("[UsersListPage] Échec init Firebase:", initializationErrorMessage);
-            setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
-            setLoading(false);
-            return;
+        // If Firebase is not yet initialized OR user auth state is still loading, keep showing loader
+        if (!firebaseInitialized || authLoading) {
+          console.log("[UsersListPage useEffect] Waiting for Firebase init and user auth state...");
+          setLoading(true); // Ensure loading stays true while waiting
+          return;
         }
+
+        // --- Firebase is initialized and auth state is known ---
 
         if (!db) {
-            console.error("[UsersListPage] Instance Firestore 'db' indisponible.");
+            console.error("[UsersListPage useEffect] Firestore 'db' instance is null even though Firebase is initialized. Setting error state.");
             setError("La base de données Firestore n'est pas disponible.");
             setLoading(false);
             return;
         }
 
         const fetchUsers = async () => {
-            console.log("[fetchUsers] Début de la récupération des utilisateurs.");
-            setLoading(true);
-            setError(null);
+            console.log("[fetchUsers] Starting user fetch. setLoading(true), setError(null).");
+            setLoading(true); // Keep loading true as fetch starts
+            setError(null); // Reset error for this attempt
 
             try {
                 const usersCollectionRef = collection(db, 'users');
+                // Consider adding authentication check in Firestore rules for 'list' operation on /users
                 const q = query(usersCollectionRef, orderBy('createdAt', 'desc')); // Order by creation date
 
-                console.log("[fetchUsers] Exécution de la requête Firestore...");
+                console.log("[fetchUsers] Executing Firestore query for users...");
                 const querySnapshot = await getDocs(q);
-                console.log(`[fetchUsers] Requête exécutée. ${querySnapshot.size} utilisateurs trouvés.`);
+                console.log(`[fetchUsers] Firestore query executed. Found ${querySnapshot.size} user documents.`);
 
                 if (querySnapshot.empty) {
+                    console.log("[fetchUsers] No users found in collection.");
                     setUsers([]);
                 } else {
+                    console.log("[fetchUsers] Mapping user documents to UserData...");
                     const usersData = querySnapshot.docs.map(doc => {
                          const data = doc.data();
                          // Basic validation
                          if (!data.uid || !data.email) {
-                             console.warn(`[fetchUsers Mapping] Doc ${doc.id}: uid ou email manquant. Ignoré.`);
+                             console.warn(`[fetchUsers Mapping] Doc ${doc.id}: uid or email missing. Skipped.`);
                              return null;
                          }
                          // TODO: Fetch stats per user (event count, comment count) - potentially inefficient for many users.
@@ -116,37 +126,45 @@ export default function UsersListPage() {
                     }).filter(user => user !== null) as UserData[];
 
                     setUsers(usersData);
-                     console.log(`[fetchUsers] État des utilisateurs mis à jour avec ${usersData.length} éléments.`);
+                     console.log(`[fetchUsers] Users state updated with ${usersData.length} items.`);
                 }
 
             } catch (fetchError: any) {
-                console.error('[fetchUsers] Erreur lors de la requête Firestore ou du mapping:', fetchError);
+                console.error('[fetchUsers] Error during Firestore query or mapping:', fetchError);
                 let userFriendlyError = 'Impossible de charger la liste des utilisateurs.';
                 if (fetchError instanceof FirestoreError) {
                     if (fetchError.code === 'permission-denied') {
-                        userFriendlyError = 'Permission refusée. Vérifiez les règles de sécurité Firestore pour la collection "users".';
-                        console.error("Firestore Permission Denied: Check your security rules for the 'users' collection.");
-                    } else {
+                        userFriendlyError = 'Permission refusée. Vous n\'avez peut-être pas les droits pour lister les utilisateurs. Vérifiez les règles de sécurité Firestore pour la collection "users".';
+                        console.error("Firestore Permission Denied: Check your security rules for the 'users' collection, specifically the 'list' permission.");
+                    } else if (fetchError.code === 'unauthenticated') {
+                        userFriendlyError = 'Non authentifié. Veuillez vous connecter pour voir la liste des utilisateurs.';
+                    }
+                    else {
                          userFriendlyError = `Erreur Firestore (${fetchError.code}): ${fetchError.message}`;
                     }
                 } else {
                     userFriendlyError = `Erreur inattendue: ${fetchError.message}`;
                 }
                 setError(userFriendlyError);
-                setUsers([]);
+                setUsers([]); // Ensure users state is empty on error
             } finally {
-                setLoading(false);
+                 console.log("[fetchUsers] Fetch attempt finished. setLoading(false).");
+                setLoading(false); // Fetch is complete (success or error)
             }
         };
 
         fetchUsers();
 
-    }, [firebaseInitialized, authLoading, initializationFailed, initializationErrorMessage]); // Dependencies
+    // Include all dependencies that trigger re-fetching or state checks
+    }, [firebaseInitialized, authLoading, initializationFailed, initializationErrorMessage]);
 
     // --- Render Logic ---
 
-    // Skeleton Loader
+    console.log("[UsersListPage Render] Loading:", loading, "Auth Loading:", authLoading, "Error:", error, "Users Count:", users.length, "Firebase Initialized:", firebaseInitialized, "Init Failed:", initializationFailed);
+
+    // Show Skeleton Loader if EITHER context is loading OR page is fetching data
     if (loading) {
+        console.log("[UsersListPage Render] Displaying Skeleton Loader.");
         return (
             <div className="container mx-auto px-4 py-12">
                 <Skeleton className="h-8 w-1/3 mb-8 bg-muted" />
@@ -175,20 +193,23 @@ export default function UsersListPage() {
         );
     }
 
-    // Error Alert
-    if (error) {
+    // Show Error Alert if initialization failed OR a fetch error occurred
+    if (error) { // Covers both initialization errors and fetch errors
+         const displayError = error; // Error state now holds the specific message
+         console.error("[UsersListPage Render] Displaying Error Alert:", displayError);
         return (
-            <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
-                <Alert variant="destructive" className="max-w-lg">
+             <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
+                 <Alert variant="destructive" className="max-w-lg">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Erreur</AlertTitle>
-                    <AlertDescription>{error}</AlertDescription>
-                </Alert>
+                    <AlertDescription>{displayError}</AlertDescription>
+                 </Alert>
             </div>
         );
     }
 
-    // User List
+    // Display User List only if not loading and no errors
+     console.log("[UsersListPage Render] Displaying user list.");
     return (
         <div className="container mx-auto px-4 py-12">
             <h1 className="text-3xl font-bold mb-8 text-primary flex items-center gap-2">
