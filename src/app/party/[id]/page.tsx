@@ -8,7 +8,7 @@ import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Star, Send, User, MapPin, CalendarDays, Image as ImageIcon, Video, Music, Loader2, AlertTriangle, Upload, Edit2, X } from 'lucide-react';
+import { Star, Send, User, MapPin, CalendarDays, Image as ImageIcon, Video, Music, Loader2, AlertTriangle, Upload, Edit2, X, File as FileIcon } from 'lucide-react'; // Added FileIcon
 import Image from 'next/image';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -31,8 +31,10 @@ import {
   ACCEPTED_MEDIA_TYPES,
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
-  COMPRESSED_COVER_PHOTO_MAX_SIZE_MB
+  COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  coverPhotoSchema // Import the coverPhotoSchema
 } from '@/services/media-uploader';
+import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
@@ -42,7 +44,7 @@ interface PartyData {
     id: string;
     name: string;
     description: string;
-    date: FirestoreTimestamp;
+    date: FirestoreTimestamp | Timestamp; // Accept both types
     location: string;
     createdBy: string;
     creatorEmail: string;
@@ -52,7 +54,7 @@ interface PartyData {
     coverPhotoUrl?: string;
     ratings: { [userId: string]: number };
     comments: Comment[];
-    createdAt: FirestoreTimestamp;
+    createdAt: FirestoreTimestamp | Timestamp; // Accept both types
 }
 
 // --- Components ---
@@ -77,11 +79,11 @@ export default function PartyDetailsPage() {
   const params = useParams();
   const partyId = params.id as string;
   const router = useRouter();
-  const { user, firebaseInitialized } = useFirebase();
+  const { user, firebaseInitialized, loading: userLoading, initializationFailed, initializationErrorMessage } = useFirebase(); // Added context loading states
   const { toast } = useToast();
 
   const [party, setParty] = useState<PartyData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(true); // State specifically for page data loading
   const [error, setError] = useState<string | null>(null);
   const [comment, setComment] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
@@ -105,55 +107,89 @@ export default function PartyDetailsPage() {
   const participantColors = [ 'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', ];
   const getInitials = (email: string | null | undefined): string => { if (!email) return '?'; const parts = email.split('@')[0]; return parts[0]?.toUpperCase() || '?'; };
 
-  // --- Effects ---
-  useEffect(() => {
-    if (!partyId || !firebaseInitialized) {
-      if (!partyId) setError("ID de la fête manquant.");
-      // else setError("Firebase non initialisé."); // Less verbose, let context handle it
-      setLoading(false);
-      return;
-    }
-    if (!db) {
-      setError("La base de données Firestore n'est pas disponible.");
-      setLoading(false);
-      return;
+  // Helper to safely convert timestamp
+    const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefined): Date | null => {
+        if (!timestamp) return null;
+        try {
+            if (timestamp instanceof Timestamp) return timestamp.toDate();
+            if (typeof timestamp === 'object' && typeof timestamp.seconds === 'number') {
+                const date = new Date(timestamp.seconds * 1000);
+                return isNaN(date.getTime()) ? null : date;
+            }
+            return null;
+        } catch (e) { console.error("Error converting timestamp:", timestamp, e); return null; }
     }
 
-    setLoading(true);
+  // --- Effects ---
+  useEffect(() => {
+    // Wait for Firebase init and user auth state
+    if (!firebaseInitialized || userLoading) {
+       console.log("[PartyDetailsPage] Waiting for Firebase init/auth...");
+       setPageLoading(true);
+       return;
+    }
+
+    // Handle Firebase init failure
+     if (initializationFailed) {
+         console.error("[PartyDetailsPage] Firebase init failed:", initializationErrorMessage);
+         setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
+         setPageLoading(false);
+         return;
+     }
+
+    // Validate partyId and db instance
+    if (!partyId) { setError("ID de la fête manquant."); setPageLoading(false); return; }
+    if (!db) { setError("La base de données Firestore n'est pas disponible."); setPageLoading(false); return; }
+
+    console.log(`[PartyDetailsPage] Initialized. Setting up snapshot listener for party ${partyId}`);
+    setPageLoading(true);
     setError(null);
     const partyDocRef = doc(db, 'parties', partyId);
 
-    // Use onSnapshot for real-time updates
     const unsubscribe = onSnapshot(partyDocRef, (docSnap) => {
       if (docSnap.exists()) {
+        console.log(`[PartyDetailsPage] Snapshot received for ${partyId}.`);
         const data = { id: docSnap.id, ...docSnap.data() } as PartyData;
         setParty(data);
-        calculateAndSetAverageRating(data.ratings); // Renamed for clarity
-        if (user && data.ratings[user.uid]) {
-          setUserRating(data.ratings[user.uid]);
+        calculateAndSetAverageRating(data.ratings);
+        if (user && data.ratings && data.ratings[user.uid]) { // Check data.ratings exists
+            setUserRating(data.ratings[user.uid]);
         } else {
-          setUserRating(0);
+            setUserRating(0);
         }
-        setLoading(false); // Data loaded
+        setPageLoading(false); // Data loaded
       } else {
+        console.log(`[PartyDetailsPage] Document ${partyId} does not exist.`);
         setError('Fête non trouvée.');
-        setParty(null); // Clear party data
-        setLoading(false);
+        setParty(null);
+        setPageLoading(false);
       }
     }, (snapshotError) => {
-      console.error('Erreur lors de l\'écoute des mises à jour de la fête :', snapshotError);
-      setError('Impossible de charger les détails de la fête.');
-      setLoading(false);
+      console.error('[PartyDetailsPage] Erreur listener snapshot:', snapshotError);
+      setError('Impossible de charger les détails de la fête en temps réel.');
+      setPageLoading(false);
     });
 
-    // Cleanup listener on unmount or partyId change
-    return () => unsubscribe();
+    // Cleanup listener
+    return () => {
+        console.log(`[PartyDetailsPage] Cleaning up snapshot listener for ${partyId}`);
+        unsubscribe();
+    }
 
-  }, [partyId, user, firebaseInitialized]); // Rerun if user changes too
+  }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage]); // Added context dependencies
+
+   // Cleanup Preview URLs on Unmount
+   useEffect(() => {
+        return () => {
+            souvenirPreviews.forEach(URL.revokeObjectURL);
+            if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
+        }
+   }, [souvenirPreviews, newCoverPreview]);
 
 
   // --- Helper Functions ---
-  const calculateAndSetAverageRating = (ratings: { [userId: string]: number }) => {
+  const calculateAndSetAverageRating = (ratings: { [userId: string]: number } | undefined) => { // Added undefined check
+    if (!ratings) { setAverageRating(0); return; } // Handle case where ratings field might be missing
     const allRatings = Object.values(ratings);
     if (allRatings.length === 0) { setAverageRating(0); return; }
     const sum = allRatings.reduce((acc, rating) => acc + rating, 0);
@@ -169,7 +205,8 @@ export default function PartyDetailsPage() {
      if (isVideo) { return ( <div key={index} className="aspect-video bg-black rounded-lg overflow-hidden relative shadow-md"> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement vidéo</div>} <ReactPlayer url={url} controls width="100%" height="100%" onError={onError} className="absolute top-0 left-0" config={{ file: { attributes: { controlsList: 'nodownload' } } }} /> </div> ); }
      else if (isAudio) { return ( <div key={index} className="w-full bg-card p-3 rounded-lg shadow"> <ReactPlayer url={url} controls width="100%" height="40px" onError={onError}/> {playerError && <p className="text-destructive text-xs mt-1">Erreur chargement audio</p>} </div> ); }
      else if (isImage) { return ( <div key={index} className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={url} alt={`Souvenir ${index + 1}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="souvenir fête photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
-     return ( <div key={index} className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <Music className="h-4 w-4" /> <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> Média {index + 1} </a> </div> );
+     // Added FileIcon for generic files
+     return ( <div key={index} className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> Média {index + 1} </a> </div> );
    };
 
   // --- Event Handlers ---
@@ -179,7 +216,9 @@ export default function PartyDetailsPage() {
      setIsRating(true);
      try {
          const partyDocRef = doc(db, 'parties', party.id);
-         await updateDoc(partyDocRef, { [`ratings.${user.uid}`]: newRating });
+         // Ensure ratings field exists before trying to update a nested property
+         const currentRatings = party.ratings || {};
+         await updateDoc(partyDocRef, { ratings: { ...currentRatings, [user.uid]: newRating } });
          // Local state updated via onSnapshot listener
          toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating} étoiles.` });
      } catch (rateError: any) { console.error("Erreur note:", rateError); toast({ title: 'Erreur', description: rateError.message || 'Impossible d\'envoyer la note.', variant: 'destructive' }); }
@@ -331,12 +370,17 @@ export default function PartyDetailsPage() {
     };
 
     const handleUpdateCoverPhoto = async () => {
-        if (!user || !party || !newCoverFile || !isCreator) return;
+        if (!user || !party || !newCoverFile || !isCreator || !db) {
+            toast({ title: 'Erreur', description: 'Impossible de mettre à jour la photo pour le moment.', variant: 'destructive' });
+            return;
+        }
         setIsUploadingCover(true);
 
         try {
             console.log("Téléversement de la nouvelle photo de couverture...");
-            const newCoverUrl = await uploadFile(newCoverFile, party.id, true); // isCover = true
+            const newCoverUrl = await uploadFile(newCoverFile, party.id, true, (progress) => {
+                console.log(`Progression couverture : ${progress}%`); // Optional progress logging
+            }); // isCover = true
 
             const partyDocRef = doc(db, 'parties', party.id);
             await updateDoc(partyDocRef, {
@@ -344,14 +388,24 @@ export default function PartyDetailsPage() {
             });
 
             toast({ title: 'Photo de couverture mise à jour !' });
-            setShowEditCoverDialog(false);
+            // Reset state and close dialog on success
             setNewCoverFile(null);
             if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
             setNewCoverPreview(null);
+            setShowEditCoverDialog(false); // Close dialog
 
         } catch (error: any) {
             console.error("Erreur lors de la mise à jour de la photo de couverture:", error);
-            toast({ title: 'Échec de la mise à jour', description: error.message, variant: 'destructive' });
+             let userFriendlyError = "Impossible de mettre à jour la photo de couverture.";
+            if (error.message?.includes('storage/unauthorized')) {
+                userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité Storage.";
+            } else if (error.message?.includes('storage/object-not-found')) {
+                userFriendlyError = "Le fichier d'origine est introuvable."; // Unlikely here, but good practice
+            } else {
+                 userFriendlyError = error.message || userFriendlyError;
+            }
+            toast({ title: 'Échec de la mise à jour', description: userFriendlyError, variant: 'destructive' });
+            // Keep the dialog open and state as is for potential retry
         } finally {
             setIsUploadingCover(false);
         }
@@ -359,20 +413,87 @@ export default function PartyDetailsPage() {
 
 
   // --- Render Logic ---
-  if (loading && !party) { // Show loader only if data isn't available yet
-    return ( <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]"> <Loader2 className="h-12 w-12 animate-spin text-primary" /> </div> );
+  // Combine page and user loading state for initial Skeleton
+  const showSkeleton = pageLoading || userLoading;
+
+  if (showSkeleton) {
+    return (
+        <div className="container mx-auto px-4 py-12">
+            <Card className="bg-card border border-border overflow-hidden shadow-lg">
+                <CardHeader className="p-0">
+                    <Skeleton className="h-48 md:h-64 lg:h-80 w-full bg-muted" />
+                </CardHeader>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-0">
+                    <div className="lg:col-span-2 border-r-0 lg:border-r border-border/50">
+                        <CardContent className="p-4 md:p-6">
+                            <Skeleton className="h-6 w-1/3 mb-4" />
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4">
+                                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="aspect-square w-full rounded-lg bg-muted" />)}
+                            </div>
+                        </CardContent>
+                        <CardContent className="p-4 md:p-6 border-t border-border/50">
+                             <Skeleton className="h-6 w-1/4 mb-5" />
+                            <div className="space-y-6">
+                                 <div className="flex items-start space-x-3">
+                                     <Skeleton className="h-9 w-9 rounded-full mt-1" />
+                                    <div className="flex-1 space-y-2">
+                                         <Skeleton className="h-20 w-full" />
+                                         <Skeleton className="h-8 w-24" />
+                                    </div>
+                                 </div>
+                                <Skeleton className="h-16 w-full" />
+                                <Skeleton className="h-16 w-full" />
+                            </div>
+                        </CardContent>
+                    </div>
+                     <div className="lg:col-span-1">
+                         <CardContent className="p-4 md:p-6">
+                              <Skeleton className="h-6 w-1/4 mb-4" />
+                              <Skeleton className="h-20 w-full rounded-lg" />
+                         </CardContent>
+                         <CardContent className="p-4 md:p-6 border-t border-border/50">
+                            <Skeleton className="h-24 w-full" />
+                         </CardContent>
+                         <CardContent className="p-4 md:p-6 border-t border-border/50">
+                              <Skeleton className="h-6 w-1/3 mb-4" />
+                              <div className="space-y-3">
+                                 <Skeleton className="h-8 w-full rounded-md" />
+                                 <Skeleton className="h-8 w-full rounded-md" />
+                                 <Skeleton className="h-8 w-full rounded-md" />
+                              </div>
+                         </CardContent>
+                     </div>
+                </div>
+            </Card>
+        </div>
+    );
   }
 
-  if (error) { /* ... error alert ... */ }
+  if (error || initializationFailed) {
+     const displayError = error || initializationErrorMessage || "Une erreur inconnue est survenue.";
+     return (
+         <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
+             <Alert variant="destructive" className="max-w-lg">
+                 <AlertTriangle className="h-4 w-4" />
+                 <AlertTitle>Erreur</AlertTitle>
+                 <AlertDescription>{displayError}</AlertDescription>
+             </Alert>
+         </div>
+     );
+  }
 
   if (!party) { return <div className="container mx-auto px-4 py-12 text-center">Fête non trouvée.</div>; }
 
-  const partyDate = party.date ? new Date(party.date.seconds * 1000) : null;
-  const sortedComments = [...party.comments].sort((a, b) => {
-      const timeA = a.timestamp instanceof Timestamp ? a.timestamp.toMillis() : a.timestamp.seconds * 1000;
-      const timeB = b.timestamp instanceof Timestamp ? b.timestamp.toMillis() : b.timestamp.seconds * 1000;
-      return timeB - timeA;
-    });
+  // Safely attempt date conversion only if party.date exists and is valid
+  const partyDate = getDateFromTimestamp(party.date);
+
+  // Sort comments safely, handling potential undefined timestamps
+    const sortedComments = party.comments ? [...party.comments].sort((a, b) => {
+        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
+        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
+        return timeB - timeA;
+    }) : [];
+
 
   return (
     <div className="container mx-auto px-4 py-8 md:py-12">
@@ -397,13 +518,14 @@ export default function PartyDetailsPage() {
                         <DialogContent className="sm:max-w-[425px]">
                             <DialogHeader>
                                 <DialogTitle>Modifier la Photo de Couverture</DialogTitle>
-                                <DialogDescription> Choisissez une nouvelle image pour l'événement. </DialogDescription>
+                                <DialogDescription> Choisissez une nouvelle image pour l'événement. Max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, sera compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo. </DialogDescription>
                             </DialogHeader>
                              <div className="grid gap-4 py-4">
                                 <Input id="new-cover-input" type="file" accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')} onChange={handleNewCoverFileChange} className="col-span-3" />
                                  {newCoverPreview && (
-                                     <div className="relative aspect-video w-full border rounded mt-2">
+                                     <div className="relative aspect-video w-full border rounded mt-2 bg-muted">
                                          <Image src={newCoverPreview} alt="Aperçu nouvelle couverture" layout="fill" objectFit="contain" />
+                                          <Button variant="destructive" size="icon" className="absolute -top-2 -right-2 h-5 w-5 rounded-full z-10" onClick={() => { setNewCoverFile(null); if(newCoverPreview) URL.revokeObjectURL(newCoverPreview); setNewCoverPreview(null); }}> <X className="h-3 w-3" /> </Button>
                                      </div>
                                  )}
                              </div>
@@ -445,9 +567,9 @@ export default function PartyDetailsPage() {
                 {/* Media Section */}
                 <CardContent className="p-4 md:p-6">
                     <div className="flex justify-between items-center mb-4">
-                         <h3 className="text-xl font-semibold text-foreground">Souvenirs ({party.mediaUrls.length})</h3>
+                         <h3 className="text-xl font-semibold text-foreground">Souvenirs ({party.mediaUrls?.length || 0})</h3>
                          {/* Add Souvenir Button */}
-                         {user && (
+                         {user && ( // Only show button if user is logged in
                             <Dialog open={showAddSouvenirDialog} onOpenChange={setShowAddSouvenirDialog}>
                                 <DialogTrigger asChild>
                                      <Button variant="outline" size="sm"> <Upload className="mr-2 h-4 w-4" /> Ajouter des souvenirs </Button>
@@ -463,7 +585,7 @@ export default function PartyDetailsPage() {
                                          {souvenirFiles.length > 0 && (
                                              <div className="space-y-3 mt-4 max-h-60 overflow-y-auto border p-3 rounded-md">
                                                   <p className="text-sm font-medium">Fichiers à téléverser :</p>
-                                                 <div className="grid grid-cols-3 gap-3">
+                                                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                                                      {souvenirFiles.map((file, index) => {
                                                          const previewUrl = souvenirPreviews[index];
                                                          const progress = souvenirUploadProgress[file.name];
@@ -502,12 +624,13 @@ export default function PartyDetailsPage() {
                             </Dialog>
                          )}
                      </div>
+                     {/* Ensure mediaUrls exists before mapping */}
                     {party.mediaUrls && party.mediaUrls.length > 0 ? (
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4"> {party.mediaUrls.map(renderMedia)} </div>
                     ) : ( <p className="text-muted-foreground text-sm">Aucun souvenir importé.</p> )}
                 </CardContent>
 
-                 {/* Comments Section (unchanged structure) */}
+                 {/* Comments Section */}
                  <CardContent className="p-4 md:p-6 border-t border-border/50">
                     <h3 className="text-xl font-semibold mb-5 text-foreground">Commentaires ({sortedComments.length})</h3>
                     <div className="space-y-6">
@@ -523,28 +646,31 @@ export default function PartyDetailsPage() {
                        {!user && ( <p className="text-muted-foreground text-sm"> <button onClick={() => router.push('/auth')} className="text-primary hover:underline font-medium">Connectez-vous</button> pour commenter ou noter. </p> )}
                        {sortedComments.length > 0 ? (
                         <div className="space-y-4">
-                            {sortedComments.map((cmt, index) => (
-                            <div key={index} className="flex items-start space-x-3">
-                                <Avatar className="h-8 w-8 border"> <AvatarImage src={cmt.avatar || undefined} alt={cmt.email}/> <AvatarFallback className="text-xs">{getInitials(cmt.email)}</AvatarFallback> </Avatar>
-                                <div className="flex-1 bg-secondary/50 p-3 rounded-lg border border-border/30">
-                                <div className="flex justify-between items-center mb-1">
-                                    <p className="text-xs font-medium text-foreground">{cmt.email}</p>
-                                    <p className="text-xs text-muted-foreground"> {cmt.timestamp instanceof Timestamp ? format(cmt.timestamp.toDate(), 'PPp', { locale: fr }) : format(new Date(cmt.timestamp.seconds * 1000), 'PPp', { locale: fr })} </p>
-                                </div>
-                                <p className="text-sm text-foreground/90 whitespace-pre-wrap">{cmt.text}</p>
-                                </div>
-                            </div>
-                            ))}
+                            {sortedComments.map((cmt, index) => {
+                                const commentDate = getDateFromTimestamp(cmt.timestamp);
+                                return (
+                                    <div key={index} className="flex items-start space-x-3">
+                                        <Avatar className="h-8 w-8 border"> <AvatarImage src={cmt.avatar || undefined} alt={cmt.email}/> <AvatarFallback className="text-xs">{getInitials(cmt.email)}</AvatarFallback> </Avatar>
+                                        <div className="flex-1 bg-secondary/50 p-3 rounded-lg border border-border/30">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <p className="text-xs font-medium text-foreground">{cmt.email}</p>
+                                             {commentDate && <p className="text-xs text-muted-foreground"> {format(commentDate, 'PPp', { locale: fr })} </p>}
+                                        </div>
+                                        <p className="text-sm text-foreground/90 whitespace-pre-wrap">{cmt.text}</p>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
-                       ) : ( !user && <p className="text-muted-foreground text-center text-sm py-4">Aucun commentaire.</p> )}
+                       ) : ( <p className="text-muted-foreground text-center text-sm py-4">{user ? "Soyez le premier à commenter !" : "Aucun commentaire pour le moment."}</p> )}
                     </div>
                  </CardContent>
              </div>
 
-             {/* Right Column (Span 1): Rating & Participants (unchanged structure) */}
+             {/* Right Column (Span 1): Rating & Participants */}
              <div className="lg:col-span-1">
                  <CardContent className="p-4 md:p-6"> <h3 className="text-xl font-semibold mb-4 text-foreground">Votre Note</h3> <div className="flex flex-col items-center gap-3 bg-secondary/30 border border-border/50 p-4 rounded-lg"> <StarRating rating={userRating} onRate={handleRateParty} disabled={!user || isRating} size="h-8 w-8" /> {isRating && <span className="text-xs text-muted-foreground">Envoi...</span>} {!user && <span className="text-xs text-muted-foreground mt-1">Connectez-vous pour noter</span>} {user && userRating > 0 && <span className="text-xs text-muted-foreground mt-1">Votre note : {userRating}/5</span>} {user && userRating === 0 && <span className="text-xs text-muted-foreground mt-1">Donnez une note !</span>} </div> </CardContent>
-                 <CardContent className="p-4 md:p-6 border-t border-border/50"> <RatingDistributionChart ratings={party.ratings} /> </CardContent>
+                 <CardContent className="p-4 md:p-6 border-t border-border/50"> <RatingDistributionChart ratings={party.ratings || {}} /> </CardContent>
                  <CardContent className="p-4 md:p-6 border-t border-border/50"> <h3 className="text-xl font-semibold mb-4 text-foreground">Participants ({party.participantEmails?.length || 1})</h3> <div className="space-y-3 max-h-60 overflow-y-auto pr-1"> {(party.participantEmails || [party.creatorEmail]).map((email, index) => ( <div key={email || index} className="flex items-center space-x-3 p-2 rounded-md hover:bg-secondary/50"> <Avatar className="h-8 w-8 border"> <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}> {getInitials(email)} </AvatarFallback> </Avatar> <span className="text-sm font-medium text-foreground truncate">{email || 'Créateur'}</span> {email === party.creatorEmail && <Badge variant="outline" className="text-xs ml-auto">Créateur</Badge>} </div> ))} </div> </CardContent>
              </div>
         </div>
@@ -554,7 +680,7 @@ export default function PartyDetailsPage() {
   );
 }
 
-// Helper for class names (already present, keep it)
-function cn(...classes: string[]) {
+// Helper for class names (unchanged, keep it)
+function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
