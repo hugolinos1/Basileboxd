@@ -1,3 +1,5 @@
+'use client';
+
 import Image from 'next/image';
 import Link from 'next/link';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,7 +55,7 @@ export function RecentPartiesSection({ parties }: RecentPartiesSectionProps) {
                               console.error(`Error loading image for Recent Party (${party.id}): ${party.imageUrl}`, e);
                               // Optionally, set a state to show a fallback icon if the image fails
                             }}
-                             unoptimized={party.imageUrl.includes('localhost')} // Keep for local emulator if needed
+                             unoptimized={party.imageUrl.includes('localhost') || !party.imageUrl.startsWith('https')} // Keep for local emulator if needed or if protocol is missing
                         />
                     ) : (
                          <div className="flex items-center justify-center h-full">
