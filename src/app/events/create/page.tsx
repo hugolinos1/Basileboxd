@@ -35,7 +35,7 @@ import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Video, Music, File } from 'lucide-react';
+import { Video, Music, File as FileIcon } from 'lucide-react'; // Renamed File to FileIcon
 
 
 // Schema Definition remains similar, add coverPhoto, initialRating, initialComment
@@ -48,6 +48,7 @@ const ACCEPTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp
 const ACCEPTED_COVER_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 // Use z.instanceof for better type checking across environments
+// Ensure 'File' here refers to the global browser File object, not the icon
 const fileSchema = typeof window !== 'undefined'
   ? z.instanceof(File, { message: 'Veuillez télécharger un fichier' })
   : z.any(); // Fallback for server-side rendering
@@ -759,7 +760,7 @@ export default function CreateEventPage() {
                                                             {/* Simple icons based on type */}
                                                             {file.type.startsWith('video/') && <Video className="h-8 w-8" />}
                                                             {file.type.startsWith('audio/') && <Music className="h-8 w-8" />}
-                                                            {!file.type.startsWith('image/') && !file.type.startsWith('video/') && !file.type.startsWith('audio/') && <File className="h-8 w-8" />}
+                                                            {!file.type.startsWith('image/') && !file.type.startsWith('video/') && !file.type.startsWith('audio/') && <FileIcon className="h-8 w-8" />} {/* Use FileIcon */}
                                                         </div>
                                                     )}
                                                     <p className="text-xs text-muted-foreground truncate text-center">{file.name}</p>
