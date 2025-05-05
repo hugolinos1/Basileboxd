@@ -90,7 +90,7 @@ export default function UsersListPage() {
 
             try {
                 const usersCollectionRef = collection(db, 'users');
-                // Consider adding authentication check in Firestore rules for 'list' operation on /users
+                // Ensure Firestore rules allow 'list' operation on /users for authenticated users
                 const q = query(usersCollectionRef, orderBy('createdAt', 'desc')); // Order by creation date
 
                 console.log("[fetchUsers] Executing Firestore query for users...");
@@ -134,17 +134,16 @@ export default function UsersListPage() {
                 let userFriendlyError = 'Impossible de charger la liste des utilisateurs.';
                  if (fetchError instanceof FirestoreError) {
                      // Check specifically for permission errors when trying to list the 'users' collection
-                     if (fetchError.code === 'permission-denied') {
-                         userFriendlyError = 'Permission refusée pour lister les utilisateurs. Vérifiez les règles de sécurité Firestore pour la collection "users". Il faut généralement autoriser la lecture (`list`) pour les utilisateurs connectés.';
-                         console.error("Firestore Permission Denied: Check your security rules for the 'users' collection, specifically the 'list' permission.");
-                     } else if (fetchError.code === 'unauthenticated') {
-                         userFriendlyError = 'Non authentifié. Veuillez vous connecter pour voir la liste des utilisateurs.';
+                     if (fetchError.code === 'permission-denied' || fetchError.code === 'unauthenticated') {
+                         userFriendlyError = 'Permission refusée ou non authentifié pour lister les utilisateurs. Vérifiez les règles de sécurité Firestore pour la collection "users" (`allow list: if request.auth != null;`).';
+                         console.error("Firestore Permission Denied or Unauthenticated: Check your security rules for the 'users' collection, specifically the 'list' permission for authenticated users.");
                      } else if (fetchError.code === 'unavailable') {
                          userFriendlyError = 'Service Firestore indisponible. Veuillez réessayer plus tard.';
                      } else {
                          userFriendlyError = `Erreur Firestore (${fetchError.code}): ${fetchError.message}`;
                      }
                  } else {
+                     // Keep the original error message if it's not a FirestoreError
                      userFriendlyError = `Erreur inattendue: ${fetchError.message}`;
                  }
                 setError(userFriendlyError);
@@ -197,8 +196,7 @@ export default function UsersListPage() {
 
     // Show Error Alert if initialization failed OR a fetch error occurred
     if (error) { // Covers both initialization errors and fetch errors
-         const displayError = error; // Error state now holds the specific message
-         console.error("[UsersListPage Render] Displaying Error Alert:", displayError);
+        const displayError = error; // Error state now holds the specific message
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
@@ -209,7 +207,7 @@ export default function UsersListPage() {
                          {/* Specific hint for permission errors */}
                          {error.includes("Permission refusée") && (
                             <p className="mt-2 text-xs">
-                                Conseil : Vérifiez les règles de sécurité Firestore dans votre console Firebase. Pour autoriser la lecture de la liste des utilisateurs (collection `/users`), vous pourriez avoir une règle comme : `allow list: if request.auth != null;` (ou une condition plus spécifique selon vos besoins).
+                                Conseil : Vérifiez les règles de sécurité Firestore pour `/users`.
                             </p>
                          )}
                     </AlertDescription>
