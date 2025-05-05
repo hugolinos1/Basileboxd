@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Allow authenticated users to read their own user document
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      // You might have other rules for create/update here
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // --- Add or modify this rule ---
+    // Allow any authenticated user to list (read multiple) users
+    match /users {
+       allow list: if request.auth != null;
+       // Important: Also keep the individual document read rule above for profile pages
+    }
+    // --- End of addition/modification ---
+
+
+    // Rules for 'parties' collection (adjust as needed)
+    match /parties/{partyId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      // Allow update only by the creator or add participants logic
+      allow update: if request.auth != null; // Be more specific if needed
+      allow delete: if false; // Or check for admin role
+    }
+
+     // Rules for 'comments' subcollection (adjust as needed)
+     match /parties/{partyId}/comments/{commentId} {
+       allow read: if request.auth != null;
+       allow create: if request.auth != null;
+       // Add update/delete rules if necessary
+     }
+  }
+}
