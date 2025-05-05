@@ -36,8 +36,8 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   getFileType, // Import getFileType
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  coverPhotoSchema // Import coverPhotoSchema directly
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/media-uploader'; // Import schema from dedicated file
 
 
 import { Progress } from '@/components/ui/progress';
@@ -106,6 +106,18 @@ const participantColors = [
   'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600',
   'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600',
 ];
+
+// --- Helper Functions (Consider moving if used elsewhere) ---
+// Function to get file type (ensure this isn't duplicated in media-uploader)
+// If it exists in media-uploader, remove this one and import it.
+// const getFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => {
+//   if (!file || !file.type) return 'autre';
+//   if (file.type.startsWith('image/')) return 'image';
+//   if (file.type.startsWith('video/')) return 'video';
+//   if (file.type.startsWith('audio/')) return 'audio';
+//   return 'autre';
+// };
+
 
 // --- Component ---
 export default function CreateEventPage() {
@@ -485,7 +497,7 @@ export default function CreateEventPage() {
                                         )}
                                         />
                                     {/* FormField for location */}
-                                      <FormField control={form.control} name="location" render={({ field }) => ( <FormItem> <FormLabel>Lieu (Optionnel)</FormLabel> <Input placeholder="Ex : Sunset Beach Club" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/> <FormMessage /> </FormItem> )}/>
+                                      <FormField control={form.control} name="location" render={({ field }) => ( <FormItem> <FormLabel>Lieu (Optionnel)</FormLabel> <FormControl> <Input placeholder="Ex : Sunset Beach Club" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/> </FormControl> <FormMessage /> </FormItem> )}/>
                                 </div>
                           </CardContent>
                       </Card>
@@ -597,7 +609,6 @@ export default function CreateEventPage() {
                                       <FormItem>
                                       <FormLabel className="sr-only">Ajouter des participants</FormLabel>
                                       <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
-                                          {/* Input for email */}
                                            <FormControl>
                                               <Input
                                                 placeholder="Entrer l'email des participants... (bientôt disponible)"
@@ -649,6 +660,9 @@ export default function CreateEventPage() {
                                                     accept={ACCEPTED_MEDIA_TYPES.join(',')}
                                                     onChange={handleMediaFileChange}
                                                     className="sr-only" // Keep it hidden
+                                                    ref={field.ref} // Pass ref
+                                                    name={field.name} // Pass name
+                                                    onBlur={field.onBlur} // Pass onBlur
                                                     disabled={field.disabled}
                                                 />
                                             </FormControl>
