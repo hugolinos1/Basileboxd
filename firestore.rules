@@ -1,154 +1,84 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Collection Parties ---
+    // Rules for the 'users' collection
+    match /users/{userId} {
+      // Allow reading user profiles if logged in
+      allow read: if request.auth != null;
+      // Allow users to write ONLY to their own profile document
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Rules for the 'parties' collection
     match /parties/{partyId} {
-      // Autoriser la lecture pour tous les utilisateurs authentifiés
+
+      // --- Helper Functions ---
+      // Checks if ONLY the specified top-level keys are being modified in an update
+      function isOnlyTopLevelKeys(keys) {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+      }
+      // Checks if ONLY a specific sub-key within a map is changing
+      function isOnlyMapSubKey(mapKey, subKey) {
+         return isOnlyTopLevelKeys([mapKey]) &&
+                request.resource.data[mapKey].diff(resource.data[mapKey]).affectedKeys().hasOnly([subKey]);
+      }
+      // Validates a rating value
+      function isValidRating(rating) {
+        return rating is number && rating >= 0.5 && rating <= 5;
+      }
+       // Validates a new comment being added to the array
+      function isValidNewComment(comment) {
+         return comment.userId == request.auth.uid
+             && comment.text is string && comment.text.size() > 0
+             && comment.timestamp == request.time; // Checks for serverTimestamp sentinel
+      }
+      // --- End Helper Functions ---
+
+
+      // Allow any authenticated user to read party details
       allow read: if request.auth != null;
 
-      // Autoriser la création si l'utilisateur est authentifié et les données initiales sont valides
+      // Allow authenticated users to create parties with basic validation
       allow create: if request.auth != null
-                   && request.resource.data.name is string && request.resource.data.name.size() >= 2
-                   && request.resource.data.date is timestamp
-                   && request.resource.data.createdBy == request.auth.uid
-                   && request.resource.data.creatorEmail == request.auth.token.email
-                   && request.resource.data.participants == [request.auth.uid] // S'assurer que le créateur est le premier participant
-                   && request.resource.data.participantEmails == [request.auth.token.email] // S'assurer que l'email du créateur est le premier
-                   && request.resource.data.ratings is map // S'assurer que la map ratings existe
-                   && request.resource.data.comments is list // S'assurer que la liste comments existe
-                   && request.resource.data.mediaUrls is list // S'assurer que la liste mediaUrls existe
-                   // Valider la note initiale si fournie
-                   && (!('initialRating' in request.resource.data) || (request.resource.data.ratings[request.auth.uid] == request.resource.data.initialRating && request.resource.data.initialRating >= 0.5 && request.resource.data.initialRating <= 5))
-                   // Valider le commentaire initial si fourni
-                   && (!('initialComment' in request.resource.data) || (request.resource.data.comments[0].userId == request.auth.uid && request.resource.data.comments[0].text is string && request.resource.data.comments[0].text.size() > 0));
+                       && request.resource.data.name is string && request.resource.data.name.size() > 2
+                       && request.resource.data.date is timestamp
+                       && request.resource.data.createdBy == request.auth.uid
+                       && request.resource.data.creatorEmail == request.auth.token.email
+                       && request.resource.data.participants == [request.auth.uid]
+                       && request.resource.data.participantEmails == [request.auth.token.email]
+                       && request.resource.data.mediaUrls == []
+                       && request.resource.data.coverPhotoUrl is string // Can be empty initially
+                       && request.resource.data.ratings is map // Can be empty initially
+                       && request.resource.data.comments is list; // Can be empty initially
 
-
-      // Règle de mise à jour - divisée pour plus de clarté
+      // --- Update Permissions ---
       allow update: if request.auth != null && (
-                      // --- Autoriser le créateur à mettre à jour les informations générales de la fête ---
-                      (request.auth.uid == resource.data.createdBy &&
-                       // Vérifier quels champs sont modifiés par le créateur.
-                       // Autoriser uniquement la modification de name, description, date, location, coverPhotoUrl, mediaUrls, participants, participantEmails
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                         'name', 'description', 'date', 'location', 'coverPhotoUrl', 'mediaUrls', 'participants', 'participantEmails' // Champs que le créateur peut changer
-                         // 'ratings', 'comments', 'createdBy', 'creatorEmail', 'createdAt' // Champs qui ne devraient pas changer ou sont gérés ci-dessous
-                       ]) &&
-                       // Valider les types de données pour les mises à jour du créateur
-                       request.resource.data.name is string && request.resource.data.name.size() >= 2 &&
-                       request.resource.data.date is timestamp &&
-                       request.resource.data.description is string && // Autoriser la mise à jour de la description
-                       request.resource.data.location is string &&   // Autoriser la mise à jour du lieu
-                       request.resource.data.coverPhotoUrl is string && // Autoriser la mise à jour de la photo de couverture
-                       request.resource.data.mediaUrls is list &&      // Autoriser la mise à jour de mediaUrls (arrayUnion géré séparément)
-                       request.resource.data.participants is list &&   // Autoriser la mise à jour des participants (arrayUnion géré séparément)
-                       request.resource.data.participantEmails is list // Autoriser la mise à jour des emails des participants (arrayUnion géré séparément)
-                      ) ||
-                      // --- Autoriser TOUT utilisateur authentifié à mettre à jour SA PROPRE note ---
-                      (
-                       // Vérifier que SEUL le champ ratings est modifié
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']) &&
-                       // Vérifier qu'à l'intérieur de ratings, SEULE la clé UID de l'utilisateur est ajoutée/modifiée
-                       request.resource.data.ratings.diff(resource.data.ratings).affectedKeys().hasOnly([request.auth.uid]) &&
-                       // Vérifier que la nouvelle note est un nombre valide
-                       request.resource.data.ratings[request.auth.uid] is number &&
-                       request.resource.data.ratings[request.auth.uid] >= 0.5 && request.resource.data.ratings[request.auth.uid] <= 5 &&
-                       // S'assurer que les autres champs ne sont pas modifiés
-                       request.resource.data.name == resource.data.name &&
-                       request.resource.data.date == resource.data.date &&
-                       request.resource.data.createdBy == resource.data.createdBy &&
-                       request.resource.data.comments == resource.data.comments &&
-                       request.resource.data.mediaUrls == resource.data.mediaUrls &&
-                       request.resource.data.participants == resource.data.participants &&
-                       request.resource.data.participantEmails == resource.data.participantEmails
-                      ) ||
-                      // --- Autoriser TOUT utilisateur authentifié à ajouter un commentaire ---
-                      (
-                       // Vérifier que SEUL le champ comments est modifié et qu'il s'agit d'un ajout (taille +1)
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comments']) &&
-                       request.resource.data.comments.size() == resource.data.comments.size() + 1 &&
-                       // Vérifier que le nouveau commentaire ajouté a le bon format et le bon userId
-                       request.resource.data.comments[-1].userId == request.auth.uid &&
-                       request.resource.data.comments[-1].text is string &&
-                       request.resource.data.comments[-1].text.size() > 0 &&
-                       request.resource.data.comments[-1].email is string && // Email peut être vérifié, optionnel
-                       request.resource.data.comments[-1].timestamp == request.time && // Assurer le timestamp serveur
-                       // S'assurer que les autres champs ne sont pas modifiés
-                       request.resource.data.name == resource.data.name &&
-                       request.resource.data.date == resource.data.date &&
-                       request.resource.data.createdBy == resource.data.createdBy &&
-                       request.resource.data.ratings == resource.data.ratings &&
-                       request.resource.data.mediaUrls == resource.data.mediaUrls &&
-                       request.resource.data.participants == resource.data.participants &&
-                       request.resource.data.participantEmails == resource.data.participantEmails
-                      ) ||
-                      // --- Autoriser TOUT utilisateur authentifié à ajouter des souvenirs (mediaUrls) ---
-                      (
-                       // Vérifier que SEUL le champ mediaUrls est modifié
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaUrls']) &&
-                       // Vérifier que c'est un ajout (size() > ancienne size())
-                       request.resource.data.mediaUrls.size() > resource.data.mediaUrls.size() &&
-                       // Vérifier que les nouveaux éléments ajoutés sont bien des strings (URLs)
-                       // (difficile de vérifier chaque URL sans list.rules, donc on se concentre sur le type)
-                       request.resource.data.mediaUrls is list &&
-                       // S'assurer que les autres champs ne sont pas modifiés
-                       request.resource.data.name == resource.data.name &&
-                       request.resource.data.date == resource.data.date &&
-                       request.resource.data.createdBy == resource.data.createdBy &&
-                       request.resource.data.ratings == resource.data.ratings &&
-                       request.resource.data.comments == resource.data.comments &&
-                       request.resource.data.participants == resource.data.participants &&
-                       request.resource.data.participantEmails == resource.data.participantEmails
-                      ) ||
-                       // --- Autoriser le créateur OU un admin (si implémenté via custom claims) à ajouter/retirer des participants ---
-                       ((request.auth.uid == resource.data.createdBy /* || get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.isAdmin == true */) &&
-                        // Vérifier que SEULS les champs participants et participantEmails sont modifiés
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants', 'participantEmails']) &&
-                        request.resource.data.participants is list &&
-                        request.resource.data.participantEmails is list &&
-                        // S'assurer que les autres champs ne sont pas modifiés
-                        request.resource.data.name == resource.data.name &&
-                        request.resource.data.date == resource.data.date &&
-                        request.resource.data.createdBy == resource.data.createdBy &&
-                        request.resource.data.ratings == resource.data.ratings &&
-                        request.resource.data.comments == resource.data.comments &&
-                        request.resource.data.mediaUrls == resource.data.mediaUrls
-                       )
+                     // 1. Allow creator to update core fields (except ratings/comments array directly)
+                     (request.auth.uid == resource.data.createdBy &&
+                       isOnlyTopLevelKeys(['name', 'description', 'date', 'location', 'mediaUrls', 'coverPhotoUrl', 'participants', 'participantEmails']) // Specify allowed fields for general updates by creator
+                     ) ||
+                     // 2. Allow ANY authenticated user to add/update ONLY THEIR OWN rating
+                     (isOnlyMapSubKey('ratings', request.auth.uid) && isValidRating(request.resource.data.ratings[request.auth.uid])
+                     ) ||
+                     // 3. Allow ANY authenticated user to add ONLY THEIR OWN comment to the comments array (using arrayUnion)
+                     // Note: This relies on client-side using arrayUnion.
+                     // This rule checks if the request is adding elements to the 'comments' array
+                     // and validates the *added* element(s).
+                     // It's less precise than the ratings check but often sufficient for arrayUnion.
+                     (isOnlyTopLevelKeys(['comments']) &&
+                      // Check that the request is adding to the list, not replacing/removing
+                      request.resource.data.comments.size() > resource.data.comments.size() &&
+                      // Validate the *last* added comment (assuming arrayUnion adds to the end)
+                      isValidNewComment(request.resource.data.comments[request.resource.data.comments.size() - 1])
+                     )
                     );
 
-      // Interdire la suppression par défaut côté client
+      // No direct client-side deletion allowed
       allow delete: if false;
-    }
 
-    // --- Collection Users ---
-    match /users/{userId} {
-      // Les utilisateurs peuvent lire leur propre profil
-      allow read: if request.auth != null && request.auth.uid == userId;
-      // Les utilisateurs peuvent créer leur propre profil (géré par SignupForm/GoogleSignIn)
-      allow create: if request.auth != null && request.auth.uid == userId;
-      // Les utilisateurs peuvent mettre à jour leur propre profil (ex: displayName, avatarUrl)
-      allow update: if request.auth != null && request.auth.uid == userId
-                      // Valider les champs modifiables
-                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'avatarUrl' /*, 'lastLogin', etc...*/])
-                      && request.resource.data.email == resource.data.email // Ne pas autoriser le changement d'email ici
-                      && request.resource.data.uid == resource.data.uid;   // Ne pas autoriser le changement d'UID
-      allow delete: if false; // Pas de suppression de compte utilisateur via les règles
     }
-
-    // Règle plus large pour la lecture de la liste des utilisateurs (si nécessaire pour la page /users)
-    // ATTENTION : Ceci expose l'email de tous les utilisateurs. A utiliser avec prudence.
-    // Si pas nécessaire, supprimez ce bloc.
-    match /users/{userId} {
-        allow list: if request.auth != null; // Autorise la lecture de la liste des documents (pas le contenu complet) si authentifié
-    }
-
-    // --- (Optionnel) Collection Admins (si vous gérez les admins dans une collection) ---
-    // match /admins/{userId} {
-    //   allow read: if request.auth != null && request.auth.uid == userId;
-    //   // Gérer l'écriture/suppression des admins via une fonction Cloud sécurisée
-    //   allow write, delete: if false;
-    // }
   }
 }
-
     
