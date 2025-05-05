@@ -33,9 +33,9 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  coverPhotoSchema // Import the coverPhotoSchema
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/media-uploader'; // Import schema from dedicated file
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
@@ -262,7 +262,7 @@ export default function PartyDetailsPage() {
      }
   };
 
-  const handleAddComment = async () => {
+   const handleAddComment = async () => {
     if (!user || !party || !comment.trim() || !db || !firebaseInitialized) {
       toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' });
       return;
@@ -270,16 +270,17 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const partyDocRef = doc(db, 'parties', party.id);
-      // Utiliser l'horodatage du client (new Date())
+      // Use serverTimestamp directly for FieldValue type
       const newComment: Comment = {
         userId: user.uid,
         email: user.email || 'anonyme',
-        avatar: user.photoURL ?? null, // Assurer null au lieu de undefined
+        avatar: user.photoURL ?? null, // Ensure null instead of undefined
         text: comment.trim(),
         timestamp: new Date() // Utiliser l'horodatage du client
       };
 
       console.log("Tentative d'ajout du commentaire:", newComment); // Log avant l'envoi
+
 
       await updateDoc(partyDocRef, {
         comments: arrayUnion(newComment)
@@ -295,7 +296,6 @@ export default function PartyDetailsPage() {
             if (commentError.message?.includes('Unsupported field value')) {
                 errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
             } else if (commentError.message?.includes('serverTimestamp')) {
-                // Cette condition ne devrait plus être atteinte
                 errorMessage = "Erreur de timestamp serveur. Réessayez.";
             }
         } else if (commentError.code === 'permission-denied') {
@@ -307,8 +307,30 @@ export default function PartyDetailsPage() {
     }
 };
 
-    // Fonction pour tester le timestamp serveur - Supprimée car non utilisée
-    // const handleGetServerTime = async () => { ... }
+  // Test timestamp function
+    async function getServerTime(): Promise<Date> {
+        // A hack to get server time: write a temp doc with serverTimestamp, read it, then delete.
+        // Note: This is inefficient and not recommended for frequent use.
+        // It's better to rely on the serverTimestamp during the actual write operation.
+        if (!db) throw new Error("Firestore not initialized");
+        const tempDocRef = doc(collection(db, '_serverTimeTest'));
+        await setDoc(tempDocRef, { time: serverTimestamp() });
+        const snapshot = await getDoc(tempDocRef);
+        await deleteDoc(tempDocRef);
+        const serverTime = snapshot.data()?.time as Timestamp;
+        return serverTime.toDate();
+    }
+
+    const handleGetServerTime = async () => {
+        try {
+            const serverTime = await getServerTime();
+            console.log('Heure du serveur récupérée :', serverTime);
+            toast({ title: 'Succès', description: `Timestamp serveur : ${serverTime}`, duration: 10000 });
+        } catch (error) {
+            console.error('Erreur lors de la récupération de l\'heure du serveur :', error);
+            toast({ title: 'Erreur', description: `Impossible de récupérer l'heure du serveur: ${error}`, variant: 'destructive' });
+        }
+    };
 
 
   // --- Souvenir Upload Handlers ---
@@ -757,8 +779,7 @@ export default function PartyDetailsPage() {
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
-                                    {/* Remove the test timestamp button */}
-                                    {/* <Button onClick={handleGetServerTime} variant="outline" size="sm">Tester Timestamp</Button> */}
+                                    <Button onClick={handleGetServerTime} variant="outline" size="sm">Tester Timestamp</Button>
                                 </div>
                             </div>
                         </div>

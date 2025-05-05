@@ -34,10 +34,10 @@ import {
   MAX_FILE_SIZE,
   ACCEPTED_MEDIA_TYPES,
   ACCEPTED_COVER_PHOTO_TYPES,
-  getFileType,
+  getFileType, // Import getFileType
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema // Import schema from dedicated file
 } from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/media-uploader'; // Import schema from dedicated file
 
 
 import { Progress } from '@/components/ui/progress';
@@ -106,15 +106,6 @@ const participantColors = [
   'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600',
   'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600',
 ];
-
-// --- Helper Functions ---
-const getFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => {
-    if (!file || !file.type) return 'autre';
-    if (file.type.startsWith('image/')) return 'image';
-    if (file.type.startsWith('video/')) return 'video';
-    if (file.type.startsWith('audio/')) return 'audio';
-    return 'autre';
-};
 
 // --- Component ---
 export default function CreateEventPage() {
@@ -532,7 +523,7 @@ export default function CreateEventPage() {
                                                     </div>
                                                 )}
                                                 {/* Hidden Input controlled by React Hook Form */}
-                                                <FormControl>
+                                                 <FormControl>
                                                   <Input
                                                       id="cover-photo-input"
                                                       type="file"
@@ -749,5 +740,3 @@ export default function CreateEventPage() {
     </div>
   );
 }
-
-    
