@@ -51,7 +51,7 @@ import { Slider } from '@/components/ui/slider'; // Added Slider import
 const isBrowser = typeof window !== 'undefined';
 
 // Use zod directly for file schema validation
-const fileSchemaClient = z.instanceof(isBrowser ? File : Object, { message: 'Veuillez télécharger un fichier' });
+const fileSchemaClient = isBrowser ? z.instanceof(File, { message: 'Veuillez télécharger un fichier' }) : z.any();
 const fileSchemaServer = z.any(); // Fallback for SSR where File is not available
 const fileSchema = isBrowser ? fileSchemaClient : fileSchemaServer;
 
@@ -230,7 +230,6 @@ export default function CreateEventPage() {
 
      // Cover Photo Handling
     const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const isBrowser = typeof window !== 'undefined';
         const file = event.target.files?.[0];
         if (file) {
              // Validate the file against the schema before setting value and preview
@@ -507,21 +506,6 @@ export default function CreateEventPage() {
                                                 className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative cursor-pointer"
                                                 onClick={() => document.getElementById('cover-photo-input')?.click()} // Trigger file input
                                             >
-                                                 {/* Hidden Input controlled by React Hook Form */}
-                                                 <FormControl>
-                                                    <Input
-                                                        id="cover-photo-input"
-                                                        type="file"
-                                                        accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
-                                                        onChange={handleCoverPhotoChange}
-                                                        className="sr-only"
-                                                        ref={field.ref} // Ensure RHF can track the input
-                                                        onBlur={field.onBlur}
-                                                        name={field.name}
-                                                        disabled={field.disabled}
-                                                    />
-                                                 </FormControl>
-
                                                  {/* Preview or Placeholder */}
                                                  {coverPhotoPreview ? (
                                                      <div className="relative w-full h-full">
@@ -537,6 +521,20 @@ export default function CreateEventPage() {
                                                          </Button>
                                                      </div>
                                                  )}
+                                                 {/* Hidden Input controlled by React Hook Form */}
+                                                 <FormControl>
+                                                    <Input
+                                                        id="cover-photo-input"
+                                                        type="file"
+                                                        accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                                        onChange={handleCoverPhotoChange}
+                                                        className="sr-only"
+                                                        ref={field.ref} // Ensure RHF can track the input
+                                                        onBlur={field.onBlur}
+                                                        name={field.name}
+                                                        disabled={field.disabled}
+                                                    />
+                                                </FormControl>
                                             </div>
                                             <FormMessage className="text-xs"/>
                                         </FormItem>
@@ -613,27 +611,23 @@ export default function CreateEventPage() {
                                     name="media"
                                     render={({ field }) => (
                                         <FormItem>
+                                            {/* Button triggers the hidden input */}
+                                            <Button type="button" variant="outline" className="w-full sm:w-auto bg-secondary hover:bg-accent border-border" onClick={() => document.getElementById('media-upload-input')?.click()}>
+                                                <Upload className="mr-2 h-4 w-4" />
+                                                Importer Souvenirs
+                                            </Button>
+                                            {/* Hidden input - wrapped by FormControl */}
                                             <FormControl>
-                                                 {/* Button triggers the hidden input */}
-                                                 <Button type="button" variant="outline" className="w-full sm:w-auto bg-secondary hover:bg-accent border-border" onClick={() => document.getElementById('media-upload-input')?.click()}>
-                                                    <Upload className="mr-2 h-4 w-4" />
-                                                    Importer Souvenirs
-                                                </Button>
+                                                <Input
+                                                    id="media-upload-input"
+                                                    type="file"
+                                                    multiple
+                                                    accept={ACCEPTED_MEDIA_TYPES.join(',')}
+                                                    onChange={handleMediaFileChange}
+                                                    className="sr-only" // Keep it hidden
+                                                    disabled={field.disabled}
+                                                />
                                             </FormControl>
-                                            {/* Hidden input */}
-                                            <Input
-                                                id="media-upload-input"
-                                                type="file"
-                                                multiple
-                                                accept={ACCEPTED_MEDIA_TYPES.join(',')}
-                                                onChange={handleMediaFileChange}
-                                                className="sr-only" // Keep it hidden
-                                                // No need to bind field directly if onChange handles everything
-                                                // ref={field.ref}
-                                                // onBlur={field.onBlur}
-                                                // name={field.name}
-                                                disabled={field.disabled}
-                                            />
                                             <FormDescription> Max {MAX_FILE_SIZE.image/1024/1024}Mo/Image, {MAX_FILE_SIZE.video/1024/1024}Mo/Vidéo, {MAX_FILE_SIZE.audio/1024/1024}Mo/Son. </FormDescription>
                                             <FormMessage />
                                         </FormItem>
