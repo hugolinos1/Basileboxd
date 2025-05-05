@@ -6,7 +6,7 @@ import Image from 'next/image'; // Import Image
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users } from 'lucide-react'; // Removed ImageIcon
+import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users, Menu } from 'lucide-react'; // Added Menu icon
 import { useFirebase } from '@/context/FirebaseContext';
 import { auth } from '@/config/firebase';
 import { signOut } from 'firebase/auth';
@@ -83,14 +83,11 @@ export function Navbar() {
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={user.photoURL || undefined} alt={user.email || 'Utilisateur'} />
-                    <AvatarFallback className="bg-primary text-primary-foreground">
-                      {getInitials(user.email)}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
+                 {/* Replace Avatar with Menu icon Button */}
+                 <Button variant="ghost" className="h-8 w-8 p-0">
+                    <Menu className="h-5 w-5" />
+                    <span className="sr-only">Ouvrir le menu utilisateur</span>
+                  </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
