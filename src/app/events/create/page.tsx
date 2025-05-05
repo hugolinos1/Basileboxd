@@ -36,8 +36,8 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   getFileType,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema // Import schema from dedicated file
 } from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
 
 
 import { Progress } from '@/components/ui/progress';
@@ -449,33 +449,34 @@ export default function CreateEventPage() {
                                 <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl> <Textarea placeholder="Décrivez votre soirée..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" {...field}/> </FormControl> <FormMessage /> </FormItem> )}/>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {/* FormField for date */}
-                                    <FormField
-                                      control={form.control}
-                                      name="date"
-                                      render={({ field }) => (
-                                        <FormItem className="flex flex-col">
-                                          <FormLabel>Date *</FormLabel>
-                                          <Popover>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                  variant={'outline'}
-                                                  className={cn(
-                                                    'w-full pl-3 text-left font-normal bg-input border-border hover:bg-accent',
-                                                    !field.value && 'text-muted-foreground'
-                                                  )}
-                                                >
-                                                  {field.value ? format(field.value, 'PPP', { locale: fr }) : <span>jj/mm/aaaa</span>}
-                                                  <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0 bg-popover border-border" align="start">
-                                              <Calendar locale={fr} mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
-                                            </PopoverContent>
-                                          </Popover>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
+                                     <FormField
+                                        control={form.control}
+                                        name="date"
+                                        render={({ field }) => (
+                                            <FormItem className="flex flex-col">
+                                            <FormLabel>Date *</FormLabel>
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    {/* No FormControl needed here, PopoverTrigger handles the interaction */}
+                                                    <Button
+                                                    variant={'outline'}
+                                                    className={cn(
+                                                        'w-full pl-3 text-left font-normal bg-input border-border hover:bg-accent',
+                                                        !field.value && 'text-muted-foreground'
+                                                    )}
+                                                    >
+                                                    {field.value ? format(field.value, 'PPP', { locale: fr }) : <span>jj/mm/aaaa</span>}
+                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0 bg-popover border-border" align="start">
+                                                    <Calendar locale={fr} mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                                                </PopoverContent>
+                                            </Popover>
+                                            <FormMessage />
+                                            </FormItem>
+                                        )}
+                                        />
                                     {/* FormField for location */}
                                      <FormField control={form.control} name="location" render={({ field }) => ( <FormItem> <FormLabel>Lieu (Optionnel)</FormLabel> <FormControl> <Input placeholder="Ex : Sunset Beach Club" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/> </FormControl> <FormMessage /> </FormItem> )}/>
                                 </div>
@@ -494,25 +495,27 @@ export default function CreateEventPage() {
                                     name="coverPhoto"
                                     render={({ field }) => (
                                         <FormItem className="flex-1">
-                                            {/* Hidden Input controlled by React Hook Form */}
-                                             <FormControl>
-                                                <Input
-                                                    id="cover-photo-input"
-                                                    type="file"
-                                                    accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
-                                                    onChange={handleCoverPhotoChange}
-                                                    className="sr-only"
-                                                    ref={field.ref} // Ensure RHF can track the input
-                                                    onBlur={field.onBlur}
-                                                    name={field.name}
-                                                    disabled={field.disabled}
-                                                />
-                                            </FormControl>
-                                             {/* Visual Trigger Area */}
+                                             {/* Visual Trigger Area - NO FormControl needed around this div */}
                                              <div
                                                 className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative cursor-pointer"
                                                 onClick={() => document.getElementById('cover-photo-input')?.click()} // Trigger file input
                                             >
+                                                {/* Hidden Input controlled by React Hook Form */}
+                                                 <FormControl>
+                                                    <Input
+                                                        id="cover-photo-input"
+                                                        type="file"
+                                                        accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                                        onChange={handleCoverPhotoChange}
+                                                        className="sr-only"
+                                                        ref={field.ref} // Ensure RHF can track the input
+                                                        onBlur={field.onBlur}
+                                                        name={field.name}
+                                                        disabled={field.disabled}
+                                                    />
+                                                 </FormControl>
+
+                                                 {/* Preview or Placeholder */}
                                                  {coverPhotoPreview ? (
                                                      <div className="relative w-full h-full">
                                                          <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
@@ -604,6 +607,7 @@ export default function CreateEventPage() {
                                     render={({ field }) => (
                                         <FormItem>
                                             <FormControl>
+                                                {/* Input is the only direct child */}
                                                 <Input
                                                     id="media-upload-input"
                                                     type="file"
@@ -617,12 +621,13 @@ export default function CreateEventPage() {
                                                     disabled={field.disabled}
                                                 />
                                             </FormControl>
-                                        <Button type="button" variant="outline" className="w-full sm:w-auto bg-secondary hover:bg-accent border-border" onClick={() => document.getElementById('media-upload-input')?.click()}>
-                                            <Upload className="mr-2 h-4 w-4" />
-                                            Importer Souvenirs
-                                        </Button>
-                                         <FormDescription> Max {MAX_FILE_SIZE.image/1024/1024}Mo/Image, {MAX_FILE_SIZE.video/1024/1024}Mo/Vidéo, {MAX_FILE_SIZE.audio/1024/1024}Mo/Son. </FormDescription>
-                                        <FormMessage />
+                                            {/* Button to trigger the hidden input */}
+                                            <Button type="button" variant="outline" className="w-full sm:w-auto bg-secondary hover:bg-accent border-border" onClick={() => document.getElementById('media-upload-input')?.click()}>
+                                                <Upload className="mr-2 h-4 w-4" />
+                                                Importer Souvenirs
+                                            </Button>
+                                            <FormDescription> Max {MAX_FILE_SIZE.image/1024/1024}Mo/Image, {MAX_FILE_SIZE.video/1024/1024}Mo/Vidéo, {MAX_FILE_SIZE.audio/1024/1024}Mo/Son. </FormDescription>
+                                            <FormMessage />
                                         </FormItem>
                                     )}
                                     />
