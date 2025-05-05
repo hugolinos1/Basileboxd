@@ -3,12 +3,12 @@
 
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc, updateDoc, arrayUnion, serverTimestamp, Timestamp, onSnapshot, FieldValue } from 'firebase/firestore'; // Import FieldValue
+import { doc, getDoc, updateDoc, arrayUnion, serverTimestamp, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch } from 'firebase/firestore'; // Import necessary Firestore functions
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
 import { fr } from 'date-fns/locale';
-import { Star, Send, User, MapPin, CalendarDays, Image as ImageIcon, Video, Music, Loader2, AlertTriangle, Upload, Edit2, X, File as FileIcon } from 'lucide-react'; // Added FileIcon
+import { Star, Send, User, MapPin, CalendarDays, Image as ImageIcon, Video, Music, Loader2, AlertTriangle, Upload, Edit2, X, File as FileIcon, UserPlus } from 'lucide-react'; // Added FileIcon and UserPlus
 import Image from 'next/image';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -32,30 +32,38 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema // Correctly import the schema
 } from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
 import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
-interface Comment { userId: string; email: string; avatar?: string | null; text: string; timestamp: FirestoreTimestamp | Timestamp; } // Changed avatar to allow null
-interface MediaItem { url: string; type: 'image' | 'video' | 'audio' | 'autre'; } // Assuming structure for media
+interface Comment { userId: string; email: string; avatar?: string | null; text: string; timestamp: FirestoreTimestamp | Timestamp; }
+interface MediaItem { url: string; type: 'image' | 'video' | 'audio' | 'autre'; }
 interface PartyData {
     id: string;
     name: string;
     description: string;
-    date: FirestoreTimestamp | Timestamp; // Accept both types
+    date: FirestoreTimestamp | Timestamp;
     location: string;
     createdBy: string;
     creatorEmail: string;
     participants: string[];
     participantEmails?: string[];
-    mediaUrls: string[]; // URLs of uploaded souvenirs
+    mediaUrls: string[];
     coverPhotoUrl?: string;
     ratings: { [userId: string]: number };
     comments: Comment[];
-    createdAt: FirestoreTimestamp | Timestamp; // Accept both types
+    createdAt: FirestoreTimestamp | Timestamp;
 }
+// Interface for User data fetched from Firestore 'users' collection
+interface UserProfile {
+    uid: string;
+    email: string;
+    displayName?: string;
+    avatarUrl?: string;
+}
+
 
 // --- Components ---
 
@@ -100,8 +108,13 @@ export default function PartyDetailsPage() {
   const [newCoverFile, setNewCoverFile] = useState<File | null>(null);
   const [newCoverPreview, setNewCoverPreview] = useState<string | null>(null);
   const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const [showAddParticipantDialog, setShowAddParticipantDialog] = useState(false); // State for Add Participant Dialog
+  const [participantEmail, setParticipantEmail] = useState(''); // State for participant email input
+  const [isAddingParticipant, setIsAddingParticipant] = useState(false); // Loading state for adding participant
+
 
   const isCreator = useMemo(() => user && party && user.uid === party.createdBy, [user, party]);
+  // const isAdmin = useMemo(() => user && user.email === "admin@example.com", [user]); // Example admin check
 
   // Participant Colors & Initials (unchanged)
   const participantColors = [ 'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', ];
@@ -165,9 +178,16 @@ export default function PartyDetailsPage() {
         setPageLoading(false);
       }
     }, (snapshotError) => {
-      console.error('[PartyDetailsPage] Erreur listener snapshot:', snapshotError);
-      setError('Impossible de charger les détails de la fête en temps réel.');
-      setPageLoading(false);
+        console.error('[PartyDetailsPage] Erreur listener snapshot:', snapshotError);
+         let userFriendlyError = 'Impossible de charger les détails de la fête en temps réel.';
+         if (snapshotError.code === 'permission-denied') {
+             userFriendlyError = 'Permission refusée. Vérifiez les règles Firestore pour la collection "parties".';
+              console.error("Firestore Permission Denied: Check your security rules for the 'parties' collection.");
+         } else if (snapshotError.code === 'unauthenticated') {
+              userFriendlyError = 'Non authentifié.';
+         }
+         setError(userFriendlyError);
+        setPageLoading(false);
     });
 
     // Cleanup listener
@@ -435,6 +455,68 @@ export default function PartyDetailsPage() {
         }
     };
 
+    // --- Add Participant Handler ---
+    const handleAddParticipant = async () => {
+        if (!user || !party || !isCreator || !db || !participantEmail.trim()) {
+            toast({ title: 'Erreur', description: 'Impossible d\'ajouter un participant.', variant: 'destructive' });
+            return;
+        }
+
+        setIsAddingParticipant(true);
+        const emailToAdd = participantEmail.trim().toLowerCase(); // Normalize email
+
+        // Check if user is already a participant
+         if (party.participantEmails?.map(e => e.toLowerCase()).includes(emailToAdd)) {
+            toast({ title: 'Info', description: `${emailToAdd} est déjà participant.`, variant: 'default' });
+            setIsAddingParticipant(false);
+            setParticipantEmail(''); // Clear input
+            setShowAddParticipantDialog(false);
+            return;
+         }
+
+        try {
+             console.log(`Recherche de l'utilisateur avec l'email : ${emailToAdd}`);
+             const usersRef = collection(db, 'users');
+             const q = query(usersRef, where("email", "==", emailToAdd), limit(1)); // Query users collection by email
+             const querySnapshot = await getDocs(q);
+
+             if (querySnapshot.empty) {
+                 console.log(`Utilisateur non trouvé avec l'email : ${emailToAdd}`);
+                 toast({ title: 'Utilisateur non trouvé', description: `Aucun utilisateur trouvé avec l'email ${emailToAdd}.`, variant: 'destructive' });
+                 setIsAddingParticipant(false);
+                 return;
+             }
+
+             const userDoc = querySnapshot.docs[0];
+             const userData = userDoc.data() as UserProfile; // Assume UserProfile interface matches Firestore structure
+             const userIdToAdd = userDoc.id; // or userData.uid if uid is stored in the document
+
+              console.log(`Utilisateur trouvé : ${userData.displayName || userData.email} (UID: ${userIdToAdd})`);
+
+             // Update the party document using arrayUnion
+             const partyDocRef = doc(db, 'parties', party.id);
+             await updateDoc(partyDocRef, {
+                 participants: arrayUnion(userIdToAdd), // Add UID to participants array
+                 participantEmails: arrayUnion(userData.email) // Add email to participantEmails array
+             });
+
+             toast({ title: 'Participant ajouté', description: `${userData.displayName || userData.email} a été ajouté à l'événement.` });
+             setParticipantEmail(''); // Clear input
+             setShowAddParticipantDialog(false); // Close dialog
+
+        } catch (error: any) {
+             console.error("Erreur lors de l'ajout du participant:", error);
+              let userFriendlyError = "Impossible d'ajouter le participant.";
+              if (error.code === 'permission-denied') {
+                   userFriendlyError = "Permission refusée. Vérifiez les règles Firestore.";
+              }
+             toast({ title: 'Erreur', description: userFriendlyError, variant: 'destructive' });
+        } finally {
+            setIsAddingParticipant(false);
+        }
+    };
+
+
 
   // --- Render Logic ---
   // Combine page and user loading state for initial Skeleton
@@ -570,7 +652,7 @@ export default function PartyDetailsPage() {
                 <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 text-white z-10">
                     <CardTitle className="text-2xl md:text-4xl font-bold mb-1 text-shadow"> {party.name} </CardTitle>
                     <CardDescription className="text-gray-300 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                       {partyDate && <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4"/> {format(partyDate, 'PPP', { locale: fr })}</span>}
+                       {partyDate && <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4"/> {format(partyDate, 'PPP', { locale: fr })} ({formatDistanceToNow(partyDate, { addSuffix: true, locale: fr })})</span>}
                        {party.location && <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4"/> {party.location}</span>}
                        <span className="flex items-center gap-1.5"><User className="h-4 w-4"/> Créé par {party.creatorEmail || 'Inconnu'}</span>
                     </CardDescription>
@@ -695,7 +777,55 @@ export default function PartyDetailsPage() {
              <div className="lg:col-span-1">
                  <CardContent className="p-4 md:p-6"> <h3 className="text-xl font-semibold mb-4 text-foreground">Votre Note</h3> <div className="flex flex-col items-center gap-3 bg-secondary/30 border border-border/50 p-4 rounded-lg"> <StarRating rating={userRating} onRate={handleRateParty} disabled={!user || isRating} size="h-8 w-8" /> {isRating && <span className="text-xs text-muted-foreground">Envoi...</span>} {!user && <span className="text-xs text-muted-foreground mt-1">Connectez-vous pour noter</span>} {user && userRating > 0 && <span className="text-xs text-muted-foreground mt-1">Votre note : {userRating}/5</span>} {user && userRating === 0 && <span className="text-xs text-muted-foreground mt-1">Donnez une note !</span>} </div> </CardContent>
                  <CardContent className="p-4 md:p-6 border-t border-border/50"> <RatingDistributionChart ratings={party.ratings || {}} /> </CardContent>
-                 <CardContent className="p-4 md:p-6 border-t border-border/50"> <h3 className="text-xl font-semibold mb-4 text-foreground">Participants ({party.participantEmails?.length || 1})</h3> <div className="space-y-3 max-h-60 overflow-y-auto pr-1"> {(party.participantEmails || [party.creatorEmail]).map((email, index) => ( <div key={email || index} className="flex items-center space-x-3 p-2 rounded-md hover:bg-secondary/50"> <Avatar className="h-8 w-8 border"> <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}> {getInitials(email)} </AvatarFallback> </Avatar> <span className="text-sm font-medium text-foreground truncate">{email || 'Créateur'}</span> {email === party.creatorEmail && <Badge variant="outline" className="text-xs ml-auto">Créateur</Badge>} </div> ))} </div> </CardContent>
+                 <CardContent className="p-4 md:p-6 border-t border-border/50">
+                      <div className="flex justify-between items-center mb-4">
+                           <h3 className="text-xl font-semibold text-foreground">Participants ({party.participantEmails?.length || 1})</h3>
+                            {/* Add Participant Button (only for creator) */}
+                            {isCreator && (
+                                <Dialog open={showAddParticipantDialog} onOpenChange={setShowAddParticipantDialog}>
+                                    <DialogTrigger asChild>
+                                        <Button variant="outline" size="sm"> <UserPlus className="mr-2 h-4 w-4" /> Ajouter </Button>
+                                    </DialogTrigger>
+                                     <DialogContent className="sm:max-w-[425px]">
+                                        <DialogHeader>
+                                            <DialogTitle>Ajouter un Participant</DialogTitle>
+                                            <DialogDescription> Entrez l'adresse email de l'utilisateur à ajouter. </DialogDescription>
+                                        </DialogHeader>
+                                         <div className="grid gap-4 py-4">
+                                             <Input
+                                                id="participant-email"
+                                                type="email"
+                                                placeholder="email@exemple.com"
+                                                value={participantEmail}
+                                                onChange={(e) => setParticipantEmail(e.target.value)}
+                                                className="col-span-3" />
+                                         </div>
+                                        <DialogFooter>
+                                             <DialogClose asChild>
+                                                 <Button type="button" variant="outline">Annuler</Button>
+                                             </DialogClose>
+                                             <Button type="button" onClick={handleAddParticipant} disabled={!participantEmail.trim() || isAddingParticipant}>
+                                                 {isAddingParticipant ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                                 Ajouter
+                                             </Button>
+                                        </DialogFooter>
+                                    </DialogContent>
+                                </Dialog>
+                            )}
+                      </div>
+                      <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                         {(party.participantEmails || [party.creatorEmail]).map((email, index) => (
+                            <div key={email || index} className="flex items-center space-x-3 p-2 rounded-md hover:bg-secondary/50">
+                                <Avatar className="h-8 w-8 border">
+                                     {/* TODO: Fetch actual avatarUrl from 'users' collection based on email/UID if needed */}
+                                     <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}> {getInitials(email)} </AvatarFallback>
+                                 </Avatar>
+                                 <span className="text-sm font-medium text-foreground truncate">{email || 'Créateur'}</span>
+                                 {email === party.creatorEmail && <Badge variant="outline" className="text-xs ml-auto">Créateur</Badge>}
+                            </div>
+                         ))}
+                      </div>
+                 </CardContent>
              </div>
         </div>
 
@@ -708,5 +838,4 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
-
 
