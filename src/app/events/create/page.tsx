@@ -47,9 +47,9 @@ import { Video, Music, File as FileIcon } from 'lucide-react';
 
 // --- Schema Definition ---
 const isBrowser = typeof window !== 'undefined';
-const fileSchemaClient = z.instanceof(isBrowser ? File : Object, { message: 'Veuillez télécharger un fichier' });
-const fileSchemaServer = z.any(); // Fallback for SSR where File is not available
-const fileSchema = isBrowser ? fileSchemaClient : fileSchemaServer;
+
+// Use zod directly for file schema validation
+const fileSchema = z.instanceof(isBrowser ? File : Object, { message: 'Veuillez télécharger un fichier' });
 
 // Remove local coverPhotoSchema definition, it's imported now
 
@@ -230,7 +230,6 @@ export default function CreateEventPage() {
         const file = event.target.files?.[0];
         if (file) {
              // Validate the file against the schema before setting value and preview
-             // Use safeParse for better type checking if needed
              const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; // Only validate on client
              if (validationResult.success) {
                  form.setValue('coverPhoto', file, { shouldValidate: true });
@@ -241,7 +240,7 @@ export default function CreateEventPage() {
                  setCoverPhotoPreview(newPreviewUrl);
                  console.log("Photo de couverture valide ajoutée.");
              } else {
-                 const errorMessage = validationResult.error.errors[0]?.message || 'Validation a échoué.';
+                 const errorMessage = validationResult.error?.errors[0]?.message || 'Validation a échoué.'; // Added optional chaining
                  console.error("Erreur photo de couverture:", errorMessage);
                  form.setError('coverPhoto', { type: 'manual', message: errorMessage });
                  toast({
@@ -292,8 +291,8 @@ export default function CreateEventPage() {
 
 
   async function onSubmit(values: EventFormValues) {
-    if (!user) { /*...*/ return; }
-    if (!db || !storage) { /*...*/ setIsLoading(false); return; }
+    if (!user) { toast({ title: 'Non authentifié', description: "Connectez-vous d'abord.", variant: 'destructive' }); return; }
+    if (!db || !storage) { toast({ title: 'Erreur de service', description: 'Firebase non disponible.', variant: 'destructive' }); return; }
 
     setIsLoading(true);
     setUploadProgress({});
@@ -325,7 +324,7 @@ export default function CreateEventPage() {
                 email: user.email || 'Anonyme',
                 avatar: user.photoURL || undefined,
                 text: values.initialComment.trim(),
-                timestamp: serverTimestamp()
+                timestamp: serverTimestamp() // Let Firestore handle the timestamp
             };
         }
 
@@ -333,7 +332,13 @@ export default function CreateEventPage() {
         const partyId = partyDocRef.id;
 
         if (initialCommentData) {
-            await updateDoc(partyDocRef, { comments: arrayUnion(initialCommentData) });
+             try {
+                 await updateDoc(partyDocRef, { comments: arrayUnion(initialCommentData) });
+             } catch (commentError: any) {
+                 // Log but don't block the event creation if comment fails
+                 console.error("Erreur lors de l'ajout du commentaire initial :", commentError);
+                 toast({ title: 'Avertissement', description: 'Le commentaire initial n\'a pas pu être sauvegardé.', variant: 'warning' });
+             }
         }
 
         // 2. Upload Cover Photo (if provided) using centralized uploader
@@ -389,13 +394,15 @@ export default function CreateEventPage() {
                  toast({ title: "Certains téléversements ont échoué", description: "Vérifiez les fichiers marqués comme échoués.", variant: 'warning' });
              }
              if (values.media.length > 0 && mediaUrls.length === 0 && !coverPhotoUrl) {
-                  throw new Error("Tous les téléversements de médias ont échoué. Création de l'événement annulée.");
+                  // Decide if this is a critical failure - perhaps allow event creation anyway?
+                  // throw new Error("Tous les téléversements de médias ont échoué. Création de l'événement annulée.");
+                  toast({ title: 'Échec critique', description: "Tous les téléversements de médias ont échoué. L'événement a été créé sans média.", variant: 'destructive' });
              }
          }
 
         // 4. Update party document with URLs
          await updateDoc(partyDocRef, {
-            mediaUrls: mediaUrls,
+            mediaUrls: mediaUrls, // Use arrayUnion if adding to existing? For creation, set directly.
             coverPhotoUrl: coverPhotoUrl || ''
          });
 
@@ -404,13 +411,17 @@ export default function CreateEventPage() {
 
     } catch (error: any) {
       console.error('Erreur lors de la création de l\'événement :', error);
-      toast({ title: 'Échec de la création', description: error.message || 'Erreur inattendue.', variant: 'destructive' });
+      let errorMessage = error.message || 'Erreur inattendue.';
+       if (error.code === 'permission-denied') {
+           errorMessage = 'Permission refusée. Vérifiez les règles Firestore pour créer des documents dans "parties".';
+       }
+      toast({ title: 'Échec de la création', description: errorMessage, variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
   }
 
-   if (!user && !isLoading) { /* ... */ }
+   if (!user && !isLoading) { return <div className="container mx-auto px-4 py-12 text-center">Redirection vers la connexion...</div>; }
 
   // --- JSX Structure (largely unchanged, but updates to media section for progress) ---
   return (
@@ -660,3 +671,4 @@ export default function CreateEventPage() {
     </div>
   );
 }
+
