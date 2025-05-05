@@ -32,8 +32,8 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  coverPhotoSchema // Import the coverPhotoSchema
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/media-uploader'; // Import schema from dedicated file
 import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 
 // --- Interfaces ---
@@ -64,6 +64,16 @@ interface UserProfile {
     avatarUrl?: string;
 }
 
+
+// --- Helper Functions ---
+
+// Helper to get server timestamp (for testing)
+async function getServerTime(): Promise<FieldValue> {
+  // Simply returns the serverTimestamp placeholder.
+  // Firestore replaces this placeholder on the server.
+  // We can't get the actual server time on the client *before* writing.
+  return serverTimestamp();
+}
 
 // --- Components ---
 
@@ -238,54 +248,84 @@ export default function PartyDetailsPage() {
      setIsRating(true);
      try {
          const partyDocRef = doc(db, 'parties', party.id);
-         // Ensure ratings field exists before trying to update a nested property
-         const currentRatings = party.ratings || {};
-         await updateDoc(partyDocRef, { ratings: { ...currentRatings, [user.uid]: newRating } });
+         // Use dot notation for updating nested fields directly
+         await updateDoc(partyDocRef, {
+             [`ratings.${user.uid}`]: newRating // Update specific user's rating
+         });
          // Local state updated via onSnapshot listener
          toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating} étoiles.` });
-     } catch (rateError: any) { console.error("Erreur note:", rateError); toast({ title: 'Erreur', description: rateError.message || 'Impossible d\'envoyer la note.', variant: 'destructive' }); }
-     finally { setIsRating(false); }
+     } catch (rateError: any) {
+         console.error("Erreur note:", rateError);
+         let description = rateError.message || 'Impossible d\'envoyer la note.';
+         if (rateError.code === 'permission-denied') {
+            description = 'Permissions insuffisantes pour noter cet événement.';
+         }
+         toast({ title: 'Erreur', description: description, variant: 'destructive' });
+     } finally {
+         setIsRating(false);
+     }
   };
-
 
   const handleAddComment = async () => {
     if (!user || !party || !comment.trim() || !db || !firebaseInitialized) {
-      toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' });
-      return;
+        toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' });
+        return;
     }
     setIsSubmittingComment(true);
+    console.log("Tentative d'ajout de commentaire..."); // Log start
+
     try {
-      const partyDocRef = doc(db, 'parties', party.id);
-      // Use serverTimestamp directly for FieldValue type
-      const newComment: Comment = {
-        userId: user.uid,
-        email: user.email || 'anonyme',
-        avatar: user.photoURL ?? null, // Ensure null instead of undefined
-        text: comment.trim(),
-        timestamp: serverTimestamp() // Use FieldValue directly
-      };
+        const partyDocRef = doc(db, 'parties', party.id);
+        const newComment: Comment = {
+            userId: user.uid,
+            email: user.email || 'anonyme',
+            avatar: user.photoURL ?? null, // Ensure null instead of undefined
+            text: comment.trim(),
+            timestamp: serverTimestamp() // Use FieldValue directly
+        };
 
-      await updateDoc(partyDocRef, {
-        comments: arrayUnion(newComment)
-      });
+        console.log("Nouveau commentaire prêt:", newComment); // Log comment data
 
-      setComment('');
-      toast({ title: 'Commentaire ajouté' });
+        await updateDoc(partyDocRef, {
+            comments: arrayUnion(newComment) // Use arrayUnion to add to the array
+        });
+
+        console.log("Commentaire ajouté avec succès à Firestore."); // Log success
+        setComment('');
+        toast({ title: 'Commentaire ajouté' });
+
     } catch (commentError: any) {
-        console.error('Erreur commentaire:', commentError);
+        console.error('Erreur lors de l\'ajout du commentaire:', commentError); // Log detailed error
         let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
         if (commentError.code === 'invalid-argument') {
-            if (commentError.message?.includes('Unsupported field value')) {
-                errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
-            } else if (commentError.message?.includes('serverTimestamp')) {
-                errorMessage = "Erreur de timestamp serveur. Réessayez.";
+            if (commentError.message?.includes('Unsupported field value') || commentError.message?.includes('serverTimestamp')) {
+                errorMessage = "Erreur de format de données (timestamp). Veuillez réessayer.";
+                 console.error('Invalid argument detail:', commentError.message);
             }
+        } else if (commentError.code === 'permission-denied') {
+             errorMessage = "Permissions insuffisantes pour ajouter un commentaire.";
         }
         toast({ title: 'Erreur', description: errorMessage, variant: 'destructive' });
     } finally {
         setIsSubmittingComment(false);
+        console.log("Fin de la tentative d'ajout de commentaire."); // Log end
     }
 };
+
+  // Function to test server timestamp
+    const handleGetServerTime = async () => {
+        console.log("Test de l'heure du serveur...");
+        try {
+            // We can't *get* the server time directly without writing.
+            // This function conceptually shows the placeholder exists.
+            const timestampPlaceholder = await getServerTime();
+            console.log('Placeholder Timestamp Serveur obtenu :', timestampPlaceholder);
+            toast({ title: 'Test Timestamp', description: `Le placeholder serverTimestamp() est prêt. L'heure réelle sera définie lors de l'écriture.`, duration: 7000 });
+        } catch (error: any) {
+            console.error('Erreur lors de la tentative d\'obtention du placeholder timestamp :', error);
+            toast({ title: 'Erreur Test Timestamp', description: `Impossible d'obtenir le placeholder: ${error.message}`, variant: 'destructive' });
+        }
+    };
 
 
   // --- Souvenir Upload Handlers ---
@@ -419,7 +459,7 @@ export default function PartyDetailsPage() {
     };
 
     const handleUpdateCoverPhoto = async () => {
-        if (!user || !party || !newCoverFile || !isCreator || !db) {
+        if (!user || !party || !newCoverFile || !db) { // Removed !isCreator check, rely on Firestore rules
             toast({ title: 'Erreur', description: 'Impossible de mettre à jour la photo pour le moment.', variant: 'destructive' });
             return;
         }
@@ -446,8 +486,8 @@ export default function PartyDetailsPage() {
         } catch (error: any) {
             console.error("Erreur lors de la mise à jour de la photo de couverture:", error);
              let userFriendlyError = "Impossible de mettre à jour la photo de couverture.";
-            if (error.message?.includes('storage/unauthorized')) {
-                userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité Storage.";
+            if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied') {
+                userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité.";
             } else if (error.message?.includes('storage/object-not-found')) {
                 userFriendlyError = "Le fichier d'origine est introuvable."; // Unlikely here, but good practice
             } else {
@@ -617,8 +657,8 @@ export default function PartyDetailsPage() {
                ) : (
                    <div className="absolute inset-0 bg-gradient-to-br from-secondary via-muted to-secondary flex items-center justify-center"> <ImageIcon className="h-16 w-16 text-muted-foreground/50" /> </div>
                )}
-                {/* Edit Cover Button (only for creator) */}
-                {isCreator && (
+                {/* Edit Cover Button (only for creator or admin - Firestore rules enforce this) */}
+                {(isCreator || isAdmin) && (
                     <Dialog open={showEditCoverDialog} onOpenChange={setShowEditCoverDialog}>
                         <DialogTrigger asChild>
                              <Button variant="secondary" size="icon" className="absolute top-4 left-4 z-10 h-8 w-8 bg-black/50 hover:bg-black/70 border-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
@@ -750,7 +790,11 @@ export default function PartyDetailsPage() {
                             <Avatar className="h-9 w-9 border mt-1"> <AvatarImage src={user.photoURL || undefined} alt={user.email || ''}/> <AvatarFallback>{getInitials(user.email)}</AvatarFallback> </Avatar>
                             <div className="flex-1">
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
-                                <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
+                                <div className="flex gap-2"> {/* Added container for buttons */}
+                                    <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
+                                    {/* Add the test button */}
+                                    <Button onClick={handleGetServerTime} variant="outline" size="sm">Tester Timestamp</Button>
+                                </div>
                             </div>
                         </div>
                        )}
