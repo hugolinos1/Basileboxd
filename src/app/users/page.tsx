@@ -132,19 +132,21 @@ export default function UsersListPage() {
             } catch (fetchError: any) {
                 console.error('[fetchUsers] Error during Firestore query or mapping:', fetchError);
                 let userFriendlyError = 'Impossible de charger la liste des utilisateurs.';
-                if (fetchError instanceof FirestoreError) {
-                    if (fetchError.code === 'permission-denied') {
-                        userFriendlyError = 'Permission refusée. Vous n\'avez peut-être pas les droits pour lister les utilisateurs. Vérifiez les règles de sécurité Firestore pour la collection "users".';
-                        console.error("Firestore Permission Denied: Check your security rules for the 'users' collection, specifically the 'list' permission.");
-                    } else if (fetchError.code === 'unauthenticated') {
-                        userFriendlyError = 'Non authentifié. Veuillez vous connecter pour voir la liste des utilisateurs.';
-                    }
-                    else {
+                 if (fetchError instanceof FirestoreError) {
+                     // Check specifically for permission errors when trying to list the 'users' collection
+                     if (fetchError.code === 'permission-denied') {
+                         userFriendlyError = 'Permission refusée pour lister les utilisateurs. Vérifiez les règles de sécurité Firestore pour la collection "users". Il faut généralement autoriser la lecture (`list`) pour les utilisateurs connectés.';
+                         console.error("Firestore Permission Denied: Check your security rules for the 'users' collection, specifically the 'list' permission.");
+                     } else if (fetchError.code === 'unauthenticated') {
+                         userFriendlyError = 'Non authentifié. Veuillez vous connecter pour voir la liste des utilisateurs.';
+                     } else if (fetchError.code === 'unavailable') {
+                         userFriendlyError = 'Service Firestore indisponible. Veuillez réessayer plus tard.';
+                     } else {
                          userFriendlyError = `Erreur Firestore (${fetchError.code}): ${fetchError.message}`;
-                    }
-                } else {
-                    userFriendlyError = `Erreur inattendue: ${fetchError.message}`;
-                }
+                     }
+                 } else {
+                     userFriendlyError = `Erreur inattendue: ${fetchError.message}`;
+                 }
                 setError(userFriendlyError);
                 setUsers([]); // Ensure users state is empty on error
             } finally {
@@ -202,7 +204,15 @@ export default function UsersListPage() {
                  <Alert variant="destructive" className="max-w-lg">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Erreur</AlertTitle>
-                    <AlertDescription>{displayError}</AlertDescription>
+                    <AlertDescription>
+                         {displayError}
+                         {/* Specific hint for permission errors */}
+                         {error.includes("Permission refusée") && (
+                            <p className="mt-2 text-xs">
+                                Conseil : Vérifiez les règles de sécurité Firestore dans votre console Firebase. Pour autoriser la lecture de la liste des utilisateurs (collection `/users`), vous pourriez avoir une règle comme : `allow list: if request.auth != null;` (ou une condition plus spécifique selon vos besoins).
+                            </p>
+                         )}
+                    </AlertDescription>
                  </Alert>
             </div>
         );
