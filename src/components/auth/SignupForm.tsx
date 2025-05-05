@@ -48,43 +48,54 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
+    if (!auth) {
+      console.error("Erreur: Instance Auth non initialisée.");
+      toast({ title: "Erreur d'initialisation", description: "Le service d'authentification n'est pas prêt.", variant: "destructive" });
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
       const user = userCredential.user;
 
-       // Create user document in Firestore
-       if (db) { // Check if db is not null
-            console.log(`Tentative de création du document Firestore pour ${user.email}...`);
-            try {
-                 await setDoc(doc(db, 'users', user.uid), {
-                     email: user.email,
-                     uid: user.uid,
-                     createdAt: serverTimestamp(), // Utiliser serverTimestamp pour la cohérence
-                     displayName: user.email?.split('@')[0] || 'Nouvel utilisateur',
-                     avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100` // Avatar Google ou placeholder
-                 });
-                 console.log("Document utilisateur créé avec succès dans Firestore pour :", user.email);
-            } catch (firestoreError) {
-                 console.error("Erreur lors de la création du document utilisateur dans Firestore :", firestoreError);
-                 toast({
-                    title: "Erreur partielle d'inscription",
-                    description: `Votre compte d'authentification a été créé, mais une erreur s'est produite lors de la sauvegarde des informations de profil. Détail: ${(firestoreError as Error).message}`,
-                    variant: "warning",
-                    duration: 7000 // Longer duration for warning
-                 });
-                 // Continue even if Firestore write fails, as Auth succeeded.
-            }
-       } else {
-             console.error("Erreur : l'instance Firestore (db) est nulle. Impossible de créer le document utilisateur.");
-             // Optionally notify the user, though signup still succeeded in Auth
-             toast({
-                title: "Erreur de configuration",
-                description: "Le service de base de données n'est pas disponible.",
-                variant: "warning",
-                duration: 7000
-             });
-       }
+      console.log("Inscription Auth réussie. UID Utilisateur:", user.uid);
 
+      // Create user document in Firestore
+      if (db) { // Check if db is not null
+        console.log(`Tentative de création du document Firestore pour ${user.email}...`);
+        try {
+          const userDocRef = doc(db, 'users', user.uid);
+          await setDoc(userDocRef, {
+            email: user.email,
+            uid: user.uid,
+            createdAt: serverTimestamp(), // Utiliser serverTimestamp pour la cohérence
+            displayName: user.displayName || user.email?.split('@')[0] || 'Nouvel utilisateur',
+            pseudo: '', // Initialize pseudo as empty string
+            avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100` // Avatar Google ou placeholder
+          });
+          console.log("Document utilisateur créé avec succès dans Firestore pour :", user.email);
+        } catch (firestoreError) {
+          console.error("Erreur lors de la création du document utilisateur dans Firestore :", firestoreError);
+          toast({
+            title: "Erreur partielle d'inscription",
+            description: `Votre compte d'authentification a été créé, mais une erreur s'est produite lors de la sauvegarde des informations de profil. Détail: ${(firestoreError as Error).message}`,
+            variant: "warning",
+            duration: 7000 // Longer duration for warning
+          });
+          // Continue even if Firestore write fails, as Auth succeeded.
+        }
+      } else {
+        console.log("Instance Firestore est nulle. Création du document ignorée.");
+        console.error("Erreur : l'instance Firestore (db) est nulle. Impossible de créer le document utilisateur.");
+        // Optionally notify the user, though signup still succeeded in Auth
+        toast({
+          title: "Erreur de configuration",
+          description: "Le service de base de données n'est pas disponible.",
+          variant: "warning",
+          duration: 7000
+        });
+      }
 
       toast({
         title: 'Inscription réussie',
@@ -95,23 +106,25 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
 
     } catch (error: any) {
       console.error('Erreur d\'inscription Auth:', error);
-       let errorMessage = 'Une erreur inconnue est survenue lors de l\'inscription.';
-        if (error.code === 'auth/email-already-in-use') {
-            errorMessage = 'Cette adresse email est déjà enregistrée.';
-        } else if (error.code === 'auth/invalid-email') {
-            errorMessage = 'Veuillez entrer une adresse email valide.';
-        } else if (error.code === 'auth/weak-password') {
-            errorMessage = 'Le mot de passe est trop faible. Veuillez choisir un mot de passe plus fort.';
-        } else if (error.code === 'unavailable') {
+      let errorMessage = 'Une erreur inconnue est survenue lors de l\'inscription.';
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = 'Cette adresse email est déjà enregistrée.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Veuillez entrer une adresse email valide.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = 'Le mot de passe est trop faible. Veuillez choisir un mot de passe plus fort.';
+      } else if (error.code === 'auth/network-request-failed') {
+          errorMessage = 'Erreur réseau. Vérifiez votre connexion Internet.';
+      } else if (error.code === 'unavailable') {
             errorMessage = 'Service Firebase indisponible. Veuillez réessayer plus tard.';
-        }
+      }
       toast({
         title: 'Échec de l\'inscription',
         description: errorMessage,
         variant: 'destructive',
       });
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   }
 
@@ -129,7 +142,7 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
                   placeholder="vous@exemple.com"
                   {...field} type="email"
                   className="bg-input border-border focus:bg-background focus:border-primary"
-                 />
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -147,7 +160,7 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
                   {...field}
                   type="password"
                   className="bg-input border-border focus:bg-background focus:border-primary"
-                 />
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -165,15 +178,15 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
                   {...field}
                   type="password"
                   className="bg-input border-border focus:bg-background focus:border-primary"
-                 />
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
         <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
-           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-           S'inscrire
+          {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          S'inscrire
         </Button>
       </form>
     </Form>

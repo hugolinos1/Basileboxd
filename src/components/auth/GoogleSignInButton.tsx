@@ -48,6 +48,7 @@ export function GoogleSignInButton() {
               email: user.email,
               uid: user.uid,
               displayName: user.displayName || user.email?.split('@')[0],
+              pseudo: '', // Initialize pseudo as empty string
               avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100`, // Use Google photo or placeholder
               createdAt: serverTimestamp(), // Use server timestamp
             });
@@ -80,6 +81,11 @@ export function GoogleSignInButton() {
                     console.log(`Mise à jour du nom d'affichage pour ${user.email}`);
                     updates.displayName = user.displayName;
                }
+                // Initialize pseudo if it doesn't exist
+                if (existingData.pseudo === undefined) {
+                    console.log(`Initialisation du pseudo pour ${user.email}`);
+                    updates.pseudo = '';
+                }
                // Add lastLogin timestamp if needed
                // updates.lastLogin = serverTimestamp();
 

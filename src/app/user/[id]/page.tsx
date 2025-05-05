@@ -20,6 +20,7 @@ import { fr } from 'date-fns/locale';
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import type { ChartConfig } from "@/components/ui/chart";
+import { Button } from '@/components/ui/button'; // Added Button import
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
@@ -29,6 +30,7 @@ interface UserData {
     uid: string;
     email: string;
     displayName?: string;
+    pseudo?: string; // Added optional pseudo field
     avatarUrl?: string;
     createdAt?: FirestoreTimestamp | Timestamp; // Assuming this field exists in Firestore doc
 }
@@ -201,7 +203,7 @@ export default function UserProfilePage() {
             } catch (err: any) {
                 console.error("Erreur lors de la récupération des données utilisateur:", err);
                  let userFriendlyError = err.message || "Impossible de charger le profil.";
-                  if (err instanceof FirestoreError && err.code === 'permission-denied') {
+                  if (err.code === 'permission-denied') {
                      userFriendlyError = "Permission refusée. Vérifiez les règles Firestore.";
                  }
                 setError(userFriendlyError);
@@ -292,7 +294,7 @@ export default function UserProfilePage() {
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Erreur</AlertTitle>
                     <AlertDescription>{error}</AlertDescription>
-                </Alert>
+                 </Alert>
             </div>
         );
     }
@@ -304,14 +306,15 @@ export default function UserProfilePage() {
     }
 
     const joinDate = getDateFromTimestamp(profileUserData.createdAt);
+    const displayUsername = profileUserData.pseudo || profileUserData.displayName || profileUserData.email.split('@')[0]; // Define displayUsername
 
     return (
         <div className="container mx-auto max-w-6xl px-4 py-8">
             {/* User Header */}
             <div className="flex flex-col md:flex-row items-center md:items-end gap-4 md:gap-6 mb-8 border-b border-border pb-8">
                 <Avatar className="h-24 w-24 md:h-32 md:w-32 border-2 border-primary relative group">
-                    <AvatarImage src={profileUserData.avatarUrl || undefined} alt={profileUserData.displayName || profileUserData.email} />
-                    <AvatarFallback className="text-4xl bg-muted">{getInitials(profileUserData.displayName, profileUserData.email)}</AvatarFallback>
+                    <AvatarImage src={profileUserData.avatarUrl || undefined} alt={displayUsername} />
+                    <AvatarFallback className="text-4xl bg-muted">{getInitials(displayUsername, profileUserData.email)}</AvatarFallback>
                     {/* Edit button - only visible to the logged-in user viewing their own profile */}
                      {isOwnProfile && (
                         <button className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer">
@@ -322,9 +325,19 @@ export default function UserProfilePage() {
                      )}
                 </Avatar>
                 <div className="flex-1 space-y-1 text-center md:text-left">
-                    <h1 className="text-2xl md:text-3xl font-bold text-foreground">{profileUserData.displayName || profileUserData.email.split('@')[0]}</h1>
+                    <h1 className="text-2xl md:text-3xl font-bold text-foreground">{displayUsername}</h1>
+                     {/* Display pseudo if available and different from displayName/email part */}
+                     {profileUserData.pseudo && profileUserData.pseudo !== (profileUserData.displayName || profileUserData.email.split('@')[0]) && (
+                         <p className="text-lg text-primary">{profileUserData.pseudo}</p>
+                     )}
                     <p className="text-sm text-muted-foreground">{profileUserData.email}</p>
                      {joinDate && <p className="text-xs text-muted-foreground">Membre depuis {formatDistanceToNow(joinDate, { addSuffix: true, locale: fr })}</p>}
+                     {/* Button to set/edit pseudo - only for own profile */}
+                     {isOwnProfile && (
+                         <Button variant="outline" size="sm" className="mt-2" onClick={() => router.push('/settings/profile')}> {/* Redirect to a future settings page */}
+                             <Edit2 className="mr-2 h-3 w-3" /> Modifier le profil
+                         </Button>
+                      )}
                 </div>
                 <div className="flex gap-4 md:gap-8 text-center">
                     <div>
@@ -462,7 +475,7 @@ export default function UserProfilePage() {
                      <Card className="bg-card border-border">
                          <CardHeader>
                             <CardTitle>Répartition des Notes Données</CardTitle>
-                             <CardDescription>Distribution des notes attribuées par {profileUserData.displayName || profileUserData.email.split('@')[0]}.</CardDescription>
+                             <CardDescription>Distribution des notes attribuées par {displayUsername}.</CardDescription>
                          </CardHeader>
                          <CardContent className="pl-2">
                               {stats.averageRatingGiven > 0 ? (
