@@ -37,7 +37,7 @@ import {
   getFileType, // Import getFileType
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
+import { coverPhotoSchema } from '@/services/media-uploader'; // Import schema from dedicated file
 
 
 import { Progress } from '@/components/ui/progress';
@@ -457,8 +457,8 @@ export default function CreateEventPage() {
                                             <FormItem className="flex flex-col">
                                             <FormLabel>Date *</FormLabel>
                                              <Popover>
-                                                <FormControl>
-                                                    <PopoverTrigger asChild>
+                                                <PopoverTrigger asChild>
+                                                    <FormControl>
                                                         <Button
                                                             variant={'outline'}
                                                             className={cn(
@@ -469,8 +469,8 @@ export default function CreateEventPage() {
                                                             {field.value ? format(field.value, 'PPP', { locale: fr }) : <span>jj/mm/aaaa</span>}
                                                             <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                                                         </Button>
-                                                    </PopoverTrigger>
-                                                </FormControl>
+                                                    </FormControl>
+                                                </PopoverTrigger>
                                                 <PopoverContent className="w-auto p-0 bg-popover border-border" align="start">
                                                     <Calendar
                                                         locale={fr}
@@ -518,20 +518,18 @@ export default function CreateEventPage() {
                                   render={({ field }) => (
                                       <FormItem>
                                       <FormLabel className="sr-only">Ajouter des participants</FormLabel>
-                                        <FormControl>
-                                            <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
+                                        <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
                                                  <Input
                                                      placeholder="Entrer l'email des participants... (bientôt disponible)"
                                                      disabled // Disabled until UI/backend is ready
                                                      className="bg-input border-border flex-grow"
                                                      // Pass necessary props if using a simple input
-                                                     {...field} // Pass field props to the underlying Input
+                                                     // {...field} // Pass field props to the underlying Input - Removed for now
                                                  />
                                                <Button type="button" variant="outline" className="bg-secondary hover:bg-accent border-border" disabled>
                                                   <UserPlus className="mr-2 h-4 w-4"/> Ajouter
                                                </Button>
                                             </div>
-                                        </FormControl>
                                       <FormDescription>Fonctionnalité en développement.</FormDescription>
                                       <FormMessage />
                                       </FormItem>
