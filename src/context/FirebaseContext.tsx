@@ -9,9 +9,9 @@ import { AlertTriangle } from 'lucide-react'; // Import icon for error alert
 
 interface FirebaseContextProps {
   user: User | null;
-  loading: boolean;
+  loading: boolean; // Tracks the loading state of the auth check
   isAdmin: boolean;
-  initializationFailed: boolean;
+  firebaseInitialized: boolean; // Directly expose the initialization status
   initializationErrorMessage: string | null;
 }
 
@@ -19,51 +19,58 @@ const FirebaseContext = createContext<FirebaseContextProps | undefined>(undefine
 
 export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // Tracks auth state loading
   const [isAdmin, setIsAdmin] = useState(false);
   // Directly use the imported initialization status
-  const initializationFailed = !firebaseInitialized;
+  const initializationFailed = !firebaseInitialized; // Still useful internally or for consumers needing the inverse
   const initializationErrorMessage = firebaseInitializationError;
 
-  const adminEmail = "hugues.rabier@gmail.com";
+  const adminEmail = "hugues.rabier@gmail.com"; // Consider moving to env var
 
   useEffect(() => {
-    // If initialization already failed, don't attempt to set up listener
-    if (initializationFailed) {
+    // If Firebase initialization failed, don't set up the listener.
+    // The `loading` state will be set to false in the `finally` block later.
+    if (!firebaseInitialized) {
       console.error("Firebase n'a pas été initialisé, l'écouteur d'authentification ne sera pas configuré.");
-      setLoading(false);
+      setLoading(false); // Explicitly stop loading if init failed early
       return;
     }
 
-    // Ensure auth is initialized before subscribing (double check, although firebaseInitialized should cover this)
+    // Ensure auth is available (should be if firebaseInitialized is true)
     if (!auth) {
         console.error("Firebase Auth non initialisé au moment de l'effet useEffect. L'écouteur ne sera pas configuré.");
-        setLoading(false); // Stop loading, state already reflects initialization failure
+        setLoading(false); // Stop loading as auth is missing
         return;
     }
 
     console.log("Configuration de l'écouteur d'état Firebase Auth...");
+    let isMounted = true; // Flag to prevent state updates on unmounted component
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+       if (!isMounted) return; // Don't update state if component unmounted
        console.log("État d'authentification changé :", currentUser?.email || 'Aucun utilisateur');
-      setUser(currentUser);
-      setIsAdmin(currentUser?.email === adminEmail);
-      setLoading(false);
+       setUser(currentUser);
+       setIsAdmin(currentUser?.email === adminEmail);
+       setLoading(false); // Auth state determined, stop loading
     }, (error) => {
+        if (!isMounted) return;
         // Handle errors during auth state observation
         console.error("Erreur dans l'écouteur onAuthStateChanged :", error);
         setUser(null);
         setIsAdmin(false);
-        setLoading(false);
+        setLoading(false); // Stop loading even on error
     });
 
     // Cleanup subscription on unmount
     return () => {
         console.log("Nettoyage de l'écouteur d'état Firebase Auth.");
+        isMounted = false;
         unsubscribe();
     }
-  }, [adminEmail, initializationFailed]); // Rerun effect if initialization status changes
+    // Dependency array includes firebaseInitialized to re-run if it changes (though unlikely after initial load)
+  }, [adminEmail, firebaseInitialized]);
 
-  // Show Skeleton while loading AND if initialization hasn't failed yet
+  // Display Skeleton only while the auth state is loading AND Firebase init has not failed
   if (loading && !initializationFailed) {
     return (
        <div className="flex flex-col min-h-screen">
@@ -106,7 +113,7 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
     );
   }
 
-  // Show Error Alert if initialization failed
+  // Show Error Alert if Firebase initialization failed
   if (initializationFailed) {
      return (
        <div className="flex flex-col min-h-screen items-center justify-center p-4">
@@ -125,7 +132,8 @@ export const FirebaseProvider = ({ children }: { children: ReactNode }) => {
 
   // Render children if loading is complete and initialization was successful
   return (
-    <FirebaseContext.Provider value={{ user, loading, isAdmin, initializationFailed, initializationErrorMessage }}>
+    // Pass the correct firebaseInitialized status to the context
+    <FirebaseContext.Provider value={{ user, loading, isAdmin, firebaseInitialized, initializationErrorMessage }}>
       {children}
     </FirebaseContext.Provider>
   );
@@ -138,3 +146,4 @@ export const useFirebase = () => {
   }
   return context;
 };
+
