@@ -18,7 +18,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Slider } from '@/components/ui/slider';
-import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Clock } from 'lucide-react'; // Removed MessageSquare import
+import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Clock } from 'lucide-react'; // Keep Clock import if used elsewhere, otherwise remove
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -168,21 +168,57 @@ export default function CreateEventPage() {
         if (files) {
             const currentFiles = form.getValues('media') || [];
             const newFiles = Array.from(files);
-            const combinedFiles = [...currentFiles, ...newFiles];
+            // Basic client-side validation for general media
+            const validNewFiles = newFiles.filter(file => {
+                 const fileType = getFileType(file);
+                 let maxSize = 0;
+                 if (fileType === 'image') maxSize = MAX_FILE_SIZE.image;
+                 else if (fileType === 'video') maxSize = MAX_FILE_SIZE.video;
+                 else if (fileType === 'audio') maxSize = MAX_FILE_SIZE.audio;
+                 else {
+                     toast({ title: `Type non supporté : ${file.name}`, description: `Type ${file.type} non accepté.`, variant: 'destructive' });
+                     return false;
+                 }
+
+                 if (file.size > maxSize) {
+                     toast({ title: `Fichier trop volumineux : ${file.name}`, description: `La taille dépasse la limite de ${(maxSize / 1024 / 1024).toFixed(1)}Mo.`, variant: 'destructive' });
+                     return false;
+                 }
+                 if (!ACCEPTED_MEDIA_TYPES.includes(file.type)) {
+                    toast({ title: `Type non supporté : ${file.name}`, description: `Type ${file.type} non accepté.`, variant: 'destructive' });
+                    return false;
+                 }
+                 return true;
+            });
+
+
+            const combinedFiles = [...currentFiles, ...validNewFiles];
             form.setValue('media', combinedFiles, { shouldValidate: true });
 
-            const newPreviews = newFiles.map(file => URL.createObjectURL(file));
+            const newPreviews = validNewFiles.map(file => URL.createObjectURL(file));
             setMediaPreviews(prev => [...prev, ...newPreviews]);
+
+            // Clear the file input value after processing to allow re-selection of the same file(s)
+            if (event.target) {
+              (event.target as HTMLInputElement).value = '';
+            }
+
         }
     };
 
     const removeMediaFile = (index: number) => {
         const currentFiles = form.getValues('media') || [];
+        const fileToRemove = currentFiles[index];
         const updatedFiles = currentFiles.filter((_, i) => i !== index);
         form.setValue('media', updatedFiles, { shouldValidate: true });
 
-        URL.revokeObjectURL(mediaPreviews[index]);
+        // Revoke URL and remove from previews
+        const previewUrlToRemove = mediaPreviews[index];
+        if (previewUrlToRemove) {
+          URL.revokeObjectURL(previewUrlToRemove);
+        }
         setMediaPreviews(prev => prev.filter((_, i) => i !== index));
+        console.log(`Média retiré : ${fileToRemove?.name}`);
     };
 
      // Cover Photo Handling
@@ -190,7 +226,7 @@ export default function CreateEventPage() {
         const file = event.target.files?.[0];
         console.log("Fichier sélectionné pour la couverture:", file); // Log file info
         if (file) {
-             // Validate the file against the schema (initial size check)
+             // Client-side validation using Zod schema
              const validationResult = coverPhotoSchema.safeParse(file);
              console.log("Résultat de la validation initiale de la couverture:", validationResult); // Log validation result
 
@@ -203,8 +239,8 @@ export default function CreateEventPage() {
                  console.log("URL de l'aperçu de la couverture créée:", newPreviewUrl); // Log new preview URL
                  setCoverPhotoPreview(newPreviewUrl);
              } else {
-                 // Show validation error
-                 const errorMessage = validationResult.error?.errors?.[0]?.message || 'Validation a échoué.';
+                 // Show validation error from Zod
+                 const errorMessage = validationResult.error.errors[0]?.message || 'Validation a échoué.';
                  console.error("Erreur de validation de la photo de couverture:", errorMessage); // Log error
                  form.setError('coverPhoto', { type: 'manual', message: errorMessage });
                  toast({ // Add toast notification for user
@@ -220,10 +256,6 @@ export default function CreateEventPage() {
                     URL.revokeObjectURL(coverPhotoPreview);
                  }
                  setCoverPhotoPreview(null);
-                 const inputElement = event.target as HTMLInputElement;
-                 if (inputElement) {
-                    inputElement.value = ''; // Clear file input
-                 }
              }
         } else {
              console.log("Aucun fichier sélectionné pour la couverture."); // Log if no file selected
@@ -234,6 +266,10 @@ export default function CreateEventPage() {
             }
             setCoverPhotoPreview(null);
         }
+        // Clear file input value to allow re-selection
+         if (event.target) {
+             (event.target as HTMLInputElement).value = '';
+         }
     };
 
 
@@ -655,10 +691,6 @@ export default function CreateEventPage() {
                                                           // RHF handles ref, name, onBlur, onChange internally through Controller
                                                           // We only need to handle the change event.
                                                           // Remove unnecessary RHF props: ref, onBlur, name, disabled
-                                                          // ref={field.ref}
-                                                          // onBlur={field.onBlur}
-                                                          // name={field.name}
-                                                          // disabled={field.disabled}
                                                      />
                                                    </div>
                                                 </FormControl>
@@ -694,8 +726,7 @@ export default function CreateEventPage() {
                                              <div className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
                                                  <CalendarIcon className="h-3 w-3" />
                                                  <span>{watchedDate ? format(watchedDate, 'P', {locale: fr}) : '--/--/----'}</span>
-                                                 <Clock className="h-3 w-3 ml-2"/>
-                                                  <span>{watchedDate ? format(watchedDate, 'p', {locale: fr}) : '--:--'}</span>
+                                                 {/* Removed Clock and Time display */}
                                              </div>
                                              <div className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
                                                 <MapPin className="h-3 w-3"/>
@@ -799,40 +830,44 @@ export default function CreateEventPage() {
                                     <div className="space-y-4">
                                         <h4 className="text-sm font-medium text-foreground">Souvenirs ajoutés :</h4>
                                         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-3 gap-4"> {/* Adjust grid for lg breakpoint */}
-                                            {(form.watch('media') || []).map((file, index) => (
-                                                <div key={index} className="relative group border rounded-md p-2 bg-secondary space-y-1">
-                                                    {mediaPreviews[index] && file.type.startsWith('image/') ? (
-                                                        <Image src={mediaPreviews[index]} alt={`Aperçu ${file.name}`} width={80} height={80} className="rounded-md object-cover mx-auto h-16 w-16" />
-                                                    ) : (
-                                                        <div className="h-16 w-16 flex items-center justify-center bg-muted rounded-md mx-auto text-muted-foreground text-2xl">
-                                                            {/* Simple icons based on type */}
-                                                            {file.type.startsWith('video/') && <Video className="h-8 w-8" />}
-                                                            {file.type.startsWith('audio/') && <Music className="h-8 w-8" />}
-                                                            {!file.type.startsWith('image/') && !file.type.startsWith('video/') && !file.type.startsWith('audio/') && <FileIcon className="h-8 w-8" />} {/* Use FileIcon */}
-                                                        </div>
-                                                    )}
-                                                    <p className="text-xs text-muted-foreground truncate text-center">{file.name}</p>
-                                                    {uploadProgress[file.name] !== undefined && uploadProgress[file.name] >= 0 && uploadProgress[file.name] < 100 && (
-                                                        <Progress value={uploadProgress[file.name]} className="h-1 w-full" />
-                                                    )}
-                                                    {uploadProgress[file.name] === 100 && (
-                                                        <p className="text-xs text-green-500 text-center">Téléversé</p>
-                                                    )}
-                                                    {uploadProgress[file.name] === -1 && (
-                                                        <p className="text-xs text-destructive text-center">Échec</p>
-                                                    )}
-                                                    <Button
-                                                        type="button"
-                                                        variant="destructive"
-                                                        size="icon"
-                                                        className="absolute -top-2 -right-2 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity rounded-full z-10"
-                                                        onClick={() => removeMediaFile(index)}
-                                                    >
-                                                        <X className="h-3 w-3" />
-                                                        <span className="sr-only">Retirer {file.name}</span>
-                                                    </Button>
-                                                </div>
-                                            ))}
+                                            {(form.watch('media') || []).map((file, index) => {
+                                                // Find the corresponding preview URL
+                                                const previewUrl = mediaPreviews[index]; // Assuming index matches
+                                                return (
+                                                    <div key={index} className="relative group border rounded-md p-2 bg-secondary space-y-1">
+                                                        {previewUrl && file.type.startsWith('image/') ? (
+                                                            <Image src={previewUrl} alt={`Aperçu ${file.name}`} width={80} height={80} className="rounded-md object-cover mx-auto h-16 w-16" />
+                                                        ) : (
+                                                            <div className="h-16 w-16 flex items-center justify-center bg-muted rounded-md mx-auto text-muted-foreground text-2xl">
+                                                                {/* Simple icons based on type */}
+                                                                {file.type.startsWith('video/') && <Video className="h-8 w-8" />}
+                                                                {file.type.startsWith('audio/') && <Music className="h-8 w-8" />}
+                                                                {!file.type.startsWith('image/') && !file.type.startsWith('video/') && !file.type.startsWith('audio/') && <FileIcon className="h-8 w-8" />} {/* Use FileIcon */}
+                                                            </div>
+                                                        )}
+                                                        <p className="text-xs text-muted-foreground truncate text-center">{file.name}</p>
+                                                        {uploadProgress[file.name] !== undefined && uploadProgress[file.name] >= 0 && uploadProgress[file.name] < 100 && (
+                                                            <Progress value={uploadProgress[file.name]} className="h-1 w-full" />
+                                                        )}
+                                                        {uploadProgress[file.name] === 100 && (
+                                                            <p className="text-xs text-green-500 text-center">Téléversé</p>
+                                                        )}
+                                                        {uploadProgress[file.name] === -1 && (
+                                                            <p className="text-xs text-destructive text-center">Échec</p>
+                                                        )}
+                                                        <Button
+                                                            type="button"
+                                                            variant="destructive"
+                                                            size="icon"
+                                                            className="absolute -top-2 -right-2 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity rounded-full z-10"
+                                                            onClick={() => removeMediaFile(index)}
+                                                        >
+                                                            <X className="h-3 w-3" />
+                                                            <span className="sr-only">Retirer {file.name}</span>
+                                                        </Button>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
