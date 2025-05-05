@@ -1,4 +1,3 @@
-// src/app/parties/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -42,26 +41,28 @@ const calculateAverageRating = (ratings: { [userId: string]: number } | undefine
 
 // Helper to safely convert timestamp
 const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefined): Date | null => {
-    if (!timestamp) return null;
-    if (timestamp instanceof Timestamp) {
-        return timestamp.toDate();
-    } else if (timestamp && typeof timestamp === 'object' && 'seconds' in timestamp) { // Check if it's a FirestoreTimestamp-like object
-        // Guard against invalid date values
-        try {
+    if (!timestamp) {
+        console.warn("getDateFromTimestamp: Timestamp is undefined or null.");
+        return null;
+    }
+    try {
+        if (timestamp instanceof Timestamp) {
+            return timestamp.toDate();
+        } else if (timestamp && typeof timestamp === 'object' && typeof timestamp.seconds === 'number') { // Check if it's a FirestoreTimestamp-like object
              const date = new Date(timestamp.seconds * 1000);
-             // Check if the date is valid
-             if (!isNaN(date.getTime())) {
-                 return date;
+             if (isNaN(date.getTime())) {
+                 console.warn("getDateFromTimestamp: Invalid date created from timestamp object:", timestamp);
+                 return null;
              }
-             console.warn("getDateFromTimestamp: Invalid date created from timestamp object:", timestamp);
-             return null;
-        } catch (e) {
-            console.error("getDateFromTimestamp: Error creating date from timestamp object:", timestamp, e);
+             return date;
+        } else {
+             console.warn("getDateFromTimestamp: Unrecognized timestamp format:", timestamp);
             return null;
         }
+    } catch (e) {
+        console.error("getDateFromTimestamp: Error converting timestamp to Date:", timestamp, e);
+        return null;
     }
-     console.warn("getDateFromTimestamp: Unrecognized timestamp format:", timestamp);
-    return null;
 }
 
 
@@ -72,115 +73,140 @@ export default function PartiesListPage() {
   const { firebaseInitialized, initializationFailed, initializationErrorMessage } = useFirebase(); // Use context for initialization status
 
   useEffect(() => {
-    console.log("[PartiesListPage useEffect] Triggered. Firebase Initialized:", firebaseInitialized, "Init Failed:", initializationFailed);
+    console.log("[PartiesListPage useEffect] Déclenché. Firebase Initialisé:", firebaseInitialized, "Échec Init:", initializationFailed);
 
-    // Immediately set error and stop loading if Firebase init failed on context level
     if (initializationFailed) {
-        console.error("[PartiesListPage useEffect] Firebase initialization failed. Setting error state.");
+        console.error("[PartiesListPage useEffect] Échec de l'initialisation de Firebase. Définition de l'état d'erreur.");
         setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
         setLoading(false);
         return;
     }
 
-    // Wait for Firebase to be initialized before attempting to fetch
     if (!firebaseInitialized) {
-        console.log("[PartiesListPage useEffect] Firebase not yet initialized, waiting...");
-        setLoading(true); // Keep loading while waiting
+        console.log("[PartiesListPage useEffect] Firebase pas encore initialisé, en attente...");
+        setLoading(true); // Garder le chargement pendant l'attente
         return;
     }
 
-    // Check if db is available (it should be if firebaseInitialized is true, but double-check)
     if (!db) {
-        console.error("[PartiesListPage useEffect] Firestore 'db' instance is null even though Firebase is initialized. Setting error state.");
+        console.error("[PartiesListPage useEffect] Instance Firestore 'db' est nulle même si Firebase est initialisé. Définition de l'état d'erreur.");
         setError("La base de données Firestore n'est pas disponible.");
         setLoading(false);
         return;
     }
 
     const fetchParties = async () => {
-      // Don't fetch if already in an error state from this component's perspective
-      // if (error) {
-      //     console.log("[fetchParties] Skipping fetch because error state is set:", error);
-      //     return;
-      // }
-
-      console.log("[fetchParties] Starting fetch. Setting loading=true, error=null.");
+      console.log("[fetchParties] Début de la récupération. loading=true, error=null.");
       setLoading(true);
-      setError(null); // Reset error before *this* fetch attempt
+      setError(null); // Réinitialiser l'erreur avant *cette* tentative de récupération
 
       try {
-        console.log("[fetchParties] Accessing Firestore collection 'parties'...");
+        console.log("[fetchParties] Accès à la collection Firestore 'parties'...");
         const partiesCollectionRef = collection(db, 'parties');
         const q = query(partiesCollectionRef, orderBy('createdAt', 'desc'));
 
-        console.log("[fetchParties] Executing Firestore query...");
+        console.log("[fetchParties] Exécution de la requête Firestore...");
         const querySnapshot = await getDocs(q);
-        console.log(`[fetchParties] Firestore query executed. Found ${querySnapshot.size} documents. Is empty: ${querySnapshot.empty}`);
+        console.log(`[fetchParties] Requête Firestore exécutée. Trouvé ${querySnapshot.size} documents. Est vide: ${querySnapshot.empty}`);
 
         if (querySnapshot.empty) {
-            console.log("[fetchParties] No parties found in the collection.");
-            setParties([]); // Ensure state is empty array if no documents
+            console.log("[fetchParties] Aucune fête trouvée dans la collection.");
+            setParties([]);
         } else {
-            console.log("[fetchParties] Mapping documents to PartyData...");
+            console.log("[fetchParties] Mappage des documents vers PartyData...");
             const partiesData = querySnapshot.docs.map(doc => {
                  const data = doc.data();
-                 console.log(`[fetchParties Mapping] Doc ID: ${doc.id}, Data:`, data); // Log individual doc data
-                 // Basic validation for critical fields during mapping
-                 if (!data.name || !data.date || !data.createdAt) {
-                    console.warn(`[fetchParties Mapping] Document ${doc.id} is missing critical fields (name, date, or createdAt). Skipping.`);
-                    return null; // Skip this document if essential data is missing
-                 }
-                 return {
-                     id: doc.id,
-                     ...data,
-                 } as PartyData;
-            }).filter(party => party !== null) as PartyData[]; // Filter out skipped documents
+                 console.log(`[fetchParties Mapping] ID Doc: ${doc.id}, Données brutes:`, JSON.stringify(data, null, 2)); // Log raw data more clearly
 
-            console.log("[fetchParties] Mapped parties data:", partiesData); // Log the final mapped data
+                 // Validation plus robuste
+                 if (!data.name || typeof data.name !== 'string') {
+                    console.warn(`[fetchParties Mapping] Document ${doc.id} : champ 'name' manquant ou invalide. Ignoré.`);
+                    return null;
+                 }
+                 if (!data.date || (typeof data.date !== 'object')) { // Check if date exists and is an object (Timestamp or FirestoreTimestamp)
+                    console.warn(`[fetchParties Mapping] Document ${doc.id} : champ 'date' manquant ou invalide. Ignoré.`);
+                    return null;
+                 }
+                  if (!data.createdAt || (typeof data.createdAt !== 'object')) { // Check createdAt similarly
+                    console.warn(`[fetchParties Mapping] Document ${doc.id} : champ 'createdAt' manquant ou invalide. Ignoré.`);
+                    return null;
+                 }
+
+                  // Tentative de conversion de date avec gestion d'erreur
+                  const partyDate = getDateFromTimestamp(data.date);
+                  if (!partyDate) {
+                       console.warn(`[fetchParties Mapping] Document ${doc.id} : impossible de convertir 'date'. Ignoré.`);
+                       return null;
+                  }
+                 const createdAtDate = getDateFromTimestamp(data.createdAt);
+                 if (!createdAtDate) {
+                      console.warn(`[fetchParties Mapping] Document ${doc.id} : impossible de convertir 'createdAt'. Ignoré.`);
+                      return null;
+                 }
+
+
+                 // Créer l'objet PartyData final
+                 const partyObject: PartyData = {
+                     id: doc.id,
+                     name: data.name,
+                     description: data.description || undefined,
+                     date: data.date, // Garder le format original pour le moment, la conversion a été validée
+                     location: data.location || undefined,
+                     coverPhotoUrl: data.coverPhotoUrl || undefined,
+                     ratings: data.ratings || {},
+                     createdAt: data.createdAt, // Garder le format original
+                 };
+                  console.log(`[fetchParties Mapping] Document ${doc.id} mappé avec succès :`, partyObject);
+                 return partyObject;
+
+            }).filter(party => party !== null) as PartyData[]; // Filtrer les documents ignorés
+
+            console.log("[fetchParties] Données des fêtes mappées:", partiesData);
             setParties(partiesData);
-            console.log(`[fetchParties] Parties state updated with ${partiesData.length} items.`);
+            console.log(`[fetchParties] État des fêtes mis à jour avec ${partiesData.length} éléments.`);
         }
 
       } catch (fetchError: any) {
-        console.error('[fetchParties] Error during Firestore query or mapping:', fetchError);
-         // Provide more specific error messages if possible
+        console.error('[fetchParties] Erreur lors de la requête Firestore ou du mappage:', fetchError);
          let userFriendlyError = 'Impossible de charger la liste des fêtes.';
          if (fetchError instanceof FirestoreError) {
              if (fetchError.code === 'permission-denied') {
-                 userFriendlyError = 'Permission refusée. Vérifiez les règles de sécurité Firestore.';
-                 console.error("Firestore Permission Denied: Check your security rules for the 'parties' collection.");
+                 userFriendlyError = 'Permission refusée. Vérifiez les règles de sécurité Firestore pour la collection "parties".';
+                 console.error("Permission Firestore refusée : Vérifiez vos règles de sécurité pour la collection 'parties'.");
              } else if (fetchError.code === 'unauthenticated') {
                  userFriendlyError = 'Non authentifié. Veuillez vous connecter.';
              } else if (fetchError.code === 'unavailable') {
                   userFriendlyError = 'Service Firestore indisponible. Veuillez réessayer plus tard.';
+             } else {
+                  userFriendlyError = `Erreur Firestore (${fetchError.code}): ${fetchError.message}`;
              }
+         } else {
+             userFriendlyError = `Erreur inattendue: ${fetchError.message}`;
          }
         setError(userFriendlyError);
-        setParties([]); // Ensure parties state is empty on error
+        setParties([]); // Assurer que l'état des fêtes est vide en cas d'erreur
       } finally {
-        console.log("[fetchParties] Fetch attempt finished. Setting loading=false.");
-        setLoading(false); // Ensure loading is set to false regardless of success or failure
+        console.log("[fetchParties] Tentative de récupération terminée. loading=false.");
+        setLoading(false);
       }
     };
 
     fetchParties();
 
-    // Dependency array: Fetch only when Firebase initialization status changes and is successful.
-    // Removed 'error' dependency to prevent potential re-fetch loops if setError itself caused a re-render triggering the effect.
-  }, [firebaseInitialized, initializationFailed, initializationErrorMessage]);
+  }, [firebaseInitialized, initializationFailed, initializationErrorMessage]); // Dépendances
 
 
-  // --- Render Logic ---
+  // --- Logique de Rendu ---
 
-  console.log("[PartiesListPage Render] Loading:", loading, "Error:", error, "Parties Count:", parties.length, "Firebase Initialized:", firebaseInitialized, "Init Failed:", initializationFailed);
+  console.log("[PartiesListPage Rendu] Chargement:", loading, "Erreur:", error, "Nombre de fêtes:", parties.length, "Firebase Initialisé:", firebaseInitialized, "Échec Init:", initializationFailed);
 
 
-    // Render Skeleton only if loading and initialization has *not* failed
+    // Afficher Skeleton uniquement si chargement en cours ET l'initialisation n'a *pas* échoué
     if (loading && !initializationFailed) {
-      console.log("[PartiesListPage Render] Rendering Skeleton Loader.");
+      console.log("[PartiesListPage Rendu] Affichage du Skeleton Loader.");
       return (
         <div className="container mx-auto px-4 py-12">
-          <Skeleton className="h-8 w-1/3 mb-8 bg-muted" /> {/* Use muted for skeleton */}
+          <Skeleton className="h-8 w-1/3 mb-8 bg-muted" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {Array.from({ length: 8 }).map((_, i) => (
               <Card key={i} className="overflow-hidden bg-card border border-border/50">
@@ -199,10 +225,10 @@ export default function PartiesListPage() {
       );
     }
 
-  // Render Error Alert if either initialization failed OR a fetch error occurred
+  // Afficher l'alerte d'erreur si l'initialisation a échoué OU une erreur de récupération s'est produite
   if (initializationFailed || error) {
      const displayError = initializationFailed ? (initializationErrorMessage || "Échec de l'initialisation de Firebase.") : (error || "Une erreur inconnue est survenue.");
-     console.log("[PartiesListPage Render] Rendering Error Alert:", displayError);
+     console.log("[PartiesListPage Rendu] Affichage de l'Alerte d'Erreur:", displayError);
     return (
       <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
         <Alert variant="destructive" className="max-w-lg">
@@ -214,8 +240,8 @@ export default function PartiesListPage() {
     );
   }
 
-  // Render Parties List only if *not* loading and *no* errors
-  console.log("[PartiesListPage Render] Rendering parties list.");
+  // Afficher la liste des fêtes uniquement si *pas* en chargement et *aucune* erreur
+  console.log("[PartiesListPage Rendu] Affichage de la liste des fêtes.");
   return (
     <div className="container mx-auto px-4 py-12">
       <h1 className="text-3xl font-bold mb-8 text-primary">Tous les Événements</h1>
@@ -227,15 +253,12 @@ export default function PartiesListPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {parties.map((party) => {
-            // Safely get the date, handle potential nulls
-            let partyDate: Date | null = null;
-             try {
-                 partyDate = getDateFromTimestamp(party.date);
-             } catch(e) {
-                  console.error(`Error parsing date for party ${party.id}:`, party.date, e);
-             }
-
+            // Conversion sécurisée de la date ici dans le map
+            const partyDate: Date | null = getDateFromTimestamp(party.date);
             const averageRating = calculateAverageRating(party.ratings);
+
+            // Log pour vérifier les données de chaque fête avant de l'afficher
+            console.log(`[PartiesListPage Rendu - map] Affichage de la fête: ${party.id}, Nom: ${party.name}, Date Obj:`, partyDate, "URL Couverture:", party.coverPhotoUrl);
 
             return (
               <Link href={`/party/${party.id}`} key={party.id} className="block group">
@@ -249,9 +272,9 @@ export default function PartiesListPage() {
                           layout="fill"
                           objectFit="cover"
                           className="transition-transform duration-300 group-hover:scale-105"
-                          sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw" // Example sizes, adjust as needed
+                          sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
                           loading="lazy"
-                           onError={(e) => console.error(`Error loading image for party ${party.id}: ${party.coverPhotoUrl}`, e)}
+                           onError={(e) => console.error(`Erreur de chargement de l'image pour la fête ${party.id}: ${party.coverPhotoUrl}`, e)}
                           data-ai-hint="couverture fête événement"
                         />
                       ) : (
@@ -259,7 +282,7 @@ export default function PartiesListPage() {
                            <ImageIcon className="h-12 w-12 text-muted-foreground/50" />
                         </div>
                       )}
-                       {/* Rating Badge */}
+                       {/* Badge de Note */}
                        {averageRating > 0 && (
                          <Badge variant="secondary" className="absolute top-2 right-2 backdrop-blur-sm bg-black/50 border-white/20 text-sm px-2 py-0.5">
                             <Star className="h-3 w-3 text-yellow-400 fill-current mr-1" />
@@ -271,7 +294,7 @@ export default function PartiesListPage() {
                   <CardContent className="p-4 flex-grow flex flex-col justify-between">
                     <div>
                       <CardTitle className="text-lg font-semibold leading-tight mb-2 truncate group-hover:text-primary transition-colors">
-                        {party.name || "Événement sans nom"} {/* Fallback for name */}
+                        {party.name || "Événement sans nom"} {/* Fallback */}
                       </CardTitle>
                       <div className="space-y-1 text-xs text-muted-foreground">
                         {partyDate ? (
@@ -290,7 +313,7 @@ export default function PartiesListPage() {
                         )}
                       </div>
                     </div>
-                    {/* Optional: Add created date or other meta */}
+                    {/* Optionnel: Ajouter la date de création ou d'autres méta-données */}
                     {/* <p className="text-xs text-muted-foreground/70 mt-2">Créé le {party.createdAt ? format(getDateFromTimestamp(party.createdAt)!, 'Pp', { locale: fr }) : 'N/A'}</p> */}
                   </CardContent>
                 </Card>
