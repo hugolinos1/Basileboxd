@@ -36,8 +36,8 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   getFileType, // Import getFileType
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema
 } from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
 
 
 import { Progress } from '@/components/ui/progress';
@@ -80,7 +80,7 @@ const mediaFileSchema = fileSchema.refine(
             return { message: `Type de fichier non supporté (${file.type}).` };
         }
         // Check if fileType is a key of MAX_FILE_SIZE before accessing it
-        if (maxSizeMB > 0 && fileType in MAX_FILE_SIZE && file.size > MAX_FILE_SIZE[fileType as keyof typeof MAX_FILE_SIZE]) {
+        if (maxSizeMB > 0 && fileType in MAX_FILE_SIZE && file.size > MAX_FILE_SIZE[fileType as keyof typeof MAX_FILE_SIZE]) { // Added type assertion
              return { message: `Fichier trop volumineux (${(file.size / (1024 * 1024)).toFixed(1)}Mo). Max ${maxSizeMB.toFixed(1)}Mo.` };
         }
         return { message: 'Fichier invalide.' }; // Default fallback
@@ -236,7 +236,9 @@ export default function CreateEventPage() {
         const file = event.target.files?.[0];
         if (file) {
              // Validate the file against the schema before setting value and preview
-             const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; // Only validate on client
+             // Use safeParse for better type checking if needed
+             const validationResult = typeof window !== 'undefined' && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true };
+
              if (validationResult.success) {
                  form.setValue('coverPhoto', file, { shouldValidate: true });
                  if (coverPhotoPreview) {
@@ -448,7 +450,7 @@ export default function CreateEventPage() {
                                 {/* FormField for name */}
                                 <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel>Nom de la soirée *</FormLabel> <FormControl> <Input placeholder="Ex : Anniversaire de Léa" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/> </FormControl> <FormMessage /> </FormItem> )}/>
                                 {/* FormField for description */}
-                                <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl> <Textarea placeholder="Décrivez votre soirée..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" {...field}/> </FormControl> <FormMessage /> </FormItem> )}/>
+                                <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl> <div><Textarea placeholder="Décrivez votre soirée..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" {...field}/></div> </FormControl> <FormMessage /> </FormItem> )}/>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {/* FormField for date */}
                                      <FormField
@@ -493,6 +495,7 @@ export default function CreateEventPage() {
                           </CardContent>
                       </Card>
 
+
                        {/* --- Participants Card --- */}
                         <Card className="bg-card border border-border">
                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
@@ -519,18 +522,18 @@ export default function CreateEventPage() {
                                   render={({ field }) => (
                                       <FormItem>
                                       <FormLabel className="sr-only">Ajouter des participants</FormLabel>
-                                        <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
+                                        <FormControl>
+                                            <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
                                                  <Input
                                                      placeholder="Entrer l'email des participants... (bientôt disponible)"
                                                      disabled // Disabled until UI/backend is ready
                                                      className="bg-input border-border flex-grow"
-                                                     // Pass necessary props if using a simple input
-                                                     // {...field} // Pass field props to the underlying Input - Removed for now
                                                  />
                                                <Button type="button" variant="outline" className="bg-secondary hover:bg-accent border-border" disabled>
                                                   <UserPlus className="mr-2 h-4 w-4"/> Ajouter
                                                </Button>
                                             </div>
+                                        </FormControl>
                                       <FormDescription>Fonctionnalité en développement.</FormDescription>
                                       <FormMessage />
                                       </FormItem>
@@ -553,6 +556,7 @@ export default function CreateEventPage() {
                                     render={({ field }) => (
                                         <FormItem className="flex-1">
                                             <FormLabel className="sr-only">Photo de couverture</FormLabel> {/* Hidden label for accessibility */}
+                                            <FormControl>
                                             <div
                                                 className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative cursor-pointer"
                                                 onClick={() => document.getElementById('cover-photo-input')?.click()} // Trigger file input
@@ -573,8 +577,7 @@ export default function CreateEventPage() {
                                                     </div>
                                                 )}
                                                 {/* Hidden Input controlled by React Hook Form */}
-                                                 <FormControl>
-                                                  <Input
+                                                 <Input
                                                       id="cover-photo-input"
                                                       type="file"
                                                       accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
@@ -585,8 +588,8 @@ export default function CreateEventPage() {
                                                       name={field.name}
                                                       disabled={field.disabled}
                                                   />
-                                                </FormControl>
                                             </div>
+                                            </FormControl>
                                             <FormMessage className="text-xs"/>
                                         </FormItem>
                                     )}
@@ -728,7 +731,7 @@ export default function CreateEventPage() {
                                     <FormItem>
                                         <FormLabel>Commentaire (Optionnel)</FormLabel>
                                         <FormControl>
-                                            <Textarea placeholder="Ajoutez un premier commentaire..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" rows={4} {...field} />
+                                             <div><Textarea placeholder="Ajoutez un premier commentaire..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" rows={4} {...field} /></div>
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -746,3 +749,4 @@ export default function CreateEventPage() {
     </div>
   );
 }
+    
