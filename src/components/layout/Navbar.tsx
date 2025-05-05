@@ -2,10 +2,11 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image'; // Import Image
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users, Image as ImageIcon } from 'lucide-react'; // Added List, Users, and ImageIcon icons
+import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users } from 'lucide-react'; // Removed ImageIcon
 import { useFirebase } from '@/context/FirebaseContext';
 import { auth } from '@/config/firebase';
 import { signOut } from 'firebase/auth';
@@ -44,8 +45,15 @@ export function Navbar() {
       <div className="container flex h-14 max-w-screen-2xl items-center justify-between px-4 md:px-6">
         <div className="flex items-center space-x-6"> {/* Container for Logo and Nav Links */}
           <Link href="/" className="flex items-center space-x-2">
-            {/* Placeholder for the actual logo */}
-            <ImageIcon className="h-6 w-6 text-primary" data-ai-hint="BaliseBoxd logo" />
+            {/* Replace placeholder with actual logo image */}
+            <Image
+                src="https://i.ibb.co/Sb6CJ8X/cornes-du-diable-autocollant.jpg"
+                alt="BaliseBoxd Logo"
+                width={24} // Adjust width as needed
+                height={24} // Adjust height as needed
+                className="object-contain" // Use contain or cover based on image aspect ratio
+                data-ai-hint="logo diable cornes"
+            />
             <span className="font-bold text-primary">BaliseBoxd</span>
           </Link>
 
@@ -140,5 +148,6 @@ export function Navbar() {
     </nav>
   );
 }
+
 
 

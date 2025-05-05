@@ -1,3 +1,4 @@
+
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
@@ -31,6 +32,12 @@ const nextConfig: NextConfig = {
       { // Allow Unsplash images
         protocol: 'https',
         hostname: 'images.unsplash.com',
+        port: '',
+        pathname: '/**',
+      },
+      { // Allow images from i.ibb.co
+        protocol: 'https',
+        hostname: 'i.ibb.co',
         port: '',
         pathname: '/**',
       },
