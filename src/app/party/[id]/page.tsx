@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc, updateDoc, arrayUnion, serverTimestamp, Timestamp, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, serverTimestamp, Timestamp, onSnapshot, FieldValue } from 'firebase/firestore'; // Import FieldValue
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format } from 'date-fns';
@@ -231,14 +231,37 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const partyDocRef = doc(db, 'parties', party.id);
-      const newComment = { userId: user.uid, email: user.email || 'anonyme', avatar: user.photoURL || null, text: comment.trim(), timestamp: serverTimestamp(), };
-      await updateDoc(partyDocRef, { comments: arrayUnion(newComment) });
+      const newComment = {
+        userId: user.uid,
+        email: user.email || 'anonyme',
+        avatar: user.photoURL || null,
+        text: comment.trim(),
+        timestamp: serverTimestamp() // Correctly use serverTimestamp here
+      };
+
+      // Use arrayUnion with the correctly structured object
+      await updateDoc(partyDocRef, {
+        comments: arrayUnion(newComment)
+      });
+
       // Local state updated via onSnapshot listener
       setComment('');
       toast({ title: 'Commentaire ajouté' });
-    } catch (commentError: any) { console.error('Erreur commentaire:', commentError); toast({ title: 'Erreur', description: commentError.message || 'Impossible d\'ajouter le commentaire.', variant: 'destructive' }); }
-    finally { setIsSubmittingComment(false); }
-  };
+    } catch (commentError: any) {
+        console.error('Erreur commentaire:', commentError);
+        let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
+        // Check for specific Firestore errors if needed
+        if (commentError.code === 'invalid-argument' && commentError.message.includes('Unsupported field value: undefined')) {
+            errorMessage = "Une valeur non définie a été envoyée. Veuillez réessayer.";
+        } else if (commentError.code === 'invalid-argument' && commentError.message.includes('serverTimestamp')) {
+             errorMessage = "Erreur de timestamp serveur. Réessayez.";
+        }
+        toast({ title: 'Erreur', description: errorMessage, variant: 'destructive' });
+    } finally {
+        setIsSubmittingComment(false);
+    }
+};
+
 
   // --- Souvenir Upload Handlers ---
     const handleSouvenirFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -356,7 +379,7 @@ export default function PartyDetailsPage() {
                 if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
                 setNewCoverPreview(URL.createObjectURL(file));
             } else {
-                const errorMessage = validationResult.error.errors[0]?.message || 'Fichier invalide.';
+                const errorMessage = validationResult.error?.errors[0]?.message || 'Fichier invalide.'; // Added optional chaining
                 toast({ title: "Erreur Photo de Couverture", description: errorMessage, variant: "destructive" });
                 setNewCoverFile(null);
                 if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
@@ -685,4 +708,5 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
 
