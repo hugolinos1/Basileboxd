@@ -449,7 +449,33 @@ export default function CreateEventPage() {
                                 <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl> <Textarea placeholder="Décrivez votre soirée..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" {...field}/> </FormControl> <FormMessage /> </FormItem> )}/>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {/* FormField for date */}
-                                    <FormField control={form.control} name="date" render={({ field }) => ( <FormItem className="flex flex-col"> <FormLabel>Date *</FormLabel> <Popover> <PopoverTrigger asChild> <FormControl> <Button variant={'outline'} className={cn( 'w-full pl-3 text-left font-normal bg-input border-border hover:bg-accent', !field.value && 'text-muted-foreground' )}> {field.value ? format(field.value, 'PPP', { locale: fr }) : <span>jj/mm/aaaa</span>} <CalendarIcon className="ml-auto h-4 w-4 opacity-50" /> </Button> </FormControl> </PopoverTrigger> <PopoverContent className="w-auto p-0 bg-popover border-border" align="start"> <Calendar locale={fr} mode="single" selected={field.value} onSelect={field.onChange} initialFocus /> </PopoverContent> </Popover> <FormMessage /> </FormItem> )}/>
+                                    <FormField
+                                      control={form.control}
+                                      name="date"
+                                      render={({ field }) => (
+                                        <FormItem className="flex flex-col">
+                                          <FormLabel>Date *</FormLabel>
+                                          <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                  variant={'outline'}
+                                                  className={cn(
+                                                    'w-full pl-3 text-left font-normal bg-input border-border hover:bg-accent',
+                                                    !field.value && 'text-muted-foreground'
+                                                  )}
+                                                >
+                                                  {field.value ? format(field.value, 'PPP', { locale: fr }) : <span>jj/mm/aaaa</span>}
+                                                  <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-auto p-0 bg-popover border-border" align="start">
+                                              <Calendar locale={fr} mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                                            </PopoverContent>
+                                          </Popover>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
                                     {/* FormField for location */}
                                      <FormField control={form.control} name="location" render={({ field }) => ( <FormItem> <FormLabel>Lieu (Optionnel)</FormLabel> <FormControl> <Input placeholder="Ex : Sunset Beach Club" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/> </FormControl> <FormMessage /> </FormItem> )}/>
                                 </div>
