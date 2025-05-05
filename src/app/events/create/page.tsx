@@ -467,38 +467,46 @@ export default function CreateEventPage() {
                                     control={form.control}
                                     name="coverPhoto"
                                     render={({ field }) => (
-                                        <FormItem className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
-                                             {/* Hidden Input - Manual handling */}
+                                        <FormItem className="flex-1">
+                                            {/* Hidden Input controlled by React Hook Form */}
                                              <FormControl>
-                                                 <Input
-                                                     id="cover-photo-input"
-                                                     type="file"
-                                                     accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
-                                                     onChange={handleCoverPhotoChange}
-                                                     className="sr-only"
-                                                     ref={field.ref} // Still needed for RHF to track the field
-                                                     onBlur={field.onBlur} // Needed for RHF validation trigger
-                                                     name={field.name} // Needed for RHF
-                                                     disabled={field.disabled} // Needed for RHF
-                                                 />
-                                             </FormControl>
-                                            {/* Visual feedback and trigger */}
-                                            {coverPhotoPreview ? (
-                                                <div className="relative w-full h-full">
-                                                    <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
-                                                    <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10" onClick={removeCoverPhoto}> <X className="h-4 w-4" /> <span className="sr-only">Retirer photo</span> </Button>
-                                                </div>
-                                            ) : (
-                                                <div className="flex flex-col items-center justify-center text-center h-full">
-                                                    <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
-                                                    <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo (max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo).</p>
-                                                    <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cover-photo-input')?.click()}> <Upload className="mr-2 h-4 w-4" /> Ajouter une photo </Button>
-                                                </div>
-                                            )}
-                                            <FormMessage className="absolute bottom-2 left-2 right-2 text-xs"/>
+                                                <Input
+                                                    id="cover-photo-input"
+                                                    type="file"
+                                                    accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                                    onChange={handleCoverPhotoChange}
+                                                    className="sr-only"
+                                                    ref={field.ref} // Ensure RHF can track the input
+                                                    onBlur={field.onBlur}
+                                                    name={field.name}
+                                                    disabled={field.disabled}
+                                                />
+                                            </FormControl>
+                                             {/* Visual Trigger Area */}
+                                             <div
+                                                className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative cursor-pointer"
+                                                onClick={() => document.getElementById('cover-photo-input')?.click()} // Trigger file input
+                                            >
+                                                 {coverPhotoPreview ? (
+                                                     <div className="relative w-full h-full">
+                                                         <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
+                                                         <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full z-10" onClick={(e) => { e.stopPropagation(); removeCoverPhoto(); }}> <X className="h-4 w-4" /> <span className="sr-only">Retirer photo</span> </Button>
+                                                     </div>
+                                                 ) : (
+                                                     <div className="flex flex-col items-center justify-center text-center h-full">
+                                                         <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
+                                                         <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo (max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo).</p>
+                                                         <Button type="button" variant="outline" size="sm" disabled={isLoading} className="pointer-events-none"> {/* Visually indicates clickable area, but click handled by div */}
+                                                             <Upload className="mr-2 h-4 w-4" /> Ajouter une photo
+                                                         </Button>
+                                                     </div>
+                                                 )}
+                                            </div>
+                                            <FormMessage className="text-xs"/>
                                         </FormItem>
                                     )}
                                 />
+
 
                                {/* Preview Card -- Moved Inside Column 1 */}
                                <div className="w-full md:w-64 flex-shrink-0">
