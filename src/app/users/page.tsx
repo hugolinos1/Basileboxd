@@ -20,17 +20,17 @@ interface UserData {
     uid: string;
     email: string;
     displayName?: string;
+    pseudo?: string; // Added pseudo
     avatarUrl?: string;
     createdAt?: FirestoreTimestamp | Timestamp;
-    // Add placeholders for potential future stats
+    // Add fields for stats (might be populated by backend functions later)
     eventCount?: number;
     commentCount?: number;
-    averageRating?: number;
+    averageRatingGiven?: number; // Renamed to reflect what's calculated on profile page
 }
 
 // Helper Functions
 const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefined): Date | null => {
-    // Keep existing implementation
     if (!timestamp) return null;
     try {
         if (timestamp instanceof Timestamp) return timestamp.toDate();
@@ -43,7 +43,6 @@ const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefi
 }
 
 const getInitials = (name: string | null | undefined, email: string): string => {
-    // Keep existing implementation
     if (name) return name.charAt(0).toUpperCase();
     if (email) return email.charAt(0).toUpperCase();
     return '?';
@@ -101,11 +100,9 @@ export default function UsersListPage() {
 
             try {
                 const usersCollectionRef = collection(db, 'users');
-                // Ensure Firestore rules allow 'list' operation on /users for authenticated users
                 // IMPORTANT: Ensure 'createdAt' field exists on ALL user documents for ordering to work reliably.
-                 // temporarily removing orderby for debugging
-                 // const q = query(usersCollectionRef, orderBy('createdAt', 'desc'));
-                 const q = query(usersCollectionRef); // Fetch without ordering for now
+                // Also ensure Firestore rules allow 'list' operation on /users for authenticated users
+                const q = query(usersCollectionRef, orderBy('createdAt', 'desc')); // Order by creation time
 
                 console.log("[fetchUsers] Executing Firestore query for users collection...");
                 const querySnapshot = await getDocs(q);
@@ -118,52 +115,30 @@ export default function UsersListPage() {
                     console.log("[fetchUsers] Mapping user documents to UserData...");
                     const usersData = querySnapshot.docs.map(doc => {
                          const data = doc.data();
-                         console.log(`[fetchUsers Mapping] Doc ID: ${doc.id}, Raw data:`, JSON.stringify(data)); // Log raw data
+                         // console.log(`[fetchUsers Mapping] Doc ID: ${doc.id}, Raw data:`, JSON.stringify(data)); // Verbose log
 
                          // Basic validation
                          if (!data.uid || !data.email) {
                              console.warn(`[fetchUsers Mapping] Doc ${doc.id}: uid or email missing. Skipped. Data:`, data);
                              return null;
                          }
-                          // Validate createdAt if it exists
-                          let createdAtTimestamp: Timestamp | null = null;
-                          if (data.createdAt) {
-                             if (data.createdAt instanceof Timestamp) {
-                                 createdAtTimestamp = data.createdAt;
-                             } else if (typeof data.createdAt === 'object' && typeof data.createdAt.seconds === 'number') {
-                                 // Attempt conversion from FirestoreTimestamp-like object
-                                 try {
-                                     createdAtTimestamp = new Timestamp(data.createdAt.seconds, data.createdAt.nanoseconds);
-                                     if (isNaN(createdAtTimestamp.toDate().getTime())) {
-                                         console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' object resulted in invalid Date. Treating as null.`);
-                                         createdAtTimestamp = null;
-                                     }
-                                 } catch (conversionError) {
-                                     console.warn(`[fetchUsers Mapping] Doc ${doc.id}: Error converting 'createdAt' object to Timestamp. Treating as null.`, conversionError);
-                                     createdAtTimestamp = null;
-                                 }
-                             } else {
-                                 console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' field is not a valid Timestamp object or structure. Treating as null. Data:`, data.createdAt);
-                             }
-                         } else {
-                              console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' field is missing. Ordering might be unreliable if re-enabled.`);
-                         }
+                         // Use validated/converted timestamp or undefined
+                         const createdAtTimestamp = getDateFromTimestamp(data.createdAt);
 
-                         // TODO: Fetch stats per user (event count, comment count) - potentially inefficient for many users.
-                         // Consider denormalization or fetching stats on the user profile page instead.
                          const userDataObject: UserData = {
                             id: doc.id,
                             uid: data.uid,
                             email: data.email,
                             displayName: data.displayName || data.email.split('@')[0], // Fallback display name
+                            pseudo: data.pseudo, // Include pseudo
                             avatarUrl: data.avatarUrl,
                             createdAt: createdAtTimestamp || undefined, // Use the validated/converted timestamp or undefined
-                            // Placeholder stats - replace with actual data if fetched
-                            eventCount: data.eventCount || 0, // Assume 0 if not present
-                            commentCount: data.commentCount || 0, // Assume 0 if not present
-                            averageRating: data.averageRating || 0, // Assume 0 if not present
+                            // Retrieve stats if they exist, otherwise default to 0
+                            eventCount: data.eventCount || 0,
+                            commentCount: data.commentCount || 0,
+                            averageRatingGiven: data.averageRatingGiven || 0, // Use the correct field name
                          };
-                         console.log(`[fetchUsers Mapping] Doc ${doc.id} mapped successfully:`, userDataObject);
+                         // console.log(`[fetchUsers Mapping] Doc ${doc.id} mapped successfully:`, userDataObject);
                          return userDataObject;
                     }).filter(user => user !== null) as UserData[]; // Filter out nulls from validation failures
 
@@ -206,7 +181,7 @@ export default function UsersListPage() {
 
     // --- Render Logic ---
 
-    console.log("[UsersListPage Render] Loading:", loading, "Auth Loading:", authLoading, "Error:", error, "Users Count:", users.length, "Firebase Initialized:", firebaseInitialized, "Init Failed:", initializationFailed);
+    console.log("[UsersListPage Render] Loading:", loading, "Auth Loading:", authLoading, "Error:", error, "Users Count:", users.length, "Firebase Initialized:", firebaseInitialized, "Init Failed:", !!initializationFailed);
 
     // Show Skeleton Loader if EITHER context is loading OR page is fetching data
     if (loading) {
@@ -242,7 +217,7 @@ export default function UsersListPage() {
     // Show Error Alert if initialization failed OR a fetch error occurred
     if (error) {
         const displayError = error;
-        // Note: Removed console.error here, Alert component handles display
+        console.error("[UsersListPage Render] Displaying Error Alert:", displayError); // Log error before returning JSX
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
@@ -295,7 +270,11 @@ export default function UsersListPage() {
                 <div className="space-y-3">
                     {users.map((usr) => {
                         const joinDate = getDateFromTimestamp(usr.createdAt);
-                        console.log(`[UsersListPage Render Map] Rendering user: ${usr.email}, Join Date: ${joinDate}`); // Log each user being rendered
+                        // Use pseudo if available, otherwise displayName, otherwise fallback
+                        const displayUsername = usr.pseudo || usr.displayName || usr.email.split('@')[0];
+                        // Calculate average rating safely
+                        const avgRating = usr.averageRatingGiven ? usr.averageRatingGiven.toFixed(1) : '-';
+
                         return (
                             <Link href={`/user/${usr.uid}`} key={usr.id} className="block group">
                                 <Card className="p-3 md:p-4 bg-card border border-border/50 hover:bg-secondary/50 hover:border-primary/30 transition-all duration-200">
@@ -303,14 +282,14 @@ export default function UsersListPage() {
                                         {/* User Info */}
                                         <div className="flex items-center gap-3 md:gap-4 flex-1 min-w-0">
                                             <Avatar className="h-10 w-10 md:h-12 md:w-12 border-2 border-border group-hover:border-primary/50 transition-colors">
-                                                <AvatarImage src={usr.avatarUrl || undefined} alt={usr.displayName || usr.email} />
+                                                <AvatarImage src={usr.avatarUrl || undefined} alt={displayUsername} />
                                                 <AvatarFallback className="bg-muted text-muted-foreground">
-                                                    {getInitials(usr.displayName, usr.email)}
+                                                    {getInitials(displayUsername, usr.email)}
                                                 </AvatarFallback>
                                             </Avatar>
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-base md:text-lg font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                                                    {usr.displayName || usr.email.split('@')[0]}
+                                                    {displayUsername}
                                                 </p>
                                                 <p className="text-xs md:text-sm text-muted-foreground truncate">{usr.email}</p>
                                                  {joinDate ? (
@@ -327,7 +306,7 @@ export default function UsersListPage() {
                                             </div>
                                         </div>
 
-                                        {/* Stats (Placeholder - adapt icons/labels) */}
+                                        {/* Stats - Use fetched data with defaults */}
                                         <div className="flex items-center justify-end gap-4 md:gap-6 text-xs md:text-sm text-muted-foreground w-full sm:w-auto mt-2 sm:mt-0">
                                             <div className="flex items-center gap-1" title={`${usr.eventCount || 0} événements participés/créés`}>
                                                  <Users className="h-3.5 w-3.5 text-green-500" />
@@ -337,9 +316,9 @@ export default function UsersListPage() {
                                                  <MessageSquare className="h-3.5 w-3.5 text-blue-500" />
                                                  <span>{usr.commentCount || 0}</span>
                                             </div>
-                                            <div className="flex items-center gap-1" title={`Note moyenne donnée: ${usr.averageRating?.toFixed(1) || 'N/A'}`}>
+                                            <div className="flex items-center gap-1" title={`Note moyenne donnée: ${avgRating}`}>
                                                 <Star className="h-3.5 w-3.5 text-yellow-500" />
-                                                <span>{usr.averageRating?.toFixed(1) || '-'}</span>
+                                                <span>{avgRating}</span>
                                             </div>
                                         </div>
                                     </div>
