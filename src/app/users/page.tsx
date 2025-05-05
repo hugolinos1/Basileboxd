@@ -54,7 +54,7 @@ export default function UsersListPage() {
     const [loading, setLoading] = useState(true); // Combined loading state
     const [error, setError] = useState<string | null>(null);
     // Use context for Firebase status and auth loading
-    const { firebaseInitialized, loading: authLoading, initializationFailed, initializationErrorMessage } = useFirebase();
+    const { user: currentUser, firebaseInitialized, loading: authLoading, initializationFailed, initializationErrorMessage } = useFirebase();
 
     useEffect(() => {
         console.log("[UsersListPage useEffect] State Check - Initialized:", firebaseInitialized, "Init Failed:", initializationFailed, "Auth Loading:", authLoading);
@@ -75,6 +75,15 @@ export default function UsersListPage() {
         }
 
         // --- Firebase is initialized and auth state is known ---
+
+         // Check if user is authenticated (required for listing users according to common rules)
+         if (!currentUser) {
+             console.log("[UsersListPage useEffect] User not authenticated. Cannot fetch user list.");
+             setError("Veuillez vous connecter pour voir la liste des utilisateurs.");
+             setLoading(false);
+             return;
+         }
+
 
         if (!db) {
             console.error("[UsersListPage useEffect] Firestore 'db' instance is null even though Firebase is initialized. Setting error state.");
@@ -131,12 +140,12 @@ export default function UsersListPage() {
 
             } catch (fetchError: any) {
                 console.error('[fetchUsers] Error during Firestore query or mapping:', fetchError);
-                let userFriendlyError = 'Impossible de charger la liste des utilisateurs.';
+                let userFriendlyError = "Impossible de charger la liste des utilisateurs.";
                  if (fetchError instanceof FirestoreError) {
                      // Check specifically for permission errors when trying to list the 'users' collection
-                     if (fetchError.code === 'permission-denied' || fetchError.code === 'unauthenticated') {
-                         userFriendlyError = 'Permission refusée ou non authentifié pour lister les utilisateurs. Vérifiez les règles de sécurité Firestore pour la collection "users" (`allow list: if request.auth != null;`).';
-                         console.error("Firestore Permission Denied or Unauthenticated: Check your security rules for the 'users' collection, specifically the 'list' permission for authenticated users.");
+                      if (fetchError.code === 'permission-denied' || fetchError.code === 'unauthenticated') {
+                          userFriendlyError = 'Permission refusée pour lister les utilisateurs.';
+                          console.error("Firestore Permission Denied: Check your security rules for the 'users' collection, specifically the 'list' permission for authenticated users. Example: `match /users { allow list: if request.auth != null; }`");
                      } else if (fetchError.code === 'unavailable') {
                          userFriendlyError = 'Service Firestore indisponible. Veuillez réessayer plus tard.';
                      } else {
@@ -157,7 +166,7 @@ export default function UsersListPage() {
         fetchUsers();
 
     // Include all dependencies that trigger re-fetching or state checks
-    }, [firebaseInitialized, authLoading, initializationFailed, initializationErrorMessage]);
+    }, [firebaseInitialized, authLoading, initializationFailed, initializationErrorMessage, currentUser]);
 
     // --- Render Logic ---
 
@@ -197,6 +206,7 @@ export default function UsersListPage() {
     // Show Error Alert if initialization failed OR a fetch error occurred
     if (error) { // Covers both initialization errors and fetch errors
         const displayError = error; // Error state now holds the specific message
+        // Note: Removed console.error here, Alert component handles display
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
@@ -205,9 +215,14 @@ export default function UsersListPage() {
                     <AlertDescription>
                          {displayError}
                          {/* Specific hint for permission errors */}
-                         {error.includes("Permission refusée") && (
+                         {(error.includes("Permission refusée") || error.includes("unauthenticated")) && (
                             <p className="mt-2 text-xs">
-                                Conseil : Vérifiez les règles de sécurité Firestore pour `/users`.
+                                Conseil : Vérifiez que vous êtes connecté et que les règles de sécurité Firestore pour `/users` autorisent l'opération `list` pour les utilisateurs authentifiés (ex: `allow list: if request.auth != null;`).
+                            </p>
+                         )}
+                          {initializationFailed && (
+                            <p className="mt-2 text-xs">
+                                Assurez-vous que les variables d'environnement Firebase (commençant par NEXT_PUBLIC_) sont correctement définies dans `.env.local` et que le serveur de développement a été redémarré (`npm run dev`).
                             </p>
                          )}
                     </AlertDescription>
