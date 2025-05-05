@@ -36,8 +36,8 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   getFileType, // Import getFileType
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  coverPhotoSchema
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/media-uploader'; // Import schema from dedicated file
 
 
 import { Progress } from '@/components/ui/progress';
@@ -79,7 +79,8 @@ const mediaFileSchema = fileSchema.refine(
         if (!ACCEPTED_MEDIA_TYPES.includes(file.type)) {
             return { message: `Type de fichier non supporté (${file.type}).` };
         }
-        if (maxSizeMB > 0 && fileType in MAX_FILE_SIZE && file.size > MAX_FILE_SIZE[fileType as keyof typeof MAX_FILE_SIZE]) { // Added type assertion and check if fileType is a valid key
+        // Check if fileType is a key of MAX_FILE_SIZE before accessing it
+        if (maxSizeMB > 0 && fileType in MAX_FILE_SIZE && file.size > MAX_FILE_SIZE[fileType as keyof typeof MAX_FILE_SIZE]) {
              return { message: `Fichier trop volumineux (${(file.size / (1024 * 1024)).toFixed(1)}Mo). Max ${maxSizeMB.toFixed(1)}Mo.` };
         }
         return { message: 'Fichier invalide.' }; // Default fallback
@@ -712,13 +713,13 @@ export default function CreateEventPage() {
                                         <FormLabel className="flex items-center justify-between">
                                             <span>Note (Optionnel)</span> <span className="text-sm font-bold text-primary">{field.value?.toFixed(1) || '0.0'}/5</span>
                                         </FormLabel>
-                                        <FormControl>
+                                         <FormControl>
                                              <div className="flex items-center space-x-3">
-                                                  <Star className="h-5 w-5 text-muted-foreground"/>
-                                                   <Slider value={field.value !== undefined ? [field.value] : [0]} onValueChange={(value) => field.onChange(value[0] === 0 ? undefined : value[0])} max={5} step={0.5} className="flex-1" ref={field.ref} />
-                                                   <Star className="h-5 w-5 text-yellow-400 fill-current"/>
+                                                <Star className="h-5 w-5 text-muted-foreground"/>
+                                                 <Slider value={field.value !== undefined ? [field.value] : [0]} onValueChange={(value) => field.onChange(value[0] === 0 ? undefined : value[0])} max={5} step={0.5} className="flex-1" ref={field.ref} />
+                                                 <Star className="h-5 w-5 text-yellow-400 fill-current"/>
                                              </div>
-                                        </FormControl>
+                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )}/>
