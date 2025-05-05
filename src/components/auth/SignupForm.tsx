@@ -54,21 +54,34 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
 
        // Create user document in Firestore
        if (db) { // Check if db is not null
-           await setDoc(doc(db, 'users', user.uid), {
-             email: user.email,
-             uid: user.uid,
-             createdAt: serverTimestamp(), // Use serverTimestamp for consistency
-             displayName: user.email?.split('@')[0] || 'Nouvel utilisateur',
-             avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100` // Use Google photo or placeholder
-           });
-            console.log("Document utilisateur créé dans Firestore pour :", user.email);
+            console.log(`Tentative de création du document Firestore pour ${user.email}...`);
+            try {
+                 await setDoc(doc(db, 'users', user.uid), {
+                     email: user.email,
+                     uid: user.uid,
+                     createdAt: serverTimestamp(), // Utiliser serverTimestamp pour la cohérence
+                     displayName: user.email?.split('@')[0] || 'Nouvel utilisateur',
+                     avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100` // Avatar Google ou placeholder
+                 });
+                 console.log("Document utilisateur créé avec succès dans Firestore pour :", user.email);
+            } catch (firestoreError) {
+                 console.error("Erreur lors de la création du document utilisateur dans Firestore :", firestoreError);
+                 toast({
+                    title: "Erreur partielle d'inscription",
+                    description: `Votre compte d'authentification a été créé, mais une erreur s'est produite lors de la sauvegarde des informations de profil. Détail: ${(firestoreError as Error).message}`,
+                    variant: "warning",
+                    duration: 7000 // Longer duration for warning
+                 });
+                 // Continue even if Firestore write fails, as Auth succeeded.
+            }
        } else {
              console.error("Erreur : l'instance Firestore (db) est nulle. Impossible de créer le document utilisateur.");
              // Optionally notify the user, though signup still succeeded in Auth
              toast({
-                title: "Erreur partielle d'inscription",
-                description: "Votre compte d'authentification a été créé, mais une erreur s'est produite lors de la sauvegarde des informations de profil.",
+                title: "Erreur de configuration",
+                description: "Le service de base de données n'est pas disponible.",
                 variant: "warning",
+                duration: 7000
              });
        }
 
@@ -81,7 +94,7 @@ export function SignupForm({ onSignupSuccess }: SignupFormProps) {
       onSignupSuccess?.(); // Callback to potentially switch tabs
 
     } catch (error: any) {
-      console.error('Erreur d\'inscription:', error);
+      console.error('Erreur d\'inscription Auth:', error);
        let errorMessage = 'Une erreur inconnue est survenue lors de l\'inscription.';
         if (error.code === 'auth/email-already-in-use') {
             errorMessage = 'Cette adresse email est déjà enregistrée.';

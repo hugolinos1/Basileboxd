@@ -43,37 +43,68 @@ export function GoogleSignInButton() {
       if (!userDocSnap.exists()) {
          // User is new, create Firestore document
          console.log(`Nouvel utilisateur Google: ${user.email}. Création du document Firestore...`);
-         await setDoc(userDocRef, {
-           email: user.email,
-           uid: user.uid,
-           displayName: user.displayName || user.email?.split('@')[0],
-           avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100`, // Use Google photo or placeholder
-           createdAt: serverTimestamp(), // Use server timestamp
-         });
-          toast({
-            title: 'Compte créé et connecté',
-            description: `Bienvenue, ${user.displayName || user.email}!`,
-        });
+         try {
+            await setDoc(userDocRef, {
+              email: user.email,
+              uid: user.uid,
+              displayName: user.displayName || user.email?.split('@')[0],
+              avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100`, // Use Google photo or placeholder
+              createdAt: serverTimestamp(), // Use server timestamp
+            });
+             console.log("Document utilisateur créé avec succès dans Firestore pour :", user.email);
+             toast({
+               title: 'Compte créé et connecté',
+               description: `Bienvenue, ${user.displayName || user.email}!`,
+             });
+         } catch (firestoreError) {
+              console.error("Erreur lors de la création du document utilisateur dans Firestore (Google Sign-In):", firestoreError);
+              toast({
+                 title: "Erreur partielle d'inscription",
+                 description: `Votre compte d'authentification a été créé, mais une erreur s'est produite lors de la sauvegarde des informations de profil. Détail: ${(firestoreError as Error).message}`,
+                 variant: "warning",
+                 duration: 7000
+              });
+              // Continue even if Firestore write fails
+         }
       } else {
            // User exists, maybe update some fields like avatarUrl or displayName if changed
            console.log(`Utilisateur Google existant: ${user.email}. Connexion...`);
-           // Example: Update avatar if it changed
-           const existingData = userDocSnap.data();
-           if (user.photoURL && existingData.avatarUrl !== user.photoURL) {
-                console.log(`Mise à jour de l'avatar pour ${user.email}`);
-                await updateDoc(userDocRef, {
-                    avatarUrl: user.photoURL
+           try {
+               const existingData = userDocSnap.data();
+               const updates: { [key: string]: any } = {};
+               if (user.photoURL && existingData.avatarUrl !== user.photoURL) {
+                    console.log(`Mise à jour de l'avatar pour ${user.email}`);
+                    updates.avatarUrl = user.photoURL;
+               }
+               if (user.displayName && existingData.displayName !== user.displayName) {
+                    console.log(`Mise à jour du nom d'affichage pour ${user.email}`);
+                    updates.displayName = user.displayName;
+               }
+               // Add lastLogin timestamp if needed
+               // updates.lastLogin = serverTimestamp();
+
+               if (Object.keys(updates).length > 0) {
+                   await updateDoc(userDocRef, updates);
+               }
+                toast({
+                    title: 'Connexion réussie',
+                    description: `Bon retour, ${user.displayName || user.email}!`,
                 });
+           } catch (updateError) {
+                console.error("Erreur lors de la mise à jour du document utilisateur (Google Sign-In):", updateError);
+                // Non-critical error, login still successful
+                toast({
+                    title: "Avertissement",
+                    description: "Impossible de mettre à jour certaines informations de profil.",
+                    variant: "warning",
+                    duration: 5000
+                 });
            }
-           toast({
-            title: 'Connexion réussie',
-            description: `Bon retour, ${user.displayName || user.email}!`,
-        });
       }
 
       router.push('/'); // Redirect to home page
     } catch (error: any) {
-      console.error('Erreur de connexion Google :', error);
+      console.error('Erreur de connexion Google Auth:', error);
        let errorMessage = 'Une erreur inconnue est survenue lors de la connexion Google.';
        if (error.code === 'auth/popup-closed-by-user') {
          errorMessage = 'Connexion annulée.';
