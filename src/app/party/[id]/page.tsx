@@ -4,7 +4,7 @@
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 // Import necessary Firestore functions, including FieldValue
-import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit, serverTimestamp } from 'firebase/firestore'; // Import serverTimestamp
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
@@ -33,8 +33,8 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  coverPhotoSchema // Import the coverPhotoSchema
 } from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
 import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 
 // --- Interfaces ---
@@ -45,7 +45,7 @@ interface Comment {
     email: string;
     avatar?: string | null;
     text: string;
-    timestamp: Timestamp | FirestoreTimestamp | Date; // Type ajusté pour accepter Date du client
+    timestamp: Timestamp | FirestoreTimestamp | Date | FieldValue; // Accept FieldValue
 }
 interface MediaItem { url: string; type: 'image' | 'video' | 'audio' | 'autre'; }
 interface PartyData {
@@ -75,11 +75,6 @@ interface UserProfile {
 
 // --- Helper Functions ---
 
-// Helper pour obtenir l'heure serveur (conceptuel, retourne le placeholder)
-// Plus nécessaire avec l'approche timestamp client
-// async function getServerTimePlaceholder(): Promise<FieldValue> {
-//   return serverTimestamp();
-// }
 
 // --- Composants ---
 
@@ -276,17 +271,13 @@ export default function PartyDetailsPage() {
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null, // Ensure null instead of undefined
         text: comment.trim(),
-        timestamp: new Date() // Utiliser l'horodatage du client
+        timestamp: serverTimestamp() // Use FieldValue directly
       };
-
-      console.log("Tentative d'ajout du commentaire:", newComment); // Log avant l'envoi
-
 
       await updateDoc(partyDocRef, {
         comments: arrayUnion(newComment)
       });
 
-      console.log("Commentaire ajouté avec succès à Firestore.");
       setComment('');
       toast({ title: 'Commentaire ajouté' });
     } catch (commentError: any) {
@@ -298,8 +289,6 @@ export default function PartyDetailsPage() {
             } else if (commentError.message?.includes('serverTimestamp')) {
                 errorMessage = "Erreur de timestamp serveur. Réessayez.";
             }
-        } else if (commentError.code === 'permission-denied') {
-             errorMessage = "Permissions insuffisantes pour ajouter un commentaire.";
         }
         toast({ title: 'Erreur', description: errorMessage, variant: 'destructive' });
     } finally {
@@ -308,7 +297,7 @@ export default function PartyDetailsPage() {
 };
 
   // Test timestamp function
-    async function getServerTime(): Promise<Date> {
+    async function getServerTime(): Promise<Timestamp> {
         // A hack to get server time: write a temp doc with serverTimestamp, read it, then delete.
         // Note: This is inefficient and not recommended for frequent use.
         // It's better to rely on the serverTimestamp during the actual write operation.
@@ -779,7 +768,7 @@ export default function PartyDetailsPage() {
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
-                                    <Button onClick={handleGetServerTime} variant="outline" size="sm">Tester Timestamp</Button>
+
                                 </div>
                             </div>
                         </div>
