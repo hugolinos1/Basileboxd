@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -31,6 +30,7 @@ interface UserData {
 
 // Helper Functions
 const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefined): Date | null => {
+    // Keep existing implementation
     if (!timestamp) return null;
     try {
         if (timestamp instanceof Timestamp) return timestamp.toDate();
@@ -43,6 +43,7 @@ const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefi
 }
 
 const getInitials = (name: string | null | undefined, email: string): string => {
+    // Keep existing implementation
     if (name) return name.charAt(0).toUpperCase();
     if (email) return email.charAt(0).toUpperCase();
     return '?';
@@ -80,16 +81,14 @@ export default function UsersListPage() {
          // Check if user is authenticated (required for listing users according to common rules)
          if (!currentUser) {
              console.log("[UsersListPage useEffect] User not authenticated. Cannot fetch user list.");
-             // Don't set error here, maybe show a message indicating login is required
-             // setError("Veuillez vous connecter pour voir la liste des utilisateurs.");
+             //setError("Veuillez vous connecter pour voir la liste des utilisateurs."); // Uncomment if you want to show an error instead
              setUsers([]); // Ensure user list is empty
              setLoading(false);
              return;
          }
 
-
         if (!db) {
-            console.error("[UsersListPage useEffect] Firestore 'db' instance is null even though Firebase is initialized. Setting error state.");
+            console.error("[UsersListPage useEffect] Firestore 'db' instance is null. Setting error state.");
             setError("La base de données Firestore n'est pas disponible.");
             setLoading(false);
             return;
@@ -104,58 +103,71 @@ export default function UsersListPage() {
                 const usersCollectionRef = collection(db, 'users');
                 // Ensure Firestore rules allow 'list' operation on /users for authenticated users
                 // IMPORTANT: Ensure 'createdAt' field exists on ALL user documents for ordering to work reliably.
-                // If 'createdAt' might be missing, consider ordering by a different reliable field or fetching without ordering first.
-                const q = query(usersCollectionRef, orderBy('createdAt', 'desc')); // Order by creation date
+                 // temporarily removing orderby for debugging
+                 // const q = query(usersCollectionRef, orderBy('createdAt', 'desc'));
+                 const q = query(usersCollectionRef); // Fetch without ordering for now
 
-                console.log("[fetchUsers] Executing Firestore query for users...");
+                console.log("[fetchUsers] Executing Firestore query for users collection...");
                 const querySnapshot = await getDocs(q);
-                console.log(`[fetchUsers] Firestore query executed. Snapshot size: ${querySnapshot.size}`); // Log snapshot size BEFORE mapping
+                console.log(`[fetchUsers] Firestore query executed. Found ${querySnapshot.size} documents.`); // Log snapshot size BEFORE mapping
 
                 if (querySnapshot.empty) {
-                    console.log("[fetchUsers] No users found in collection based on query.");
+                    console.log("[fetchUsers] No users found in 'users' collection.");
                     setUsers([]);
                 } else {
                     console.log("[fetchUsers] Mapping user documents to UserData...");
                     const usersData = querySnapshot.docs.map(doc => {
                          const data = doc.data();
+                         console.log(`[fetchUsers Mapping] Doc ID: ${doc.id}, Raw data:`, JSON.stringify(data)); // Log raw data
+
                          // Basic validation
                          if (!data.uid || !data.email) {
                              console.warn(`[fetchUsers Mapping] Doc ${doc.id}: uid or email missing. Skipped. Data:`, data);
                              return null;
                          }
-                         // --- DEBUGGING: Temporarily relax 'createdAt' check ---
-                         // if (!data.createdAt) {
-                         //     console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' field missing or invalid. Ordering might be unreliable. Data:`, data);
-                         //     // Keep the user for now, but log the issue. Handle potential null dates in rendering.
-                         //     // return null; // <-- Temporarily commented out
-                         // }
-                         // --- END DEBUGGING ---
-
-                         // Check if createdAt is a valid timestamp *type* if it exists
-                         if (data.createdAt && !(data.createdAt instanceof Timestamp) && typeof data.createdAt.seconds !== 'number') {
-                             console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' is not a valid Timestamp object. Data:`, data.createdAt);
-                             // Decide how to handle this - skip, use default, or try conversion carefully
-                             return null;
+                          // Validate createdAt if it exists
+                          let createdAtTimestamp: Timestamp | null = null;
+                          if (data.createdAt) {
+                             if (data.createdAt instanceof Timestamp) {
+                                 createdAtTimestamp = data.createdAt;
+                             } else if (typeof data.createdAt === 'object' && typeof data.createdAt.seconds === 'number') {
+                                 // Attempt conversion from FirestoreTimestamp-like object
+                                 try {
+                                     createdAtTimestamp = new Timestamp(data.createdAt.seconds, data.createdAt.nanoseconds);
+                                     if (isNaN(createdAtTimestamp.toDate().getTime())) {
+                                         console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' object resulted in invalid Date. Treating as null.`);
+                                         createdAtTimestamp = null;
+                                     }
+                                 } catch (conversionError) {
+                                     console.warn(`[fetchUsers Mapping] Doc ${doc.id}: Error converting 'createdAt' object to Timestamp. Treating as null.`, conversionError);
+                                     createdAtTimestamp = null;
+                                 }
+                             } else {
+                                 console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' field is not a valid Timestamp object or structure. Treating as null. Data:`, data.createdAt);
+                             }
+                         } else {
+                              console.warn(`[fetchUsers Mapping] Doc ${doc.id}: 'createdAt' field is missing. Ordering might be unreliable if re-enabled.`);
                          }
-
 
                          // TODO: Fetch stats per user (event count, comment count) - potentially inefficient for many users.
                          // Consider denormalization or fetching stats on the user profile page instead.
-                         return {
+                         const userDataObject: UserData = {
                             id: doc.id,
                             uid: data.uid,
                             email: data.email,
                             displayName: data.displayName || data.email.split('@')[0], // Fallback display name
                             avatarUrl: data.avatarUrl,
-                            createdAt: data.createdAt, // Keep the original format (or null/undefined if missing)
+                            createdAt: createdAtTimestamp || undefined, // Use the validated/converted timestamp or undefined
                             // Placeholder stats - replace with actual data if fetched
                             eventCount: data.eventCount || 0, // Assume 0 if not present
                             commentCount: data.commentCount || 0, // Assume 0 if not present
                             averageRating: data.averageRating || 0, // Assume 0 if not present
-                         } as UserData;
+                         };
+                         console.log(`[fetchUsers Mapping] Doc ${doc.id} mapped successfully:`, userDataObject);
+                         return userDataObject;
                     }).filter(user => user !== null) as UserData[]; // Filter out nulls from validation failures
 
-                    console.log(`[fetchUsers] Mapped users data (after filter): ${usersData.length} items`, usersData); // Log the mapped data AFTER filtering
+                    console.log(`[fetchUsers] Mapped users data (after filter): ${usersData.length} items`); // Log the mapped data AFTER filtering
                     setUsers(usersData);
                     console.log(`[fetchUsers] Users state updated with ${usersData.length} items.`);
                 }
@@ -164,21 +176,19 @@ export default function UsersListPage() {
                 console.error('[fetchUsers] Error during Firestore query or mapping:', fetchError);
                 let userFriendlyError = "Impossible de charger la liste des utilisateurs.";
                  if (fetchError instanceof FirestoreError) {
-                     // Check specifically for permission errors when trying to list the 'users' collection
                       if (fetchError.code === 'permission-denied' || fetchError.code === 'unauthenticated') {
-                          userFriendlyError = "Permission refusée pour lister les utilisateurs. Vérifiez les règles Firestore."; // More specific error
-                          console.error("Firestore Permission Denied: Check your security rules for the 'users' collection. Ensure authenticated users have 'list' permission. Example rule: `match /users/{userId} { allow list: if request.auth != null; }`");
+                          userFriendlyError = "Permission refusée pour lister les utilisateurs. Vérifiez les règles Firestore.";
+                          console.error("Firestore Permission Denied: Check your security rules for the 'users' collection. Ensure authenticated users have 'list' or 'get' permission.");
                      } else if (fetchError.code === 'unavailable') {
                          userFriendlyError = 'Service Firestore indisponible. Veuillez réessayer plus tard.';
                      } else if (fetchError.code === 'failed-precondition' && fetchError.message.includes('index')) {
-                          userFriendlyError = "Index Firestore manquant pour la requête (`users` collection, ordering by `createdAt` descending). Vérifiez la console Firebase pour créer l'index requis.";
-                          console.error("Firestore Index Missing: The query requires an index. Check the Firebase console error message for a link to create it automatically. This is often needed for `orderBy` clauses combined with other filters (like implicit authentication checks). Index needed: Collection='users', Field='createdAt', Order='Descending'.");
+                          userFriendlyError = "Index Firestore manquant pour la requête. Vérifiez la console Firebase pour créer l'index requis (probablement sur le champ 'createdAt' de la collection 'users').";
+                          console.error("Firestore Index Missing: The query requires an index (likely on 'createdAt' desc). Check the Firebase console error message for a link to create it automatically.");
                      }
                       else {
                          userFriendlyError = `Erreur Firestore (${fetchError.code}): ${fetchError.message}`;
                      }
                  } else {
-                     // Keep the original error message if it's not a FirestoreError
                      userFriendlyError = `Erreur inattendue: ${fetchError.message}`;
                  }
                 setError(userFriendlyError);
@@ -230,9 +240,9 @@ export default function UsersListPage() {
     }
 
     // Show Error Alert if initialization failed OR a fetch error occurred
-    if (error) { // Covers both initialization errors and fetch errors
-        const displayError = error; // Error state now holds the specific message
-        console.error("[UsersListPage Render] Displaying Error Alert:", displayError); // Log error specifically here to guide the user
+    if (error) {
+        const displayError = error;
+        // Note: Removed console.error here, Alert component handles display
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
@@ -240,10 +250,10 @@ export default function UsersListPage() {
                     <AlertTitle>Erreur</AlertTitle>
                     <AlertDescription>
                          {displayError}
-                         {/* Specific hint for permission errors */}
+                         {/* Specific hints based on error */}
                          {(error.includes("Permission refusée") || error.includes("unauthenticated")) && (
                             <p className="mt-2 text-xs">
-                                Conseil : Vérifiez que vous êtes connecté et que les règles de sécurité Firestore pour la collection `/users` autorisent l'opération `list` pour les utilisateurs authentifiés (ex: `allow list: if request.auth != null;`).
+                                Conseil : Vérifiez que vous êtes connecté et que les règles de sécurité Firestore pour la collection `/users` autorisent l'opération `list` ou `get` pour les utilisateurs authentifiés (ex: `allow list: if request.auth != null;`).
                             </p>
                          )}
                           {(error.includes("Index Firestore manquant")) && (
@@ -253,7 +263,7 @@ export default function UsersListPage() {
                           )}
                           {initializationFailed && (
                             <p className="mt-2 text-xs">
-                                Assurez-vous que les variables d'environnement Firebase (commençant par NEXT_PUBLIC_) sont correctement définies dans `.env.local` et que le serveur de développement a été redémarré (`npm run dev`).
+                                Assurez-vous que les variables d'environnement Firebase sont correctement définies et que le serveur de développement a été redémarré.
                             </p>
                          )}
                     </AlertDescription>
@@ -273,7 +283,7 @@ export default function UsersListPage() {
 
 
     // Display User List only if not loading and no errors
-     console.log("[UsersListPage Render] Displaying user list.");
+     console.log("[UsersListPage Render] Displaying user list. Actual users in state:", users); // Log actual state data
     return (
         <div className="container mx-auto px-4 py-12">
             <h1 className="text-3xl font-bold mb-8 text-primary flex items-center gap-2">
@@ -285,6 +295,7 @@ export default function UsersListPage() {
                 <div className="space-y-3">
                     {users.map((usr) => {
                         const joinDate = getDateFromTimestamp(usr.createdAt);
+                        console.log(`[UsersListPage Render Map] Rendering user: ${usr.email}, Join Date: ${joinDate}`); // Log each user being rendered
                         return (
                             <Link href={`/user/${usr.uid}`} key={usr.id} className="block group">
                                 <Card className="p-3 md:p-4 bg-card border border-border/50 hover:bg-secondary/50 hover:border-primary/30 transition-all duration-200">
@@ -302,11 +313,16 @@ export default function UsersListPage() {
                                                     {usr.displayName || usr.email.split('@')[0]}
                                                 </p>
                                                 <p className="text-xs md:text-sm text-muted-foreground truncate">{usr.email}</p>
-                                                 {joinDate && (
+                                                 {joinDate ? (
                                                      <p className="text-xs text-muted-foreground/70 mt-0.5">
                                                          <Calendar className="inline h-3 w-3 mr-1" />
                                                          Inscrit {formatDistanceToNow(joinDate, { addSuffix: true, locale: fr })}
                                                      </p>
+                                                 ) : (
+                                                      <p className="text-xs text-muted-foreground/50 mt-0.5">
+                                                         <Calendar className="inline h-3 w-3 mr-1" />
+                                                         Date d'inscription inconnue
+                                                      </p>
                                                  )}
                                             </div>
                                         </div>
