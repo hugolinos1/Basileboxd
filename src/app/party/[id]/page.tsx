@@ -38,7 +38,7 @@ import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
-interface Comment { userId: string; email: string; avatar?: string; text: string; timestamp: FirestoreTimestamp | Timestamp; }
+interface Comment { userId: string; email: string; avatar?: string | null; text: string; timestamp: FirestoreTimestamp | Timestamp; } // Changed avatar to allow null
 interface MediaItem { url: string; type: 'image' | 'video' | 'audio' | 'autre'; } // Assuming structure for media
 interface PartyData {
     id: string;
@@ -231,7 +231,7 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const partyDocRef = doc(db, 'parties', party.id);
-      const newComment = { userId: user.uid, email: user.email || 'anonyme', avatar: user.photoURL || undefined, text: comment.trim(), timestamp: serverTimestamp(), };
+      const newComment = { userId: user.uid, email: user.email || 'anonyme', avatar: user.photoURL || null, text: comment.trim(), timestamp: serverTimestamp(), };
       await updateDoc(partyDocRef, { comments: arrayUnion(newComment) });
       // Local state updated via onSnapshot listener
       setComment('');
@@ -685,3 +685,4 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
