@@ -4,14 +4,14 @@ import * as React from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react'; // Added ImageIcon
 import { cn } from '@/lib/utils';
 
 interface Party {
   id: string;
   name: string;
-  imageUrl: string;
-  rating: number;
+  imageUrl?: string; // Make imageUrl optional
+  rating: number; // Rating is now a number
   rank: number;
 }
 
@@ -64,6 +64,9 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
         ref={scrollContainerRef}
         className="flex space-x-4 md:space-x-6 overflow-x-auto pb-6 scrollbar-hide top10-slider" // Added top10-slider class
       >
+        {parties.length === 0 && (
+            <p className="text-muted-foreground text-center w-full">Chargement des meilleurs événements...</p> // Loading or empty state
+        )}
         {parties.map((party, index) => (
           <Link href={`/party/${party.id}`} key={party.id} className="block flex-shrink-0">
             <Card className="w-48 md:w-64 border-none bg-transparent overflow-visible group/item relative transition-transform duration-300 ease-in-out hover:scale-105">
@@ -74,25 +77,24 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
                  </div>
 
                 {/* Image Thumbnail */}
-                <div className="w-full h-64 md:h-80 ml-6 md:ml-10 relative rounded-md overflow-hidden shadow-lg thumbnail-hover">
-                   {/* Added thumbnail-hover class */}
-                  <Image
-                    src={party.imageUrl}
-                    alt={party.name}
-                    layout="fill"
-                    objectFit="cover"
-                    className="transition-transform duration-300 group-hover/item:scale-110" // Image zoom on card hover
-                    loading="lazy" // Lazy load images
-                    data-ai-hint="fête événement célébration"
-                  />
-                   {/* Optional overlay for better text visibility if needed */}
-                  {/* <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" /> */}
+                <div className="w-full h-64 md:h-80 ml-6 md:ml-10 relative rounded-md overflow-hidden shadow-lg thumbnail-hover bg-muted"> {/* Added bg-muted */}
+                   {party.imageUrl ? (
+                     <Image
+                       src={party.imageUrl}
+                       alt={party.name}
+                       layout="fill"
+                       objectFit="cover"
+                       className="transition-transform duration-300 group-hover/item:scale-110"
+                       loading="lazy"
+                       data-ai-hint="fête événement célébration"
+                     />
+                   ) : (
+                     <div className="flex items-center justify-center h-full">
+                       <ImageIcon className="h-16 w-16 text-muted-foreground/50" />
+                     </div>
+                   )}
                 </div>
               </CardContent>
-              {/* Party name or details can be added below or overlaid */}
-               {/* <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/70 to-transparent z-20">
-                   <h3 className="text-white font-semibold truncate">{party.name}</h3>
-               </div> */}
             </Card>
           </Link>
         ))}
@@ -100,14 +102,3 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
     </div>
   );
 }
-
-// Helper CSS in globals.css or a style tag if preferred for scrollbar hiding
-/*
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-*/

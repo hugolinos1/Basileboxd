@@ -2,17 +2,17 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Star } from 'lucide-react';
+import { Star, Image as ImageIcon } from 'lucide-react'; // Added ImageIcon
 
 interface Participant {
     id: string;
-    avatarUrl: string;
+    avatarUrl?: string; // Make avatarUrl optional
 }
 
 interface Party {
   id: string;
   name: string;
-  imageUrl: string;
+  imageUrl?: string; // Make imageUrl optional
   rating: string; // Keep as string if it includes '.0'
   participants: Participant[];
 }
@@ -31,22 +31,31 @@ export function RecentPartiesSection({ parties }: RecentPartiesSectionProps) {
   return (
     <div className="container mx-auto px-4 md:px-6">
       <h2 className="text-2xl md:text-3xl font-bold mb-6 text-white">Events Ajoutés Récemment</h2>
+       {parties.length === 0 && (
+            <p className="text-muted-foreground text-center py-4">Aucun événement récent trouvé.</p>
+       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
         {parties.map((party) => (
           <Link href={`/party/${party.id}`} key={party.id} className="block group">
             <Card className="bg-card border border-border/50 overflow-hidden h-full flex flex-col hover:shadow-lg hover:border-primary/50 transition-all duration-300 thumbnail-hover">
               <CardHeader className="p-0 relative">
-                <div className="aspect-video relative w-full">
-                    {/* Use aspect-[16/9] or similar if images are consistently that ratio */}
-                    <Image
-                        src={party.imageUrl}
-                        alt={party.name}
-                        layout="fill"
-                        objectFit="cover"
-                        className="transition-transform duration-300 group-hover:scale-105"
-                        loading="lazy" // Lazy load images
-                        data-ai-hint="fête rassemblement social"
-                    />
+                <div className="aspect-video relative w-full bg-muted"> {/* Added bg-muted */}
+                    {party.imageUrl ? (
+                        <Image
+                            src={party.imageUrl}
+                            alt={party.name}
+                            layout="fill"
+                            objectFit="cover"
+                            className="transition-transform duration-300 group-hover:scale-105"
+                            loading="lazy" // Lazy load images
+                            data-ai-hint="fête rassemblement social"
+                            onError={(e) => console.error(`Failed to load image: ${party.imageUrl}`, e)} // Add error handling
+                        />
+                    ) : (
+                         <div className="flex items-center justify-center h-full">
+                            <ImageIcon className="h-12 w-12 text-muted-foreground/50" />
+                         </div>
+                    )}
                     {/* Rating Badge */}
                      <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white text-xs font-semibold px-2 py-1 rounded-full flex items-center space-x-1">
                          <Star className="h-3 w-3 text-yellow-400 fill-current" />
@@ -67,7 +76,9 @@ export function RecentPartiesSection({ parties }: RecentPartiesSectionProps) {
                  <div className="flex items-center stacked-avatars">
                    {party.participants.slice(0, 4).map((participant, index) => ( // Show max 4 avatars
                      <Avatar key={participant.id} className="h-6 w-6 border-2 border-background">
-                       <AvatarImage src={participant.avatarUrl} alt={`Participant ${index + 1}`} />
+                       {participant.avatarUrl ? (
+                          <AvatarImage src={participant.avatarUrl} alt={`Participant ${index + 1}`} />
+                       ) : null }
                        <AvatarFallback className="text-xs bg-muted">
                             {getInitials(participant.id)}
                        </AvatarFallback>
@@ -81,8 +92,6 @@ export function RecentPartiesSection({ parties }: RecentPartiesSectionProps) {
                        </Avatar>
                    )}
                  </div>
-                 {/* Optional: Add participant count or other meta */}
-                 {/* <span className="text-xs text-muted-foreground">{party.participants.length} participants</span> */}
               </CardFooter>
             </Card>
           </Link>
@@ -91,3 +100,4 @@ export function RecentPartiesSection({ parties }: RecentPartiesSectionProps) {
     </div>
   );
 }
+
