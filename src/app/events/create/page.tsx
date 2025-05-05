@@ -36,8 +36,8 @@ import {
   ACCEPTED_COVER_PHOTO_TYPES,
   getFileType, // Import getFileType
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  coverPhotoSchema // Import schema from dedicated file
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
 
 
 import { Progress } from '@/components/ui/progress';
@@ -106,9 +106,6 @@ const participantColors = [
   'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600',
   'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600',
 ];
-
-// --- Helper Functions (Consider moving if used elsewhere) ---
-// Moved getFileType to media-uploader.ts
 
 
 // --- Component ---
@@ -459,21 +456,21 @@ export default function CreateEventPage() {
                                         render={({ field }) => (
                                             <FormItem className="flex flex-col">
                                             <FormLabel>Date *</FormLabel>
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                     <FormControl>
+                                             <Popover>
+                                                <FormControl>
+                                                    <PopoverTrigger asChild>
                                                         <Button
-                                                        variant={'outline'}
-                                                        className={cn(
-                                                            'w-full pl-3 text-left font-normal bg-input border-border hover:bg-accent',
-                                                            !field.value && 'text-muted-foreground'
-                                                        )}
+                                                            variant={'outline'}
+                                                            className={cn(
+                                                                'w-full pl-3 text-left font-normal bg-input border-border hover:bg-accent',
+                                                                !field.value && 'text-muted-foreground'
+                                                            )}
                                                         >
-                                                        {field.value ? format(field.value, 'PPP', { locale: fr }) : <span>jj/mm/aaaa</span>}
-                                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                            {field.value ? format(field.value, 'PPP', { locale: fr }) : <span>jj/mm/aaaa</span>}
+                                                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                                                         </Button>
-                                                     </FormControl>
-                                                </PopoverTrigger>
+                                                    </PopoverTrigger>
+                                                </FormControl>
                                                 <PopoverContent className="w-auto p-0 bg-popover border-border" align="start">
                                                     <Calendar
                                                         locale={fr}
@@ -482,7 +479,7 @@ export default function CreateEventPage() {
                                                         onSelect={field.onChange}
                                                         // No disabled prop, allow any date
                                                         initialFocus
-                                                     />
+                                                    />
                                                 </PopoverContent>
                                             </Popover>
                                             <FormMessage />
@@ -522,15 +519,16 @@ export default function CreateEventPage() {
                                       <FormItem>
                                       <FormLabel className="sr-only">Ajouter des participants</FormLabel>
                                       <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
-                                           <FormControl>
-                                              <Input
-                                                placeholder="Entrer l'email des participants... (bientôt disponible)"
-                                                disabled // Disabled until UI/backend is ready
-                                                className="bg-input border-border flex-grow"
-                                                // Pass field props to Input
-                                                {...field}
-                                              />
-                                           </FormControl>
+                                            <FormControl>
+                                                 {/* Replace simple input with a more complex component if needed */}
+                                                 <Input
+                                                     placeholder="Entrer l'email des participants... (bientôt disponible)"
+                                                     disabled // Disabled until UI/backend is ready
+                                                     className="bg-input border-border flex-grow"
+                                                     // Pass necessary props if using a simple input
+                                                     {...field} // Pass field props to the underlying Input
+                                                 />
+                                            </FormControl>
                                            <Button type="button" variant="outline" className="bg-secondary hover:bg-accent border-border" disabled>
                                               <UserPlus className="mr-2 h-4 w-4"/> Ajouter
                                            </Button>
