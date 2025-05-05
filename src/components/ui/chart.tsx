@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import * as RechartsPrimitive from "recharts"
+import { Tooltip as RechartsTooltip } from "recharts" // Import the Tooltip component from recharts
 
 import { cn } from "@/lib/utils"
 
@@ -100,7 +101,8 @@ ${colorConfig
   )
 }
 
-const ChartTooltip = RechartsPrimitive.Tooltip
+// Keep RechartsTooltip alias for the recharts component
+const ChartTooltip = RechartsTooltip
 
 const ChartTooltipContent = React.forwardRef<
   HTMLDivElement,
@@ -357,7 +359,7 @@ function getPayloadConfigFromPayload(
 
 export {
   ChartContainer,
-  ChartTooltip,
+  ChartTooltip, // Export the recharts tooltip component
   ChartTooltipContent,
   ChartLegend,
   ChartLegendContent,
