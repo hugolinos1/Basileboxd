@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Rules for the 'parties' collection
+    match /parties/{partyId} {
+      // Allow any authenticated user to read event details
+      allow read: if request.auth != null;
+
+      // Allow any authenticated user to create an event, ensuring they set themselves as creator
+      allow create: if request.auth != null
+                    && request.resource.data.name is string // Example validation
+                    && request.resource.data.date is timestamp // Example validation
+                    && request.resource.data.createdBy == request.auth.uid; // Creator must be the authenticated user
+
+      // Allow updates under specific conditions
+      allow update: if request.auth != null && (
+                      // Condition 1: Allow ANY authenticated user to update ONLY 'ratings' or 'comments'
+                      (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings', 'comments'])) ||
+                      // Condition 2: Allow the CREATOR to update other specific fields, but NOT change the creator
+                      (request.auth.uid == resource.data.createdBy &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasAny(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'participantEmails', 'participants', 'mediaUrls']) &&
+                       request.resource.data.createdBy == resource.data.createdBy // Ensure creator ID cannot be changed
+                      )
+                    );
+
+      // Disallow client-side deletion for now
+      allow delete: if false;
+    }
+
+    // Rules for the 'users' collection (Important for fetching user profiles)
+    match /users/{userId} {
+       // Allow any authenticated user to read user profiles
+       allow read: if request.auth != null;
+
+       // Allow a user to update ONLY their own profile, prevent changing critical fields
+       allow update: if request.auth != null && request.auth.uid == userId
+                     && !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['uid', 'email', 'createdAt'])); // Prevent changing uid, email, createdAt
+
+       // Allow user creation only if the UID matches the authenticated user (prevents arbitrary creation)
+       allow create: if request.auth != null && request.auth.uid == userId;
+
+       // Disallow client-side deletion of user profiles
+       allow delete: if false;
+    }
+  }
+}
