@@ -58,8 +58,11 @@ export default function PartiesListPage() {
   const { firebaseInitialized, initializationFailed, initializationErrorMessage } = useFirebase(); // Use context for initialization status
 
   useEffect(() => {
+    console.log("PartiesList useEffect triggered. Firebase Initialized:", firebaseInitialized, "Initialization Failed:", initializationFailed);
+
     // Exit early if Firebase initialization failed
     if (initializationFailed) {
+        console.error("Firebase initialization failed in useEffect. Setting error state.");
         setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
         setLoading(false);
         return;
@@ -67,12 +70,14 @@ export default function PartiesListPage() {
 
     // Wait for Firebase to be initialized
     if (!firebaseInitialized) {
+        console.log("Firebase not yet initialized, waiting...");
         setLoading(true); // Ensure loading is true while waiting
         return;
     }
 
-    // Check if db is available (it should be if firebaseInitialized is true)
+    // Check if db is available
     if (!db) {
+        console.error("Firestore 'db' instance is null even though Firebase is initialized. Setting error state.");
         setError("La base de données Firestore n'est pas disponible.");
         setLoading(false);
         return;
@@ -81,29 +86,39 @@ export default function PartiesListPage() {
 
     const fetchParties = async () => {
       // Already loading or error occurred, no need to fetch again unnecessarily
-      if (error) return;
+      if (error && !loading) {
+          console.log("Error state exists and not loading, skipping fetch.");
+          return;
+       }
 
+      console.log("Setting loading state to true and resetting error before fetch.");
       setLoading(true); // Set loading true at the start of fetch attempt
       setError(null); // Reset error before fetching
 
       try {
-        console.log("Fetching parties..."); // Log fetch start
+        console.log("Fetching parties from Firestore...");
         const partiesCollectionRef = collection(db, 'parties');
         const q = query(partiesCollectionRef, orderBy('createdAt', 'desc'));
         const querySnapshot = await getDocs(q);
+
+        console.log(`Firestore query executed. Found ${querySnapshot.size} documents. Is empty: ${querySnapshot.empty}`);
 
         const partiesData = querySnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
         })) as PartyData[];
 
+        console.log("Mapped parties data:", partiesData); // Log the data retrieved
+
         setParties(partiesData);
-        console.log(`Fetched ${partiesData.length} parties.`); // Log success
+        console.log(`Parties state updated with ${partiesData.length} items.`);
 
       } catch (fetchError: any) {
-        console.error('Erreur lors de la récupération des fêtes :', fetchError);
+        console.error('Erreur lors de la récupération des fêtes:', fetchError);
         setError('Impossible de charger la liste des fêtes.');
+        setParties([]); // Ensure parties state is empty on error
       } finally {
+        console.log("Setting loading state to false in finally block.");
         setLoading(false); // Set loading false after fetch attempt (success or failure)
       }
     };
@@ -111,18 +126,20 @@ export default function PartiesListPage() {
     fetchParties();
 
     // Dependency array: only re-run when initialization status changes
-  }, [firebaseInitialized, initializationFailed, initializationErrorMessage, error]); // Added error dependency to prevent re-fetch on error
+  }, [firebaseInitialized, initializationFailed, initializationErrorMessage, error]); // Keep error dependency
 
 
   // --- Render Logic ---
+
+  console.log("Rendering PartiesListPage. Loading:", loading, "Error:", error, "Parties Count:", parties.length);
 
   if (loading) {
     // Render Skeleton Loading State only if not failed
     if (initializationFailed) {
         // If initialization failed, the error component will be rendered below.
-        // Return null here to avoid rendering skeleton over the error message.
         return null;
     }
+    console.log("Rendering Skeleton Loader.");
     return (
       <div className="container mx-auto px-4 py-12">
         <Skeleton className="h-8 w-1/3 mb-8" />
@@ -146,6 +163,7 @@ export default function PartiesListPage() {
 
 
   if (error) {
+    console.log("Rendering Error Alert:", error);
     // Render Error Alert
     return (
       <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
@@ -159,11 +177,12 @@ export default function PartiesListPage() {
   }
 
   // Render Parties List
+  console.log("Rendering parties list.");
   return (
     <div className="container mx-auto px-4 py-12">
       <h1 className="text-3xl font-bold mb-8 text-primary">Tous les Événements</h1>
       {parties.length === 0 ? (
-         <p className="text-muted-foreground text-center">Aucun événement trouvé.</p>
+         <p className="text-muted-foreground text-center">Aucun événement trouvé pour le moment.</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {parties.map((party) => {
