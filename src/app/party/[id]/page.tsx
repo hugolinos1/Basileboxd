@@ -114,7 +114,7 @@ export default function PartyDetailsPage() {
   const [userRating, setUserRating] = useState<number>(0);
   const [averageRating, setAverageRating] = useState<number>(0);
   const [playerError, setPlayerError] = useState<string | null>(null);
-  const [showAddSouvenirDialog, setShowAddSouvenirDialog] = useState(showAddSouvenirDialog);
+  const [showAddSouvenirDialog, setShowAddSouvenirDialog] = useState(false);
   const [souvenirFiles, setSouvenirFiles] = useState<File[]>([]);
   const [souvenirPreviews, setSouvenirPreviews] = useState<string[]>([]);
   const [souvenirUploadProgress, setSouvenirUploadProgress] = useState<Record<string, number>>({});
@@ -305,7 +305,7 @@ export default function PartyDetailsPage() {
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null, // Ensure null instead of undefined
         text: comment.trim(),
-        timestamp: serverTimestamp() // Use FieldValue directly
+        timestamp: serverTimestamp() as Timestamp // Explicitly cast to Timestamp
       };
 
       await updateDoc(partyDocRef, {
