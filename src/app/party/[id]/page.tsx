@@ -4,7 +4,7 @@
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 // Import necessary Firestore functions, including FieldValue
-import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit, serverTimestamp } from 'firebase/firestore'; // Import serverTimestamp
+import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit, serverTimestamp, collectionGroup } from 'firebase/firestore'; // Import serverTimestamp
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
@@ -105,6 +105,7 @@ export default function PartyDetailsPage() {
   const { toast } = useToast();
 
   const [party, setParty] = useState<PartyData | null>(null);
+  const [commentsData, setCommentsData] = useState<Comment[]>([]);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]); // State to store all users for Combobox
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -173,7 +174,7 @@ export default function PartyDetailsPage() {
     setError(null);
     const partyDocRef = doc(db, 'parties', partyId);
 
-    const unsubscribe = onSnapshot(partyDocRef, (docSnap) => {
+    const unsubscribeParty = onSnapshot(partyDocRef, (docSnap) => {
       if (docSnap.exists()) {
         console.log(`[PartyDetailsPage] Snapshot reçu pour ${partyId}.`);
         const data = { id: docSnap.id, ...docSnap.data() } as PartyData;
@@ -185,7 +186,8 @@ export default function PartyDetailsPage() {
         } else {
             setUserRating(0);
         }
-        setPageLoading(false);
+        // Comments are now handled by a separate listener
+        setPageLoading(false); // Potentially set loading false earlier if party data is enough
       } else {
         console.log(`[PartyDetailsPage] Document ${partyId} n'existe pas.`);
         setError('Fête non trouvée.');
@@ -193,7 +195,7 @@ export default function PartyDetailsPage() {
         setPageLoading(false);
       }
     }, (snapshotError: any) => {
-        console.error('[PartyDetailsPage] Erreur listener snapshot:', snapshotError);
+        console.error('[PartyDetailsPage] Erreur listener snapshot fête:', snapshotError);
          let userFriendlyError = 'Impossible de charger les détails de la fête en temps réel.';
          if (snapshotError.code === 'permission-denied') {
              userFriendlyError = 'Permission refusée. Vérifiez les règles Firestore pour la collection "parties".';
@@ -204,18 +206,45 @@ export default function PartyDetailsPage() {
          setError(userFriendlyError);
         setPageLoading(false);
     });
+    
+    // Listener for comments subcollection
+    const commentsRef = collection(db, 'parties', partyId, 'comments');
+    const commentsQuery = query(commentsRef, orderBy('timestamp', 'desc'));
+    
+    const unsubscribeComments = onSnapshot(commentsQuery, (querySnapshot) => {
+        console.log(`[PartyDetailsPage] Snapshot reçu pour les commentaires de ${partyId}. Nombre de commentaires: ${querySnapshot.size}`);
+        const fetchedComments: Comment[] = [];
+        querySnapshot.forEach((doc) => {
+            fetchedComments.push({ id: doc.id, ...doc.data() } as Comment);
+        });
+        setCommentsData(fetchedComments);
+        setPageLoading(false); // Set loading false after comments are also fetched
+    }, (snapshotError: any) => {
+         console.error('[PartyDetailsPage] Erreur listener snapshot commentaires:', snapshotError);
+         let userFriendlyError = 'Impossible de charger les commentaires en temps réel.';
+         if (snapshotError.code === 'permission-denied') {
+             userFriendlyError = 'Permission refusée. Vérifiez les règles de sécurité Firestore pour la sous-collection "comments".';
+              console.error("Firestore Permission Denied: Check your security rules for the 'comments' subcollection.");
+         } else if (snapshotError.code === 'unauthenticated') {
+             userFriendlyError = 'Non authentifié. Veuillez vous connecter pour voir les commentaires.';
+         }
+         setError(userFriendlyError); // Show error, but party data might still be valid
+         setPageLoading(false);
+    });
+
 
     return () => {
-        console.log(`[PartyDetailsPage] Nettoyage du listener snapshot pour ${partyId}`);
-        unsubscribe();
+        console.log(`[PartyDetailsPage] Nettoyage des listeners snapshot pour ${partyId}`);
+        unsubscribeParty();
+        unsubscribeComments();
     }
 
   }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage]); 
 
-  // Fetch all users for participant Combobox - runs once when firebase is initialized and db is available
+  // Fetch all users for participant Combobox
    useEffect(() => {
     const fetchAllUsers = async () => {
-        if (!db) { // Ensure db is available
+        if (!db) {
              console.log("[PartyDetailsPage - fetchAllUsers] DB pas prêt. Attente...");
              return;
         }
@@ -225,17 +254,17 @@ export default function PartyDetailsPage() {
             const usersSnapshot = await getDocs(usersCollectionRef);
             const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
             setAllUsers(fetchedUsers);
-             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length, fetchedUsers);
+             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length, fetchedUsers.map(u => u.uid));
         } catch (error) {
             console.error("[PartyDetailsPage - fetchAllUsers] Erreur lors de la récupération de tous les utilisateurs:", error);
             toast({ title: "Erreur Utilisateurs", description: "Impossible de charger la liste des utilisateurs pour l'ajout.", variant: "destructive" });
         }
     };
 
-    if (firebaseInitialized && db) { // Run only when firebase is initialized and db is available
+    if (firebaseInitialized && db) {
         fetchAllUsers();
     }
-   }, [firebaseInitialized, toast]); // Removed db from here, db check is inside the effect
+   }, [firebaseInitialized, db, toast]);
 
    useEffect(() => {
         return () => {
@@ -273,8 +302,6 @@ export default function PartyDetailsPage() {
      setIsRating(true);
      try {
          const partyDocRef = doc(db, 'parties', party.id);
-         // When rating, we update a map `ratings` where the key is the user's UID
-         // and the value is their rating.
          await updateDoc(partyDocRef, {
              [`ratings.${user.uid}`]: newRating
          });
@@ -298,19 +325,17 @@ export default function PartyDetailsPage() {
     }
     setIsSubmittingComment(true);
     try {
-      const partyDocRef = doc(db, 'parties', party.id);
-      // Use serverTimestamp directly for FieldValue type
-      const newCommentData: Comment = {
+      const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
+      const newCommentData: Omit<Comment, 'id'> = { // Omit id as it will be auto-generated
         userId: user.uid,
         email: user.email || 'anonyme',
-        avatar: user.photoURL ?? null, // Ensure null instead of undefined
+        avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: serverTimestamp() as Timestamp // Explicitly cast to Timestamp
+        timestamp: serverTimestamp(),
+        partyId: party.id, // ensure partyId is included
       };
 
-      await updateDoc(partyDocRef, {
-        comments: arrayUnion(newCommentData)
-      });
+      await addDoc(commentsCollectionRef, newCommentData);
 
       setComment('');
       toast({ title: 'Commentaire ajouté' });
@@ -516,7 +541,7 @@ export default function PartyDetailsPage() {
 
         setIsAddingParticipant(true);
         console.log("[handleAddParticipant] Recherche de l'utilisateur dans `allUsers`. UID recherché:", selectedUserId);
-        console.log("[handleAddParticipant] `allUsers` actuellement:", allUsers); // Log the current state of allUsers
+        console.log("[handleAddParticipant] `allUsers` actuellement:", allUsers.map(u => u.uid)); // Log only UIDs for brevity
         const userToAdd = allUsers.find(u => u.uid === selectedUserId);
         console.log("[handleAddParticipant] Utilisateur trouvé dans allUsers:", userToAdd);
 
@@ -665,11 +690,12 @@ export default function PartyDetailsPage() {
 
   const partyDate = getDateFromTimestamp(party.date);
 
-    const sortedComments = party.comments ? [...party.comments].sort((a, b) => {
+    // Use commentsData from state, which is updated by the snapshot listener
+    const sortedComments = [...commentsData].sort((a, b) => {
         const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
         const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
         return timeB - timeA;
-    }) : [];
+    });
 
 
   return (
@@ -846,7 +872,7 @@ export default function PartyDetailsPage() {
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
-                                     {/* <Button onClick={handleGetServerTime} size="sm" variant="outline">Tester Timestamp</Button> */}
+                                    
                                 </div>
                             </div>
                         </div>
@@ -943,3 +969,4 @@ function cn(...classes: (string | undefined | null | false)[]): string {
 
     
     
+
