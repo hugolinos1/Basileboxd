@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { uploadFile, ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE } from '@/services/media-uploader'; // Renamed MAX_FILE_SIZE
+import { uploadFile, ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE } from '@/services/media-uploader';
 import { coverPhotoSchema } from '@/services/validation-schemas';
 import type { PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
 
@@ -109,7 +109,7 @@ export default function UserProfilePage() {
     const params = useParams();
     const profileUserId = params.id as string;
     const router = useRouter();
-    const { user: currentUser, loading: authLoading, firebaseInitialized, isAdmin } = useFirebase();
+    const { user: currentUser, loading: authLoading, firebaseInitialized, isAdmin, initializationFailed, initializationErrorMessage } = useFirebase();
     const { toast } = useToast();
 
     const [profileUserData, setProfileUserData] = useState<UserData | null>(null);
@@ -131,6 +131,12 @@ export default function UserProfilePage() {
     }, [currentUser, profileUserId, isAdmin, profileUserData]);
 
     useEffect(() => {
+        if (initializationFailed) {
+            setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
+            setLoading(false);
+            return;
+        }
+
         if (!firebaseInitialized || authLoading) {
             setLoading(true);
             return;
@@ -146,6 +152,8 @@ export default function UserProfilePage() {
             return;
         }
 
+        console.log(`[UserProfilePage useEffect] Fetching data for profileUserId: ${profileUserId}`);
+
         const fetchData = async () => {
             setLoading(true);
             setError(null);
@@ -154,12 +162,15 @@ export default function UserProfilePage() {
                 const userDocSnap = await getDoc(userDocRef);
 
                 if (!userDocSnap.exists()) {
-                    throw new Error("Utilisateur non trouvé.");
+                    console.error(`[UserProfilePage fetchData] Utilisateur non trouvé pour l'ID: ${profileUserId}`);
+                    setError("Utilisateur non trouvé."); // Set error state instead of throwing
+                    setProfileUserData(null); // Ensure profile data is null
+                    setLoading(false);
+                    return;
                 }
                 const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as Omit<UserData, 'eventCount' | 'commentCount' | 'averageRatingGiven'>;
 
                 const partiesRef = collection(db, 'parties');
-                // Query for parties where the user is the creator OR a participant
                 const createdPartiesQuery = query(partiesRef, where('createdBy', '==', profileUserId));
                 const participatedPartiesQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
 
@@ -171,7 +182,6 @@ export default function UserProfilePage() {
                 const createdParties = createdPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
                 const participatedParties = participatedPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
                 
-                // Combine and deduplicate parties
                 const allUserPartiesMap = new Map<string, PartyData>();
                 createdParties.forEach(party => allUserPartiesMap.set(party.id, party));
                 participatedParties.forEach(party => allUserPartiesMap.set(party.id, party));
@@ -183,14 +193,14 @@ export default function UserProfilePage() {
                 const commentsSnapshot = await getDocs(commentsQuery);
                 const commentsDataPromises = commentsSnapshot.docs.map(async (commentDoc) => {
                     const commentData = commentDoc.data() as Omit<CommentData, 'partyName'>;
-                    const partyDocRef = commentDoc.ref.parent.parent; // Get parent document (party)
+                    const partyDocRef = commentDoc.ref.parent.parent; 
                     if (partyDocRef) {
                         const partySnap = await getDoc(partyDocRef);
                         if (partySnap.exists()) {
                             return { ...commentData, id: commentDoc.id, partyId: partySnap.id, partyName: partySnap.data()?.name || 'Événement inconnu' } as CommentData;
                         }
                     }
-                    return { ...commentData, id: commentDoc.id, partyId: 'unknown', partyName: 'Événement inconnu' } as CommentData; // Fallback
+                    return { ...commentData, id: commentDoc.id, partyId: 'unknown', partyName: 'Événement inconnu' } as CommentData;
                 });
                 const resolvedCommentsData = await Promise.all(commentsDataPromises);
 
@@ -218,13 +228,13 @@ export default function UserProfilePage() {
             }
         };
         fetchData();
-    }, [profileUserId, firebaseInitialized, authLoading]);
+    }, [profileUserId, firebaseInitialized, authLoading, initializationFailed, initializationErrorMessage]);
 
     const handleNewAvatarFileChange = (event: ChangeEvent<HTMLInputElement>) => {
         const isBrowser = typeof window !== 'undefined';
         const file = event.target.files?.[0];
         if (file) {
-            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; // Use coverPhotoSchema for avatar too
+            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; 
             if (validationResult.success) {
                 setNewAvatarFile(file);
                 if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
@@ -245,16 +255,23 @@ export default function UserProfilePage() {
     };
 
     const handleUpdateAvatar = async () => {
-        if (!currentUser || !newAvatarFile || !db || !profileUserData) { // Added profileUserData check
-            toast({ title: 'Erreur', description: 'Impossible de mettre à jour l\'avatar pour le moment.', variant: 'destructive' });
+        console.log("[handleUpdateAvatar] Current User UID:", currentUser?.uid);
+        console.log("[handleUpdateAvatar] Profile User ID:", profileUserId);
+        console.log("[handleUpdateAvatar] New Avatar File:", newAvatarFile);
+        console.log("[handleUpdateAvatar] DB instance:", db);
+        console.log("[handleUpdateAvatar] Profile User Data:", profileUserData);
+
+
+        if (!currentUser || !newAvatarFile || !db || !profileUserId) { 
+            toast({ title: 'Erreur', description: 'Impossible de mettre à jour l\'avatar pour le moment. Vérifiez les informations et la connexion.', variant: 'destructive' });
             return;
         }
         setIsUploadingAvatar(true);
         setAvatarUploadProgress(0);
 
         try {
-            // Use profileUserId for the path, as we might be an admin editing another user's avatar
-            const userDocRef = doc(db, 'users', profileUserId); // Use profileUserId here as well
+            
+            const userDocRef = doc(db, 'users', profileUserId); 
             console.log("Mise à jour de l'avatar pour l'utilisateur UID:", profileUserId);
             console.log("Référence du document Firestore :", userDocRef.path);
 
@@ -265,7 +282,7 @@ export default function UserProfilePage() {
             await updateDoc(userDocRef, { avatarUrl: newAvatarUrl });
 
             toast({ title: 'Avatar mis à jour !' });
-            // Update local state for the profile being viewed
+            
             setProfileUserData(prev => prev ? { ...prev, avatarUrl: newAvatarUrl } : null);
             setNewAvatarFile(null);
             if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
@@ -277,6 +294,8 @@ export default function UserProfilePage() {
             let userFriendlyError = "Impossible de mettre à jour l'avatar.";
             if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied') {
                 userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité.";
+            } else if (error.message?.includes('Firebase Storage: User does not have permission to access')) {
+                userFriendlyError = `Permission refusée par Firebase Storage. Vérifiez les règles de Storage. Détails: ${error.message}`;
             }
             toast({ title: 'Échec de la mise à jour', description: userFriendlyError, variant: 'destructive' });
         } finally {
@@ -358,8 +377,8 @@ export default function UserProfilePage() {
         );
     }
 
-    if (!profileUserData) {
-        return <div className="container mx-auto px-4 py-12 text-center">Utilisateur non trouvé.</div>;
+    if (!profileUserData) { // This check should now correctly show after error is set
+        return <div className="container mx-auto px-4 py-12 text-center">Utilisateur non trouvé ou profil inaccessible.</div>;
     }
 
     const joinDate = getDateFromTimestamp(profileUserData.createdAt);
@@ -414,7 +433,7 @@ export default function UserProfilePage() {
                      )}
                     <p className="text-sm text-muted-foreground">{profileUserData.email}</p>
                      {joinDate && <p className="text-xs text-muted-foreground">Membre depuis {formatDistanceToNow(joinDate, { addSuffix: true, locale: fr })}</p>}
-                     {isOwnProfileOrAdmin && ( // Changed from isOwnProfile
+                     {isOwnProfileOrAdmin && ( 
                          <Button variant="outline" size="sm" className="mt-2" onClick={() => router.push('/settings/profile')}>
                              <Edit2 className="mr-2 h-3 w-3" /> Modifier le profil
                          </Button>
@@ -572,4 +591,3 @@ export default function UserProfilePage() {
         </div>
     );
 }
-
