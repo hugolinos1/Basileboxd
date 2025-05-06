@@ -1,7 +1,7 @@
 
 'use client';
 
-import * as React from 'react'; // Added React import
+import * as React from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Loader2, UserPlus, X, Image as ImageIcon, Upload, StarIcon, ChevronDown, Edit, Trash2, MapPin, CalendarDays } from 'lucide-react';
+import { CalendarIcon, Loader2, UserPlus, X, Image as ImageIcon, Upload, StarIcon, Edit, Trash2, MapPin, CalendarDays, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -29,20 +29,23 @@ import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
+
+
+import {
+  uploadFile,
+  getFileType as getMediaFileType,
+  ACCEPTED_MEDIA_TYPES,
+  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE,
+  COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  ACCEPTED_COVER_PHOTO_TYPES
+} from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
+
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Slider } from '@/components/ui/slider';
-import {
-  uploadFile,
-  getFileType as getMediaFileType, // Renamed to avoid conflict
-  ACCEPTED_MEDIA_TYPES,
-  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE, // Renamed to avoid conflict
-  COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  ACCEPTED_COVER_PHOTO_TYPES
-} from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
 
 
 import { Combobox } from '@/components/ui/combobox';
@@ -57,7 +60,7 @@ interface UserData {
 }
 
 const fileSchema = z.custom<File>((val) => {
-  if (typeof window === 'undefined') return true;
+  if (typeof window === 'undefined') return true; // Skip validation on server
   return val instanceof File;
 }, 'Veuillez télécharger un fichier');
 
@@ -69,7 +72,7 @@ const formSchema = z.object({
   date: z.date({ required_error: 'Une date pour l\'Event est requise.' }),
   location: z.string().max(150).optional(),
   coverPhoto: fileSchema.refine(file => {
-    if (typeof window === 'undefined' || !(file instanceof File)) return true;
+    if (typeof window === 'undefined' || !(file instanceof File)) return true; // Skip validation on server or if not a File
     return file.size <= MAX_FILE_SIZE_COVER;
   }, `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE_COVER / 1024 / 1024}Mo.`).optional(),
   participants: z.array(z.string()).optional(),
@@ -197,7 +200,7 @@ export default function CreateEventPage() {
       const newPreviews: string[] = [];
 
       newFilesArray.forEach(file => {
-        const fileType = getMediaFileType(file); // Use renamed function
+        const fileType = getMediaFileType(file);
         let maxSize = 0;
         if (fileType === 'image') maxSize = MEDIA_MAX_FILE_SIZE.image;
         else if (fileType === 'video') maxSize = MEDIA_MAX_FILE_SIZE.video;
@@ -288,13 +291,10 @@ export default function CreateEventPage() {
         mediaUrls: [],
         coverPhotoUrl: '',
         ratings: values.initialRating && user ? { [user.uid]: values.initialRating } : {},
-        // Storing comments as a subcollection instead of an array
-        // comments: values.initialComment && user ? [{ ... }] : [],
         createdAt: serverTimestamp(),
       });
       const partyId = partyDocRef.id;
 
-      // Add initial comment to subcollection if provided
       if (values.initialComment && user) {
         const commentsCollectionRef = collection(db, 'parties', partyId, 'comments');
         await addDoc(commentsCollectionRef, {
@@ -468,8 +468,6 @@ export default function CreateEventPage() {
               <AccordionContent>
                 <Card className="bg-card border-none shadow-none p-0">
                   <CardHeader className="flex flex-row items-center space-x-2 pb-4">
-                    {/* Icon can be added here if needed */}
-                    {/* <CardTitle className="text-base font-medium">Photo de couverture</CardTitle> */}
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <FormField
@@ -479,7 +477,7 @@ export default function CreateEventPage() {
                             <FormItem>
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                   <FormControl>
-                                    <React.Fragment> {/* Ensure a single child for FormControl */}
+                                    <div> {/* Wrapper div to ensure a single child */}
                                       {coverPhotoPreview ? (
                                           <>
                                               <div className="relative w-full h-full">
@@ -511,7 +509,7 @@ export default function CreateEventPage() {
                                           className="hidden"
                                           onChange={handleCoverPhotoChange}
                                       />
-                                    </React.Fragment>
+                                    </div>
                                   </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
@@ -605,7 +603,7 @@ export default function CreateEventPage() {
                       render={({ field }) => (
                         <FormItem>
                            <FormControl>
-                            <React.Fragment> {/* Ensure a single child for FormControl */}
+                            <div> {/* Wrapper div to ensure a single child */}
                               <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
                                 <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
                               </Button>
@@ -617,7 +615,7 @@ export default function CreateEventPage() {
                                  onChange={handleMediaFileChange}
                                  className="hidden"
                                />
-                            </React.Fragment>
+                            </div>
                            </FormControl>
                           <FormDescription className="text-center">
                             Max {MEDIA_MAX_FILE_SIZE.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE.audio / 1024 / 1024}Mo/Son.
@@ -637,7 +635,7 @@ export default function CreateEventPage() {
                             return (
                               <div key={index} className="relative group border rounded-md p-2 bg-secondary space-y-1.5">
                                 {previewUrl && file.type.startsWith('image/') ? (
-                                  <Image src={previewUrl} alt={`Aperçu ${file.name}`} width={80} height={80} className="rounded-md object-cover mx-auto h-16 w-16" />
+                                  <Image src={previewUrl} alt={`Aperçu ${file.name}`} width={80} height={80} className="rounded-md object-cover mx-auto h-16 w-16" data-ai-hint="fête souvenir"/>
                                 ) : (
                                   <div className="h-16 w-16 flex items-center justify-center bg-muted rounded-md mx-auto text-muted-foreground">
                                     {fileTypeDisplay === 'video' && <Video className="h-8 w-8" />}
