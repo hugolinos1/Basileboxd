@@ -1,6 +1,7 @@
 
 'use client';
 
+import * as React from 'react'; // Added React import
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -35,13 +36,15 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Slider } from '@/components/ui/slider';
 import {
   uploadFile,
-  getFileType as getMediaFileType,
+  getFileType as getMediaFileType, // Renamed to avoid conflict
   ACCEPTED_MEDIA_TYPES,
-  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE,
+  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE, // Renamed to avoid conflict
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
   ACCEPTED_COVER_PHOTO_TYPES
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas';
+import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
+
+
 import { Combobox } from '@/components/ui/combobox';
 
 interface UserData {
@@ -61,9 +64,9 @@ const fileSchema = z.custom<File>((val) => {
 const MAX_FILE_SIZE_COVER = 10 * 1024 * 1024; // 10MB for initial cover photo upload
 
 const formSchema = z.object({
-  name: z.string().min(2, { message: 'Le nom de la soirée doit contenir au moins 2 caractères.' }).max(100),
+  name: z.string().min(2, { message: 'Le nom de l\'Event doit contenir au moins 2 caractères.' }).max(100),
   description: z.string().max(500).optional(),
-  date: z.date({ required_error: 'Une date pour la fête est requise.' }),
+  date: z.date({ required_error: 'Une date pour l\'Event est requise.' }),
   location: z.string().max(150).optional(),
   coverPhoto: fileSchema.refine(file => {
     if (typeof window === 'undefined' || !(file instanceof File)) return true;
@@ -77,6 +80,7 @@ const formSchema = z.object({
 
 type PartyFormValues = z.infer<typeof formSchema>;
 
+// --- Helper Functions ---
 const getLocalFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => {
     if (!file || !file.type) return 'autre';
     if (file.type.startsWith('image/')) return 'image';
@@ -132,7 +136,7 @@ export default function CreateEventPage() {
     defaultValues: {
       name: '',
       description: '',
-      date: undefined,
+      date: new Date(), // Set default date to today
       location: '',
       coverPhoto: undefined,
       participants: user ? [user.uid] : [],
@@ -193,7 +197,7 @@ export default function CreateEventPage() {
       const newPreviews: string[] = [];
 
       newFilesArray.forEach(file => {
-        const fileType = getMediaFileType(file);
+        const fileType = getMediaFileType(file); // Use renamed function
         let maxSize = 0;
         if (fileType === 'image') maxSize = MEDIA_MAX_FILE_SIZE.image;
         else if (fileType === 'video') maxSize = MEDIA_MAX_FILE_SIZE.video;
@@ -284,16 +288,24 @@ export default function CreateEventPage() {
         mediaUrls: [],
         coverPhotoUrl: '',
         ratings: values.initialRating && user ? { [user.uid]: values.initialRating } : {},
-        comments: values.initialComment && user ? [{
+        // Storing comments as a subcollection instead of an array
+        // comments: values.initialComment && user ? [{ ... }] : [],
+        createdAt: serverTimestamp(),
+      });
+      const partyId = partyDocRef.id;
+
+      // Add initial comment to subcollection if provided
+      if (values.initialComment && user) {
+        const commentsCollectionRef = collection(db, 'parties', partyId, 'comments');
+        await addDoc(commentsCollectionRef, {
           userId: user.uid,
           email: user.email,
           avatar: user.photoURL || null,
           text: values.initialComment,
           timestamp: serverTimestamp(),
-        }] : [],
-        createdAt: serverTimestamp(),
-      });
-      const partyId = partyDocRef.id;
+        });
+      }
+
 
       let coverPhotoUrl = '';
       if (values.coverPhoto) {
@@ -351,7 +363,7 @@ export default function CreateEventPage() {
 
   const comboboxOptions = allUsers
     .filter(u => !(form.getValues('participants') || []).includes(u.uid))
-    .map(u => ({ value: u.uid, label: u.pseudo || u.displayName || u.email }));
+    .map(u => ({ value: u.uid, label: u.pseudo || u.displayName || u.email || u.uid }));
 
 
   return (
