@@ -1,0 +1,100 @@
+The error "FirebaseError: Missing or insufficient permissions" on the user profile page, specifically when fetching data in `UserProfilePage.useEffect.fetchData`, means that your Firestore security rules are preventing the application from reading the necessary data.
+
+Even though your rule `match /users/{userId} { allow read: if true; }` should allow reading user profiles, the `fetchData` function in `src/app/user/[id]/page.tsx` likely also tries to fetch other related data, such as:
+
+1.  **Parties created by the user.**
+2.  **Parties the user participated in.**
+3.  **Comments made by the user.**
+
+The most common culprit for permission errors in such a scenario is a `collectionGroup` query (which you are using to fetch user comments) not having a corresponding broad enough rule.
+
+Here's an updated set of Firestore security rules. The key addition is the rule for the `comments` collection group.
+
+**Firebase Security Rules (Updated):**
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Rules for the 'parties' collection
+    match /parties/{partyId} {
+      allow read: if true; // Allows anyone to read event details
+      allow create: if request.auth != null
+                   && request.resource.data.name is string
+                   && request.resource.data.name.size() > 2
+                   && request.resource.data.date is timestamp // Ensure 'date' is a timestamp
+                   && request.resource.data.createdBy == request.auth.uid;
+      allow update: if request.auth != null && (
+                      // Allow creator to update most fields
+                      (request.auth.uid == resource.data.createdBy
+                        && request.resource.data.name is string
+                        && request.resource.data.name.size() > 2
+                        && request.resource.data.date is timestamp
+                      ) ||
+                      // Allow any authenticated user to update ratings (specific field)
+                      (request.resource.data.ratings != null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']))
+                   );
+      allow delete: if false; // Deletion typically handled by admin backend functions
+
+      // Rules for the 'comments' subcollection under 'parties'
+      match /comments/{commentId} {
+        allow read: if true; // Allows anyone to read comments
+        allow create: if request.auth != null
+                     && request.resource.data.text is string
+                     && request.resource.data.text.size() > 0
+                     && request.resource.data.userId == request.auth.uid
+                     && request.resource.data.timestamp == request.time; // Ensure timestamp is server-generated
+        // Typically, users shouldn't update/delete others' comments directly from client
+        allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      }
+    }
+
+    // Rules for the 'users' collection
+    match /users/{userId} {
+      allow read: if true; // Allows anyone to read user profiles
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    // IMPORTANT: Rule for collectionGroup 'comments'
+    // This is necessary for the query in UserProfilePage that fetches all comments by a user.
+    match /{path=**}/comments/{commentId} {
+      allow read: if true; // Allows reading comments across all parties.
+                           // Change to 'if request.auth != null;' if comments should only be readable by logged-in users.
+    }
+  }
+}
+```
+
+**Key Changes and Why:**
+
+1.  **`match /{path=**}/comments/{commentId}` (New Rule for Collection Group):**
+    *   This is the **most critical change** for your user profile page.
+    *   When you perform a `collectionGroup('comments').where('userId', '==', profileUserId)` query, Firestore checks if there's a rule that allows reading from *any* collection named `comments` in your database that matches this path structure.
+    *   `/{path=**}` is a wildcard that matches any path leading to a `comments` subcollection.
+    *   `allow read: if true;` grants public read access to all comments. If you want comments to be readable only by authenticated users, change this to `allow read: if request.auth != null;`.
+
+2.  **Refined `parties` Update Rule:**
+    *   I've slightly modified the `update` rule for parties to be more explicit. It still allows the creator to update core fields.
+    *   It also includes an example of how you might allow *any* authenticated user to update *only* the `ratings` field (if you implement a separate "rate this party" functionality directly on the party document, distinct from comments). Adjust this if your rating logic is different.
+
+3.  **Refined `comments` Create Rule:**
+    *   Added basic validation for comment creation: text must exist, `userId` must match the authenticated user, and `timestamp` should be the server timestamp.
+
+**Steps to Apply and Verify:**
+
+1.  **Go to your Firebase Console.**
+2.  Navigate to **Firestore Database** -> **Rules**.
+3.  **Replace** your existing rules with the updated rules provided above.
+4.  **Click "Publish".** Wait a minute or two for the rules to propagate.
+5.  **Test Your User Profile Page Again.**
+
+**Crucial: Check for Firestore Index:**
+
+*   The query `query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'))` **requires a composite index** in Firestore.
+*   When this query fails due to a missing index, Firebase usually logs an error message in your **browser's developer console** that includes a **direct link to create the required index** in the Firebase console.
+*   **You MUST create this index.** If you haven't, the query will fail with a "Missing or insufficient permissions" error, even if your security rules are correct, because the query itself cannot be executed efficiently without the index.
+
+If after applying these rules and ensuring the index is created (if prompted), you still have issues, please provide the *exact* error message from your browser's developer console. The details in that message are key to further debugging.
