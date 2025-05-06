@@ -18,12 +18,12 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Trash2 } from 'lucide-react';
+import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Trash2, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, query, where, getDocs, limit } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, query, where, getDocs, limit, Timestamp } from 'firebase/firestore';
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { useRouter } from 'next/navigation';
@@ -46,6 +46,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Video, Music, File as FileIcon } from 'lucide-react';
 import { Slider } from '@/components/ui/slider'; 
+import { Combobox } from '@/components/ui/combobox'; // Import the Combobox
+
+// --- Interfaces ---
+interface UserProfile {
+  uid: string;
+  email: string;
+  displayName?: string;
+  pseudo?: string;
+  avatarUrl?: string;
+}
+
 
 // --- Schema Definition ---
 const isBrowser = typeof window !== 'undefined';
@@ -58,27 +69,27 @@ const fileSchema = isBrowser ? fileSchemaClient : fileSchemaServer;
 const mediaFileSchema = fileSchema.refine(
     (file) => {
         if (!isBrowser || !(file instanceof File)) return true;
-        const fileType = getFileType(file);
+        const fileTypeLocal = getFileType(file); // Use local getFileType
         let maxSize = 0;
-        if (fileType === 'image') maxSize = MAX_FILE_SIZE.image;
-        else if (fileType === 'video') maxSize = MAX_FILE_SIZE.video;
-        else if (fileType === 'audio') maxSize = MAX_FILE_SIZE.audio;
+        if (fileTypeLocal === 'image') maxSize = MAX_FILE_SIZE.image;
+        else if (fileTypeLocal === 'video') maxSize = MAX_FILE_SIZE.video;
+        else if (fileTypeLocal === 'audio') maxSize = MAX_FILE_SIZE.audio;
         else return ACCEPTED_MEDIA_TYPES.includes(file.type); 
 
         return ACCEPTED_MEDIA_TYPES.includes(file.type) && file.size <= maxSize;
     },
     (file) => { 
         if (!isBrowser || !(file instanceof File)) return { message: 'Fichier invalide.' };
-        const fileType = getFileType(file);
+        const fileTypeLocal = getFileType(file); // Use local getFileType
         let maxSizeMB = 0;
-        if (fileType === 'image') maxSizeMB = MAX_FILE_SIZE.image / (1024*1024);
-        else if (fileType === 'video') maxSizeMB = MAX_FILE_SIZE.video / (1024*1024);
-        else if (fileType === 'audio') maxSizeMB = MAX_FILE_SIZE.audio / (1024*1024);
+        if (fileTypeLocal === 'image') maxSizeMB = MAX_FILE_SIZE.image / (1024*1024);
+        else if (fileTypeLocal === 'video') maxSizeMB = MAX_FILE_SIZE.video / (1024*1024);
+        else if (fileTypeLocal === 'audio') maxSizeMB = MAX_FILE_SIZE.audio / (1024*1024);
 
         if (!ACCEPTED_MEDIA_TYPES.includes(file.type)) {
             return { message: `Type de fichier non supporté (${file.type}).` };
         }
-        if (maxSizeMB > 0 && fileType in MAX_FILE_SIZE && file.size > MAX_FILE_SIZE[fileType as keyof typeof MAX_FILE_SIZE]) { 
+        if (maxSizeMB > 0 && fileTypeLocal in MAX_FILE_SIZE && file.size > MAX_FILE_SIZE[fileTypeLocal as keyof typeof MAX_FILE_SIZE]) { 
              return { message: `Fichier trop volumineux (${(file.size / (1024 * 1024)).toFixed(1)}Mo). Max ${maxSizeMB.toFixed(1)}Mo.` };
         }
         return { message: 'Fichier invalide.' }; 
@@ -116,8 +127,9 @@ export default function CreateEventPage() {
   const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
   const [coverPhotoPreview, setCoverPhotoPreview] = useState<string | null>(null);
   const [currentRating, setCurrentRating] = useState<number>(0);
-  const [currentParticipantEmail, setCurrentParticipantEmail] = useState('');
   const [addedParticipantEmails, setAddedParticipantEmails] = useState<string[]>([]);
+  const [allSystemUsers, setAllSystemUsers] = useState<UserProfile[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
 
 
   useEffect(() => {
@@ -126,6 +138,29 @@ export default function CreateEventPage() {
       toast({ title: 'Authentification requise', description: 'Veuillez vous connecter pour créer un événement.', variant: 'destructive' });
     }
   }, [user, isLoading, router, toast]);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      if (!db) return;
+      setLoadingUsers(true);
+      try {
+        const usersCollectionRef = collection(db, 'users');
+        const querySnapshot = await getDocs(usersCollectionRef);
+        const fetchedUsers = querySnapshot.docs.map(docSnap => ({
+          uid: docSnap.id,
+          ...(docSnap.data() as Omit<UserProfile, 'uid'>)
+        }));
+        setAllSystemUsers(fetchedUsers);
+      } catch (e: any) {
+        console.error("Erreur chargement utilisateurs:", e);
+        toast({ title: "Erreur", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive" });
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+    fetchUsers();
+  }, [db, toast]);
+
 
   const form = useForm<EventFormValues>({
     resolver: zodResolver(formSchema),
@@ -278,8 +313,7 @@ export default function CreateEventPage() {
         return parts[0]?.toUpperCase() || '?';
     };
 
-    const handleAddParticipant = () => {
-        const emailToAdd = currentParticipantEmail.trim().toLowerCase();
+    const handleAddParticipant = (emailToAdd: string) => {
         if (!emailToAdd) {
             toast({ title: "Email vide", description: "Veuillez entrer une adresse email.", variant: "warning" });
             return;
@@ -299,7 +333,6 @@ export default function CreateEventPage() {
 
         setAddedParticipantEmails(prev => [...prev, emailToAdd]);
         form.setValue('participants', [...(form.getValues('participants') || []), emailToAdd], { shouldValidate: true });
-        setCurrentParticipantEmail('');
     };
 
     const removeParticipant = (emailToRemove: string) => {
@@ -345,7 +378,7 @@ export default function CreateEventPage() {
         const partyData: any = {
             name: values.name,
             description: values.description || '',
-            date: values.date,
+            date: Timestamp.fromDate(values.date), // Convert JS Date to Firestore Timestamp
             location: values.location || '',
             createdBy: user.uid,
             creatorEmail: user.email,
@@ -354,34 +387,34 @@ export default function CreateEventPage() {
             mediaUrls: [], 
             coverPhotoUrl: '', 
             ratings: {},
-            comments: [],
+            // comments: [], // Comments will be a subcollection
             createdAt: serverTimestamp(),
          };
 
         if (values.initialRating !== undefined) { partyData.ratings[user.uid] = values.initialRating; }
 
-        let initialCommentData: any = null;
+        const partyDocRef = await addDoc(collection(db, 'parties'), partyData);
+        const partyId = partyDocRef.id;
+
+        // Handle initial comment as a subcollection document
         if (values.initialComment && values.initialComment.trim()) {
-            initialCommentData = {
+            const initialCommentData = {
                 userId: user.uid,
                 email: user.email || 'Anonyme',
                 avatar: user.photoURL || undefined,
                 text: values.initialComment.trim(),
-                timestamp: serverTimestamp() 
+                timestamp: serverTimestamp()
             };
+            try {
+                // Create comments subcollection and add the initial comment
+                const commentsCollectionRef = collection(db, 'parties', partyId, 'comments');
+                await addDoc(commentsCollectionRef, initialCommentData);
+            } catch (commentError: any) {
+                console.error("Erreur lors de l'ajout du commentaire initial :", commentError);
+                toast({ title: 'Avertissement', description: 'Le commentaire initial n\'a pas pu être sauvegardé.', variant: 'warning' });
+            }
         }
 
-        const partyDocRef = await addDoc(collection(db, 'parties'), partyData);
-        const partyId = partyDocRef.id;
-
-        if (initialCommentData) {
-             try {
-                 await updateDoc(partyDocRef, { comments: arrayUnion(initialCommentData) });
-             } catch (commentError: any) {
-                 console.error("Erreur lors de l'ajout du commentaire initial :", commentError);
-                 toast({ title: 'Avertissement', description: 'Le commentaire initial n\'a pas pu être sauvegardé.', variant: 'warning' });
-             }
-        }
 
         let coverPhotoUrl = '';
         if (values.coverPhoto) {
@@ -457,6 +490,11 @@ export default function CreateEventPage() {
 
    if (!user && !isLoading) { return <div className="container mx-auto px-4 py-12 text-center">Redirection vers la connexion...</div>; }
 
+  const comboboxUsers = allSystemUsers.map(u => ({
+      value: u.email,
+      label: u.pseudo || u.displayName || u.email,
+  }));
+
   return (
     <div className="container mx-auto px-4 py-12 max-w-6xl">
         <h1 className="text-3xl font-bold mb-8 text-center text-primary">Créer un Nouvel Événement</h1>
@@ -518,19 +556,15 @@ export default function CreateEventPage() {
                                <CardTitle className="text-lg font-semibold">Participants</CardTitle>
                            </CardHeader>
                            <CardContent className="space-y-4">
-                                <div className="flex flex-col sm:flex-row gap-2">
-                                    <Input
-                                        placeholder="Entrer l'email du participant..."
-                                        value={currentParticipantEmail}
-                                        onChange={(e) => setCurrentParticipantEmail(e.target.value)}
-                                        className="bg-input border-border flex-grow"
-                                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddParticipant();}}}
-                                    />
-                                  <Button type="button" variant="outline" onClick={handleAddParticipant} className="bg-secondary hover:bg-accent border-border">
-                                     <UserPlus className="mr-2 h-4 w-4"/> Ajouter
-                                  </Button>
-                               </div>
-                               <FormDescription>Appuyez sur Entrée ou cliquez sur Ajouter. Les participants doivent avoir un compte.</FormDescription>
+                                <Combobox
+                                    options={comboboxUsers.filter(u => u.value !== user?.email?.toLowerCase())} // Exclude current user
+                                    onSelect={handleAddParticipant}
+                                    placeholder="Rechercher un participant..."
+                                    searchPlaceholder="Rechercher par email ou pseudo..."
+                                    emptyPlaceholder={loadingUsers ? "Chargement des utilisateurs..." : "Aucun utilisateur trouvé."}
+                                    triggerIcon={<Users className="mr-2 h-4 w-4"/>}
+                                />
+                               <FormDescription>Les participants doivent avoir un compte.</FormDescription>
                                <FormField name="participants" control={form.control} render={() => <FormMessage />} />
                                 {addedParticipantEmails.length > 0 && (
                                     <div className="space-y-3 max-h-60 overflow-y-auto pr-2 border-t border-border pt-4 mt-4">
@@ -549,10 +583,10 @@ export default function CreateEventPage() {
                                         ))}
                                     </div>
                                 )}
-                                {user && addedParticipantEmails.length === 0 && (
-                                     <div className="flex items-center space-x-3 p-2 bg-secondary/30 rounded-md border border-border/20">
+                                {user && ( // Display current user as a non-removable participant
+                                     <div className="flex items-center space-x-3 p-2 bg-secondary/30 rounded-md border border-border/20 mt-4">
                                         <Avatar className="h-8 w-8"> <AvatarFallback className={`${participantColors[0]} text-primary-foreground text-xs`}> {getInitials(user.email)} </AvatarFallback> </Avatar>
-                                        <span className="text-sm font-medium">{user.email} (Vous)</span>
+                                        <span className="text-sm font-medium">{user.email} (Vous - Créateur)</span>
                                      </div>
                                 )}
                            </CardContent>
@@ -676,7 +710,7 @@ export default function CreateEventPage() {
                                             {(form.getValues('media') || []).map((file, index) => {
                                                 const previewUrl = mediaPreviews[index];
                                                 const progress = uploadProgress[file.name]; 
-                                                const fileTypeIcon = getFileType(file);
+                                                const fileTypeIcon = getFileType(file); // Use local getFileType
 
                                                 return (
                                                     <div key={index} className="relative group border rounded-md p-2 bg-secondary space-y-1">
