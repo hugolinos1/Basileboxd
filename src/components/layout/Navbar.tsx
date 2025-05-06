@@ -48,8 +48,8 @@ export function Navbar() {
             <Image
                 src="https://i.ibb.co/nMGMZNPq/logo2.png"
                 alt="BaliseBoxd Logo"
-                width={28} // Adjusted width
-                height={28} // Adjusted height
+                width={28}
+                height={28}
                 className="object-contain"
                 data-ai-hint="logo diable cornes"
             />
@@ -82,8 +82,8 @@ export function Navbar() {
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                 <Button variant="ghost" className="h-10 w-10 p-0"> {/* Increased button size */}
-                    <Menu className="h-7 w-7" /> {/* Increased icon size */}
+                 <Button variant="ghost" className="h-12 w-12 p-0"> {/* Increased button size */}
+                    <Menu className="h-8 w-8" /> {/* Increased icon size */}
                     <span className="sr-only">Ouvrir le menu utilisateur</span>
                   </Button>
               </DropdownMenuTrigger>
