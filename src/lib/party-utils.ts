@@ -5,13 +5,14 @@ import { Timestamp } from 'firebase/firestore';
 export interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
 
 export interface CommentData {
+    id: string; // Add id field for direct identification
     userId: string;
     email: string;
     avatar?: string | null;
     text: string;
-    timestamp: FirestoreTimestamp | Timestamp;
+    timestamp: FirestoreTimestamp | Timestamp | Date; // Allow Date for easier handling after conversion
     // Include partyId and partyName if fetching comments across parties
-    partyId?: string;
+    partyId: string; // Make partyId mandatory for linking
     partyName?: string;
 }
 
@@ -19,7 +20,7 @@ export interface PartyData {
     id: string;
     name: string;
     description?: string;
-    date: FirestoreTimestamp | Timestamp;
+    date: FirestoreTimestamp | Timestamp | Date; // Allow Date
     location?: string;
     createdBy: string;
     creatorEmail?: string;
@@ -28,8 +29,8 @@ export interface PartyData {
     mediaUrls?: string[];
     coverPhotoUrl?: string;
     ratings?: { [userId: string]: number };
-    comments?: CommentData[];
-    createdAt?: FirestoreTimestamp | Timestamp;
+    comments?: CommentData[]; // Use the updated CommentData interface
+    createdAt?: FirestoreTimestamp | Timestamp | Date; // Allow Date
     // Optional calculated field (not stored in Firestore directly)
     averageRating?: number;
 }
