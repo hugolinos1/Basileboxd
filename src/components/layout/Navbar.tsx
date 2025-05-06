@@ -1,11 +1,12 @@
+// src/components/layout/Navbar.tsx
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image'; // Import Image
+import Image from 'next/image';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users, Menu } from 'lucide-react'; // Added Menu icon
+import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users, Menu } from 'lucide-react';
 import { useFirebase } from '@/context/FirebaseContext';
 import { auth } from '@/config/firebase';
 import { signOut } from 'firebase/auth';
@@ -44,13 +45,12 @@ export function Navbar() {
       <div className="container flex h-14 max-w-screen-2xl items-center justify-between px-4 md:px-6">
         <div className="flex items-center space-x-6"> {/* Container for Logo and Nav Links */}
           <Link href="/" className="flex items-center space-x-2">
-            {/* Replace placeholder with actual logo image */}
             <Image
-                src="https://i.ibb.co/nMGMZNPq/logo2.png" // Updated logo URL
+                src="https://i.ibb.co/nMGMZNPq/logo2.png"
                 alt="BaliseBoxd Logo"
-                width={24} // Adjust width as needed
-                height={24} // Adjust height as needed
-                className="object-contain" // Use contain or cover based on image aspect ratio
+                width={28} // Adjusted width
+                height={28} // Adjusted height
+                className="object-contain"
                 data-ai-hint="logo diable cornes"
             />
             <span className="font-bold text-primary">BaliseBoxd</span>
@@ -82,9 +82,8 @@ export function Navbar() {
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                 {/* Replace Avatar with Menu icon Button */}
-                 <Button variant="ghost" className="h-8 w-8 p-0">
-                    <Menu className="h-6 w-6" /> {/* Increased icon size */}
+                 <Button variant="ghost" className="h-10 w-10 p-0"> {/* Increased button size */}
+                    <Menu className="h-7 w-7" /> {/* Increased icon size */}
                     <span className="sr-only">Ouvrir le menu utilisateur</span>
                   </Button>
               </DropdownMenuTrigger>
