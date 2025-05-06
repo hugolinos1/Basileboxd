@@ -15,13 +15,13 @@ export interface MediaItem {
 }
 
 export interface CommentData {
-    id: string; // Add id field for direct identification
+    id?: string; // Make id optional for new comments before they are saved
     userId: string;
     email: string;
     avatar?: string | null;
     text: string;
-    timestamp: FirestoreTimestamp | Timestamp | Date | FieldValue; // Allow Date for easier handling after conversion & FieldValue
-    partyId: string; // Make partyId mandatory for linking
+    timestamp: Timestamp | FieldValue | Date; // Allow FieldValue for serverTimestamp or Timestamp.now()
+    partyId?: string; // partyId can be optional during creation, added before saving
     partyName?: string;
 }
 

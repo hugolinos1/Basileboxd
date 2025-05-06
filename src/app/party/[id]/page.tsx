@@ -44,8 +44,8 @@ import {
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas';
-import { Skeleton } from '@/components/ui/skeleton';
+import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
+import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 import { Combobox } from '@/components/ui/combobox';
 import type { MediaItem as SharedMediaItem, PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
 
@@ -248,7 +248,7 @@ export default function PartyDetailsPage() {
             const usersSnapshot = await getDocs(usersCollectionRef);
             const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
             setAllUsers(fetchedUsers);
-             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length, fetchedUsers.map(u => ({uid: u.uid, email: u.email, pseudo: u.pseudo, displayName: u.displayName}) ));
+             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length, fetchedUsers.map(u => ({uid: u.uid, email: u.email, pseudo: u.pseudo}) ));
         } catch (error) {
             console.error("[PartyDetailsPage - fetchAllUsers] Erreur lors de la récupération de tous les utilisateurs:", error);
             toast({ title: "Erreur Utilisateurs", description: "Impossible de charger la liste des utilisateurs pour l'ajout.", variant: "destructive" });
@@ -279,7 +279,7 @@ export default function PartyDetailsPage() {
 
    const renderMedia = (item: MediaItem, index: number) => {
      const onError = (e: any) => { console.error(`Erreur média ${item.url}:`, e); setPlayerError(`Erreur chargement média`); }
-     const canDeleteSouvenir = user && item.uploaderId === user.uid;
+     const canDeleteSouvenir = user && (item.uploaderId === user.uid || isAdmin);
 
      let mediaElement: JSX.Element;
      if (item.type === 'video') { mediaElement = ( <div key={item.id || index} className="aspect-video bg-black rounded-lg overflow-hidden relative shadow-md"> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement vidéo</div>} <ReactPlayer url={item.url} controls width="100%" height="100%" onError={onError} className="absolute top-0 left-0" config={{ file: { attributes: { controlsList: 'nodownload' } } }} /> </div> ); }
@@ -337,15 +337,13 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      // Ensure newCommentData matches the Comment interface
       const newCommentData: Omit<Comment, 'id'> = { // Omit id as it's auto-generated
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: serverTimestamp(), // Use FieldValue directly
-        partyId: party.id, // Ensure partyId is included
-        // partyName will be resolved when fetching, or you can denormalize it here if preferred
+        timestamp: Timestamp.now(), // Use Timestamp.now() for client-side timestamp
+        partyId: party.id, 
       };
 
       await addDoc(commentsCollectionRef, newCommentData);
@@ -356,9 +354,7 @@ export default function PartyDetailsPage() {
         console.error('Erreur commentaire:', commentError);
         let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
         if (commentError.code === 'invalid-argument') {
-            if (commentError.message?.includes('Unsupported field value: a custom MessageData object')) {
-                 errorMessage = "Une valeur invalide (MessageData) a été envoyée pour le commentaire. Veuillez vérifier les données.";
-            } else if (commentError.message?.includes('Unsupported field value')) {
+            if (commentError.message?.includes('Unsupported field value')) {
                 errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
             } else if (commentError.message?.includes('serverTimestamp')) {
                 errorMessage = "Erreur de timestamp serveur. Réessayez.";
@@ -371,8 +367,6 @@ export default function PartyDetailsPage() {
         setIsSubmittingComment(false);
     }
 };
-
-
 
 
   // --- Souvenir Upload Handlers ---
@@ -444,7 +438,7 @@ export default function PartyDetailsPage() {
                         type: getMediaFileType(file),
                         uploaderId: user.uid,
                         uploaderEmail: user.email || undefined,
-                        uploadedAt: serverTimestamp() as FieldValue, // Use FieldValue for serverTimestamp
+                        uploadedAt: Timestamp.now(), // Use Timestamp.now() for client-side timestamp
                         fileName: file.name,
                       } as MediaItem; // Cast to MediaItem
                 }
@@ -934,7 +928,7 @@ export default function PartyDetailsPage() {
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
-
+                                   
                                 </div>
                             </div>
                         </div>
