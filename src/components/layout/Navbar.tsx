@@ -82,7 +82,7 @@ export function Navbar() {
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                 <Button variant="ghost" className="h-12 w-12 p-0"> {/* Increased button size */}
+                 <Button variant="default" className="h-12 w-12 p-0"> {/* Changed variant to default */}
                     <Menu className="h-8 w-8" /> {/* Increased icon size */}
                     <span className="sr-only">Ouvrir le menu utilisateur</span>
                   </Button>
