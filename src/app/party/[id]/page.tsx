@@ -36,6 +36,7 @@ import {
 } from '@/services/media-uploader';
 import { coverPhotoSchema } from '@/services/validation-schemas'; 
 import { Skeleton } from '@/components/ui/skeleton'; 
+import { Combobox } from '@/components/ui/combobox'; // Import Combobox
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
@@ -56,19 +57,21 @@ interface PartyData {
     location: string;
     createdBy: string;
     creatorEmail: string;
-    participants: string[];
-    participantEmails?: string[];
+    participants: string[]; // Array of UIDs
+    participantEmails?: string[]; // Array of emails
     mediaUrls: string[];
     coverPhotoUrl?: string;
     ratings: { [userId: string]: number };
-    comments: Comment[];
+    comments: Comment[]; // Use the Comment type defined above
     createdAt: FirestoreTimestamp | Timestamp;
 }
 // Interface for User data fetched from Firestore 'users' collection
 interface UserProfile {
+    id: string; // Document ID
     uid: string;
     email: string;
     displayName?: string;
+    pseudo?: string;
     avatarUrl?: string;
 }
 
@@ -102,6 +105,7 @@ export default function PartyDetailsPage() {
   const { toast } = useToast();
 
   const [party, setParty] = useState<PartyData | null>(null);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]); // State to store all users for Combobox
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [comment, setComment] = useState('');
@@ -120,7 +124,6 @@ export default function PartyDetailsPage() {
   const [newCoverPreview, setNewCoverPreview] = useState<string | null>(null);
   const [isUploadingCover, setIsUploadingCover] = useState(false);
   const [showAddParticipantDialog, setShowAddParticipantDialog] = useState(false);
-  const [participantEmail, setParticipantEmail] = useState('');
   const [isAddingParticipant, setIsAddingParticipant] = useState(false);
   const [showEditPartyNameDialog, setShowEditPartyNameDialog] = useState(false);
   const [newPartyName, setNewPartyName] = useState('');
@@ -202,12 +205,28 @@ export default function PartyDetailsPage() {
         setPageLoading(false);
     });
 
+     // Fetch all users for participant Combobox
+     const fetchAllUsers = async () => {
+        if (!db) return;
+        try {
+            const usersCollectionRef = collection(db, 'users');
+            const usersSnapshot = await getDocs(usersCollectionRef);
+            const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
+            setAllUsers(fetchedUsers);
+        } catch (error) {
+            console.error("Erreur lors de la récupération de tous les utilisateurs:", error);
+            toast({ title: "Erreur Utilisateurs", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive" });
+        }
+    };
+    fetchAllUsers();
+
+
     return () => {
         console.log(`[PartyDetailsPage] Nettoyage du listener snapshot pour ${partyId}`);
         unsubscribe();
     }
 
-  }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage]);
+  }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage, toast]); // Added toast to dependencies
 
    useEffect(() => {
         return () => {
@@ -245,6 +264,8 @@ export default function PartyDetailsPage() {
      setIsRating(true);
      try {
          const partyDocRef = doc(db, 'parties', party.id);
+         // When rating, we update a map `ratings` where the key is the user's UID
+         // and the value is their rating.
          await updateDoc(partyDocRef, {
              [`ratings.${user.uid}`]: newRating
          });
@@ -270,7 +291,7 @@ export default function PartyDetailsPage() {
     try {
       const partyDocRef = doc(db, 'parties', party.id);
       // Use serverTimestamp directly for FieldValue type
-      const newComment: Comment = {
+      const newCommentData: Comment = {
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null, // Ensure null instead of undefined
@@ -279,7 +300,7 @@ export default function PartyDetailsPage() {
       };
 
       await updateDoc(partyDocRef, {
-        comments: arrayUnion(newComment)
+        comments: arrayUnion(newCommentData)
       });
 
       setComment('');
@@ -293,6 +314,8 @@ export default function PartyDetailsPage() {
             } else if (commentError.message?.includes('serverTimestamp')) {
                 errorMessage = "Erreur de timestamp serveur. Réessayez.";
             }
+        } else if (commentError.code === 'permission-denied') {
+            errorMessage = "Permission refusée. Vous ne pouvez peut-être pas commenter cet événement.";
         }
         toast({ title: 'Erreur', description: errorMessage, variant: 'destructive' });
     } finally {
@@ -412,7 +435,7 @@ export default function PartyDetailsPage() {
                 if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
                 setNewCoverPreview(URL.createObjectURL(file));
             } else {
-                const errorMessage = validationResult.error?.errors[0]?.message || 'Fichier invalide.';
+                const errorMessage = (validationResult as any).error?.errors[0]?.message || 'Fichier invalide.';
                 toast({ title: "Erreur Photo de Couverture", description: errorMessage, variant: "destructive" });
                 setNewCoverFile(null);
                 if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
@@ -467,50 +490,38 @@ export default function PartyDetailsPage() {
     };
 
     // --- Add Participant Handler ---
-    const handleAddParticipant = async () => {
-        if (!user || !party || !canManageParticipants || !db || !participantEmail.trim()) {
-            toast({ title: 'Erreur', description: 'Permissions insuffisantes ou informations manquantes.', variant: 'destructive' });
+    const handleAddParticipant = async (selectedUserId: string | null) => {
+        if (!user || !party || !canManageParticipants || !db || !selectedUserId) {
+            toast({ title: 'Erreur', description: 'Permissions insuffisantes ou utilisateur non sélectionné.', variant: 'destructive' });
             return;
         }
 
         setIsAddingParticipant(true);
-        const emailToAdd = participantEmail.trim().toLowerCase();
+        const userToAdd = allUsers.find(u => u.uid === selectedUserId);
+
+        if (!userToAdd) {
+            toast({ title: 'Utilisateur non trouvé', description: 'Impossible de trouver les détails de l\'utilisateur sélectionné.', variant: 'destructive' });
+            setIsAddingParticipant(false);
+            return;
+        }
+        
+        const emailToAdd = userToAdd.email.toLowerCase();
 
          if (party.participantEmails?.map(e => e.toLowerCase()).includes(emailToAdd)) {
-            toast({ title: 'Info', description: `${emailToAdd} est déjà participant.`, variant: 'default' });
+            toast({ title: 'Info', description: `${userToAdd.pseudo || userToAdd.displayName || userToAdd.email} est déjà participant.`, variant: 'default' });
             setIsAddingParticipant(false);
-            setParticipantEmail('');
             setShowAddParticipantDialog(false);
             return;
          }
 
         try {
-             console.log(`Recherche de l'utilisateur avec l'email : ${emailToAdd}`);
-             const usersRef = collection(db, 'users');
-             const q = query(usersRef, where("email", "==", emailToAdd), limit(1));
-             const querySnapshot = await getDocs(q);
-
-             if (querySnapshot.empty) {
-                 console.log(`Utilisateur non trouvé avec l'email : ${emailToAdd}`);
-                 toast({ title: 'Utilisateur non trouvé', description: `Aucun utilisateur trouvé avec l'email ${emailToAdd}.`, variant: 'destructive' });
-                 setIsAddingParticipant(false);
-                 return;
-             }
-
-             const userDoc = querySnapshot.docs[0];
-             const userData = userDoc.data() as UserProfile;
-             const userIdToAdd = userDoc.id;
-
-              console.log(`Utilisateur trouvé : ${userData.displayName || userData.email} (UID: ${userIdToAdd})`);
-
              const partyDocRef = doc(db, 'parties', party.id);
              await updateDoc(partyDocRef, {
-                 participants: arrayUnion(userIdToAdd),
-                 participantEmails: arrayUnion(userData.email)
+                 participants: arrayUnion(userToAdd.uid), // Add UID
+                 participantEmails: arrayUnion(userToAdd.email) // Add email
              });
 
-             toast({ title: 'Participant ajouté', description: `${userData.displayName || userData.email} a été ajouté à l'événement.` });
-             setParticipantEmail('');
+             toast({ title: 'Participant ajouté', description: `${userToAdd.pseudo || userToAdd.displayName || userToAdd.email} a été ajouté à l'événement.` });
              setShowAddParticipantDialog(false);
 
         } catch (error: any) {
@@ -545,6 +556,13 @@ export default function PartyDetailsPage() {
             setIsUpdatingPartyName(false);
         }
     };
+
+    const comboboxOptions = allUsers
+    .filter(u => !party?.participants.includes(u.uid)) // Filter out existing participants
+    .map(u => ({
+        value: u.uid,
+        label: u.pseudo || u.displayName || u.email || u.uid,
+    }));
 
 
   // --- Render Logic ---
@@ -801,7 +819,7 @@ export default function PartyDetailsPage() {
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
-                                    
+                                     {/* <Button onClick={handleGetServerTime} size="sm" variant="outline">Tester Timestamp</Button> */}
                                 </div>
                             </div>
                         </div>
@@ -845,25 +863,25 @@ export default function PartyDetailsPage() {
                                      <DialogContent className="sm:max-w-[425px]">
                                         <DialogHeader>
                                             <DialogTitle>Ajouter un Participant</DialogTitle>
-                                            <DialogDescription> Entrez l'adresse email de l'utilisateur à ajouter. </DialogDescription>
+                                            <DialogDescription> Sélectionnez un utilisateur dans la liste pour l'ajouter à l'événement. </DialogDescription>
                                         </DialogHeader>
                                          <div className="grid gap-4 py-4">
-                                             <Input
-                                                id="participant-email"
-                                                type="email"
-                                                placeholder="email@exemple.com"
-                                                value={participantEmail}
-                                                onChange={(e) => setParticipantEmail(e.target.value)}
-                                                className="col-span-3" />
+                                             <Combobox
+                                                options={comboboxOptions}
+                                                onSelect={(userId) => {
+                                                    if (userId) handleAddParticipant(userId);
+                                                }}
+                                                placeholder="Rechercher un utilisateur..."
+                                                searchPlaceholder="Tapez un nom ou email..."
+                                                emptyPlaceholder="Aucun utilisateur disponible ou tous déjà ajoutés."
+                                                triggerIcon={<UserPlus className="mr-2 h-4 w-4" />}
+                                            />
                                          </div>
                                         <DialogFooter>
                                              <DialogClose asChild>
                                                  <Button type="button" variant="outline">Annuler</Button>
                                              </DialogClose>
-                                             <Button type="button" onClick={handleAddParticipant} disabled={!participantEmail.trim() || isAddingParticipant}>
-                                                 {isAddingParticipant ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                                                 Ajouter
-                                             </Button>
+                                             {/* Le bouton "Ajouter" n'est plus nécessaire ici car la sélection dans Combobox déclenche l'ajout */}
                                         </DialogFooter>
                                     </DialogContent>
                                 </Dialog>
@@ -893,3 +911,4 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
