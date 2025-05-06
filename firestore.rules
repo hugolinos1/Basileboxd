@@ -1,89 +1,57 @@
+
 rules_version = '2';
+
 service cloud.firestore {
+  // Fonction helper pour vérifier si l'utilisateur authentifié est l'administrateur
+  function isAdmin() {
+    return request.auth != null && request.auth.token.email == "hugues.rabier@gmail.com";
+  }
+
   match /databases/{database}/documents {
     match /parties/{partyId} {
-      // Events: Allow reading based on your desired visibility (public or authenticated)
-      allow read: if true; // Set to 'request.auth != null;' to restrict reads to logged-in users
+      // Lecture : autorisée pour tous (connectés ou non, selon votre choix précédent)
+      allow read: if true;
 
-      // Allow authenticated users to create events, with basic validation
+      // Création : autorisée pour les utilisateurs connectés avec validation des données
       allow create: if request.auth != null
                    && request.resource.data.name is string
                    && request.resource.data.name.size() > 2
                    && request.resource.data.date is timestamp
                    && request.resource.data.createdBy == request.auth.uid;
 
-      // Allow updates under specific conditions
-      allow update: if request.auth != null && (
-                      // Condition 1: Creator updates core party details (name, date, etc.)
-                      (request.auth.uid == resource.data.createdBy &&
-                       // Check that ONLY allowed fields are being changed by the creator
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'date', 'location', 'coverPhotoUrl' /* Add other fields creator can edit */]) &&
-                       // Add validation for the fields being updated
-                       request.resource.data.name is string &&
-                       request.resource.data.name.size() > 2 &&
-                       request.resource.data.date is timestamp
-                       // Add more validation as needed...
-                      )
-                      ||
-                      // Condition 2: Any authenticated user updates ONLY their own rating
-                      (
-                        // Check that the update ONLY affects the 'ratings' field map
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']) &&
-                        // Check that within 'ratings', ONLY the user's own UID key is being changed
-                        request.resource.data.ratings.diff(resource.data.ratings).affectedKeys().hasOnly([request.auth.uid]) &&
-                        // Ensure the new rating value is a number within the valid range
-                        request.resource.data.ratings[request.auth.uid] is number &&
-                        request.resource.data.ratings[request.auth.uid] >= 0.5 &&
-                        request.resource.data.ratings[request.auth.uid] <= 5
-                      )
-                      ||
-                      // Condition 3: Any authenticated user adding souvenirs (mediaUrls)
-                      (
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaUrls']) &&
-                        request.resource.data.mediaUrls is list &&
-                        // Basic check: Ensure it's an addition, not replacement/removal (can be refined)
-                        request.resource.data.mediaUrls.size() >= resource.data.mediaUrls.size()
-                        // Add validation for URL format if possible/needed
-                      )
-                      ||
-                      // Condition 4: Creator adding participants
-                      (
-                        request.auth.uid == resource.data.createdBy &&
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants', 'participantEmails']) &&
-                        request.resource.data.participants is list &&
-                        request.resource.data.participantEmails is list &&
-                        // Basic check: Ensure it's an addition
-                        request.resource.data.participants.size() >= resource.data.participants.size()
-                      )
-                   );
+      // Mise à jour : autorisée pour le créateur OU l'administrateur
+      // Ceci est important car la suppression d'un média est une mise à jour (arrayRemove)
+      allow update: if request.auth != null &&
+                     (request.auth.uid == resource.data.createdBy || isAdmin()) &&
+                     request.resource.data.name is string &&
+                     request.resource.data.name.size() > 2 &&
+                     request.resource.data.date is timestamp;
 
-      // Disallow client-side deletion
-      allow delete: if false;
+      // Suppression : autorisée uniquement pour l'administrateur
+      allow delete: if isAdmin();
 
-      // Comments subcollection rules
+      // Sous-collection des commentaires
       match /comments/{commentId} {
-          // Allow authenticated users to create comments
-          allow create: if request.auth != null
-                       && request.resource.data.userId == request.auth.uid // Ensure user ID matches auth
-                       && request.resource.data.text is string
-                       && request.resource.data.text.size() > 0
-                       && request.resource.data.timestamp == request.time; // Ensure server timestamp is used
-          // Allow anyone to read comments
-          allow read : if true;
-          // Disallow updating or deleting comments from client
-          allow update, delete: if false;
+        // Lecture des commentaires : autorisée pour tous
+        allow read: if true;
+        // Création des commentaires : autorisée pour les utilisateurs connectés
+        allow create: if request.auth != null;
+        // Suppression des commentaires : autorisée pour l'auteur du commentaire OU l'administrateur
+        allow delete: if request.auth != null && (isAdmin() || request.auth.uid == resource.data.userId);
+        // Modification des commentaires : interdite pour l'instant
+        allow update: if false;
       }
     }
 
     match /users/{userId} {
-      // Users: Allow anyone to read profiles
+      // Profils utilisateurs : lecture autorisée pour tous
       allow read: if true;
-      // Allow users to create their own profile document
+      // Création de profil : autorisée pour l'utilisateur lui-même
       allow create: if request.auth != null && request.auth.uid == userId;
-      // Allow users to update their own profile document
+      // Mise à jour de profil : autorisée pour l'utilisateur lui-même
       allow update: if request.auth != null && request.auth.uid == userId;
-      // Disallow deleting user profiles from client
-      allow delete: if false;
+      // Suppression de profil : autorisée uniquement pour l'administrateur
+      allow delete: if isAdmin();
     }
   }
 }
