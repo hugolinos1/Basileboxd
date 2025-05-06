@@ -114,7 +114,7 @@ export default function PartyDetailsPage() {
   const [userRating, setUserRating] = useState<number>(0);
   const [averageRating, setAverageRating] = useState<number>(0);
   const [playerError, setPlayerError] = useState<string | null>(null);
-  const [showAddSouvenirDialog, setShowAddSouvenirDialog] = useState(false);
+  const [showAddSouvenirDialog, setShowAddSouvenirDialog] = useState(showAddSouvenirDialog);
   const [souvenirFiles, setSouvenirFiles] = useState<File[]>([]);
   const [souvenirPreviews, setSouvenirPreviews] = useState<string[]>([]);
   const [souvenirUploadProgress, setSouvenirUploadProgress] = useState<Record<string, number>>({});
@@ -212,11 +212,11 @@ export default function PartyDetailsPage() {
 
   }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage]); 
 
-  // Fetch all users for participant Combobox - runs once when firebase is initialized
+  // Fetch all users for participant Combobox - runs once when firebase is initialized and db is available
    useEffect(() => {
     const fetchAllUsers = async () => {
-        if (!firebaseInitialized || !db) {
-             console.log("[PartyDetailsPage - fetchAllUsers] Firebase pas prêt. Attente...");
+        if (!db) { // Ensure db is available
+             console.log("[PartyDetailsPage - fetchAllUsers] DB pas prêt. Attente...");
              return;
         }
         console.log("[PartyDetailsPage - fetchAllUsers] Récupération de tous les utilisateurs...");
@@ -225,14 +225,17 @@ export default function PartyDetailsPage() {
             const usersSnapshot = await getDocs(usersCollectionRef);
             const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
             setAllUsers(fetchedUsers);
-             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length);
+             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length, fetchedUsers);
         } catch (error) {
             console.error("[PartyDetailsPage - fetchAllUsers] Erreur lors de la récupération de tous les utilisateurs:", error);
             toast({ title: "Erreur Utilisateurs", description: "Impossible de charger la liste des utilisateurs pour l'ajout.", variant: "destructive" });
         }
     };
-    fetchAllUsers();
-   }, [firebaseInitialized, toast]); // Rerun if firebaseInitialized changes
+
+    if (firebaseInitialized && db) { // Run only when firebase is initialized and db is available
+        fetchAllUsers();
+    }
+   }, [firebaseInitialized, toast]); // Removed db from here, db check is inside the effect
 
    useEffect(() => {
         return () => {
@@ -512,6 +515,8 @@ export default function PartyDetailsPage() {
         }
 
         setIsAddingParticipant(true);
+        console.log("[handleAddParticipant] Recherche de l'utilisateur dans `allUsers`. UID recherché:", selectedUserId);
+        console.log("[handleAddParticipant] `allUsers` actuellement:", allUsers); // Log the current state of allUsers
         const userToAdd = allUsers.find(u => u.uid === selectedUserId);
         console.log("[handleAddParticipant] Utilisateur trouvé dans allUsers:", userToAdd);
 
@@ -936,4 +941,5 @@ function cn(...classes: (string | undefined | null | false)[]): string {
 
 
 
+    
     
