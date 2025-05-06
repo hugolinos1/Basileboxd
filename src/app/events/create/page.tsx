@@ -18,12 +18,12 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin } from 'lucide-react';
+import { CalendarIcon, Loader2, UserPlus, X, Upload, Image as ImageIcon, Star, MapPin, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, query, where, getDocs, limit } from 'firebase/firestore';
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { useRouter } from 'next/navigation';
@@ -34,10 +34,10 @@ import {
   MAX_FILE_SIZE,
   ACCEPTED_MEDIA_TYPES,
   ACCEPTED_COVER_PHOTO_TYPES,
-  getFileType, // Import getFileType
+  getFileType, 
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
+import { coverPhotoSchema } from '@/services/validation-schemas'; 
 
 
 import { Progress } from '@/components/ui/progress';
@@ -45,14 +45,13 @@ import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Video, Music, File as FileIcon } from 'lucide-react';
-import { Slider } from '@/components/ui/slider'; // Added Slider import
+import { Slider } from '@/components/ui/slider'; 
 
 // --- Schema Definition ---
 const isBrowser = typeof window !== 'undefined';
 
-// Use zod directly for file schema validation
 const fileSchemaClient = isBrowser ? z.instanceof(File, { message: 'Veuillez télécharger un fichier' }) : z.any();
-const fileSchemaServer = z.any(); // Fallback for SSR where File is not available
+const fileSchemaServer = z.any(); 
 const fileSchema = isBrowser ? fileSchemaClient : fileSchemaServer;
 
 
@@ -64,11 +63,11 @@ const mediaFileSchema = fileSchema.refine(
         if (fileType === 'image') maxSize = MAX_FILE_SIZE.image;
         else if (fileType === 'video') maxSize = MAX_FILE_SIZE.video;
         else if (fileType === 'audio') maxSize = MAX_FILE_SIZE.audio;
-        else return ACCEPTED_MEDIA_TYPES.includes(file.type); // Allow other accepted types without specific size check here
+        else return ACCEPTED_MEDIA_TYPES.includes(file.type); 
 
         return ACCEPTED_MEDIA_TYPES.includes(file.type) && file.size <= maxSize;
     },
-    (file) => { // Custom error message function
+    (file) => { 
         if (!isBrowser || !(file instanceof File)) return { message: 'Fichier invalide.' };
         const fileType = getFileType(file);
         let maxSizeMB = 0;
@@ -79,11 +78,10 @@ const mediaFileSchema = fileSchema.refine(
         if (!ACCEPTED_MEDIA_TYPES.includes(file.type)) {
             return { message: `Type de fichier non supporté (${file.type}).` };
         }
-        // Check if fileType is a key of MAX_FILE_SIZE before accessing it
-        if (maxSizeMB > 0 && fileType in MAX_FILE_SIZE && file.size > MAX_FILE_SIZE[fileType as keyof typeof MAX_FILE_SIZE]) { // Added type assertion
+        if (maxSizeMB > 0 && fileType in MAX_FILE_SIZE && file.size > MAX_FILE_SIZE[fileType as keyof typeof MAX_FILE_SIZE]) { 
              return { message: `Fichier trop volumineux (${(file.size / (1024 * 1024)).toFixed(1)}Mo). Max ${maxSizeMB.toFixed(1)}Mo.` };
         }
-        return { message: 'Fichier invalide.' }; // Default fallback
+        return { message: 'Fichier invalide.' }; 
     }
 );
 
@@ -93,16 +91,15 @@ const formSchema = z.object({
   description: z.string().max(500).optional(),
   date: z.date({ required_error: 'Une date pour la soirée est requise.' }),
   location: z.string().max(150).optional(),
-  participants: z.array(z.string().email()).optional(), // Feature in development
-  media: z.array(mediaFileSchema).optional(), // Array of files for general media
-  coverPhoto: coverPhotoSchema, // Use imported schema
+  participants: z.array(z.string().email({ message: "Veuillez entrer une adresse email valide." })).optional(),
+  media: z.array(mediaFileSchema).optional(), 
+  coverPhoto: coverPhotoSchema, 
   initialRating: z.number().min(0.5).max(5).step(0.5).optional(),
   initialComment: z.string().max(500).optional(),
 });
 
 type EventFormValues = z.infer<typeof formSchema>;
 
-// Couleurs Tailwind pour les avatars des participants
 const participantColors = [
   'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600',
   'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600',
@@ -115,20 +112,13 @@ export default function CreateEventPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({}); // { fileName: progress }
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({}); 
   const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
   const [coverPhotoPreview, setCoverPhotoPreview] = useState<string | null>(null);
   const [currentRating, setCurrentRating] = useState<number>(0);
+  const [currentParticipantEmail, setCurrentParticipantEmail] = useState('');
+  const [addedParticipantEmails, setAddedParticipantEmails] = useState<string[]>([]);
 
-  // --- Mock Participants Data --- (Keep for visual representation)
-  const [mockParticipants] = useState([
-    { id: '1', name: 'Thomas', status: 'En attente', initials: 'T' },
-    { id: '2', name: 'Sophie', status: 'En attente', initials: 'S' },
-    { id: '3', name: 'Marc', status: 'En attente', initials: 'M' },
-    { id: '4', name: 'Julie', status: 'En attente', initials: 'J' },
-    { id: '5', name: 'Alex', status: 'En attente', initials: 'A' },
-  ]);
-   // ----------------------------
 
   useEffect(() => {
     if (!user && !isLoading) {
@@ -152,7 +142,6 @@ export default function CreateEventPage() {
     },
   });
 
-    // Watch form values for the preview card
     const watchedName = form.watch('name');
     const watchedDate = form.watch('date');
     const watchedLocation = form.watch('location');
@@ -164,14 +153,11 @@ export default function CreateEventPage() {
     }, [watchedRating]);
 
 
-   // Media File Handling
    const handleMediaFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
         if (files) {
             const currentFiles = form.getValues('media') || [];
             const newFilesArray = Array.from(files);
-
-            // Validate each new file individually
             const validNewFiles: File[] = [];
             const newPreviews: string[] = [];
 
@@ -181,7 +167,6 @@ export default function CreateEventPage() {
                     validNewFiles.push(file);
                     newPreviews.push(URL.createObjectURL(file));
                 } else {
-                     // Show specific error from Zod refinement
                      const errorMessage = validationResult.error.errors[0]?.message || 'Fichier invalide.';
                     toast({
                         title: `Erreur Fichier Média: ${file.name}`,
@@ -192,7 +177,6 @@ export default function CreateEventPage() {
                 }
             });
 
-            // Update form state and previews only with valid files
             if (validNewFiles.length > 0) {
                  const combinedFiles = [...currentFiles, ...validNewFiles];
                  form.setValue('media', combinedFiles, { shouldValidate: true });
@@ -200,7 +184,6 @@ export default function CreateEventPage() {
             }
 
 
-            // Clear the file input value
             if (event.target) {
               (event.target as HTMLInputElement).value = '';
             }
@@ -219,7 +202,6 @@ export default function CreateEventPage() {
         }
         setMediaPreviews(prev => prev.filter((_, i) => i !== index));
 
-        // Remove progress entry if it exists
          if (fileToRemove?.name && uploadProgress[fileToRemove.name] !== undefined) {
              setUploadProgress(prev => {
                  const newProgress = { ...prev };
@@ -230,13 +212,10 @@ export default function CreateEventPage() {
         console.log(`Média retiré : ${fileToRemove?.name}`);
     };
 
-     // Cover Photo Handling
     const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const isBrowser = typeof window !== 'undefined';
         const file = event.target.files?.[0];
         if (file) {
-             // Validate the file against the schema before setting value and preview
-             // Use safeParse for better type checking if needed
              const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true };
 
              if (validationResult.success) {
@@ -248,7 +227,7 @@ export default function CreateEventPage() {
                  setCoverPhotoPreview(newPreviewUrl);
                  console.log("Photo de couverture valide ajoutée.");
              } else {
-                 const errorMessage = validationResult.error?.errors[0]?.message || 'Validation a échoué.'; // Added optional chaining
+                 const errorMessage = validationResult.error?.errors[0]?.message || 'Validation a échoué.'; 
                  console.error("Erreur photo de couverture:", errorMessage);
                  form.setError('coverPhoto', { type: 'manual', message: errorMessage });
                  toast({
@@ -256,19 +235,16 @@ export default function CreateEventPage() {
                     description: errorMessage,
                     variant: "destructive"
                  });
-                 // Reset field and preview
                  form.setValue('coverPhoto', undefined, { shouldValidate: true });
                  if (coverPhotoPreview) { URL.revokeObjectURL(coverPhotoPreview); }
                  setCoverPhotoPreview(null);
              }
         } else {
-            // Handle case where no file is selected (clearing the selection)
             form.setValue('coverPhoto', undefined, { shouldValidate: true });
             if (coverPhotoPreview) { URL.revokeObjectURL(coverPhotoPreview); }
             setCoverPhotoPreview(null);
             console.log("Sélection de photo de couverture annulée.");
         }
-        // Clear file input value
          if (event.target) {
              (event.target as HTMLInputElement).value = '';
          }
@@ -287,7 +263,6 @@ export default function CreateEventPage() {
     };
 
 
-    // Cleanup previews on unmount
     useEffect(() => {
         return () => {
             mediaPreviews.forEach(url => URL.revokeObjectURL(url));
@@ -296,6 +271,41 @@ export default function CreateEventPage() {
             }
         }
     }, [mediaPreviews, coverPhotoPreview]);
+
+    const getInitials = (email: string | null | undefined): string => {
+        if (!email) return '?';
+        const parts = email.split('@')[0];
+        return parts[0]?.toUpperCase() || '?';
+    };
+
+    const handleAddParticipant = () => {
+        const emailToAdd = currentParticipantEmail.trim().toLowerCase();
+        if (!emailToAdd) {
+            toast({ title: "Email vide", description: "Veuillez entrer une adresse email.", variant: "warning" });
+            return;
+        }
+        if (!z.string().email().safeParse(emailToAdd).success) {
+             toast({ title: "Email invalide", description: "Veuillez entrer une adresse email valide.", variant: "destructive" });
+            return;
+        }
+        if (addedParticipantEmails.includes(emailToAdd)) {
+            toast({ title: "Participant déjà ajouté", description: `${emailToAdd} est déjà dans la liste.`, variant: "default" });
+            return;
+        }
+        if (user && emailToAdd === user.email?.toLowerCase()) {
+             toast({ title: "Créateur déjà participant", description: "Vous êtes automatiquement inclus en tant que créateur.", variant: "default" });
+             return;
+        }
+
+        setAddedParticipantEmails(prev => [...prev, emailToAdd]);
+        form.setValue('participants', [...(form.getValues('participants') || []), emailToAdd], { shouldValidate: true });
+        setCurrentParticipantEmail('');
+    };
+
+    const removeParticipant = (emailToRemove: string) => {
+        setAddedParticipantEmails(prev => prev.filter(email => email !== emailToRemove));
+        form.setValue('participants', (form.getValues('participants') || []).filter(email => email !== emailToRemove), { shouldValidate: true });
+    };
 
 
   async function onSubmit(values: EventFormValues) {
@@ -306,7 +316,32 @@ export default function CreateEventPage() {
     setUploadProgress({});
 
     try {
-        // 1. Create party document without media/cover URLs first
+        // Resolve participant emails to UIDs
+        const participantUids: string[] = [user.uid]; // Creator is always a participant
+        const participantEmailsForStorage: string[] = [user.email || '']; // Creator's email
+
+        if (values.participants && values.participants.length > 0) {
+            const usersRef = collection(db, 'users');
+            for (const email of values.participants) {
+                if (email.toLowerCase() === user.email?.toLowerCase()) continue; // Skip creator's email if manually added
+                
+                const q = query(usersRef, where("email", "==", email.toLowerCase()), limit(1));
+                const querySnapshot = await getDocs(q);
+                if (!querySnapshot.empty) {
+                    const userDoc = querySnapshot.docs[0];
+                    if (!participantUids.includes(userDoc.id)) {
+                        participantUids.push(userDoc.id);
+                    }
+                    if (!participantEmailsForStorage.includes(email.toLowerCase())) {
+                         participantEmailsForStorage.push(email.toLowerCase());
+                    }
+                } else {
+                    toast({ title: 'Participant non trouvé', description: `L'utilisateur avec l'email ${email} n'a pas été trouvé.`, variant: 'warning' });
+                }
+            }
+        }
+
+
         const partyData: any = {
             name: values.name,
             description: values.description || '',
@@ -314,10 +349,10 @@ export default function CreateEventPage() {
             location: values.location || '',
             createdBy: user.uid,
             creatorEmail: user.email,
-            participants: [user.uid], // Creator is always a participant
-            participantEmails: [user.email], // Store emails
-            mediaUrls: [], // Initialize as empty
-            coverPhotoUrl: '', // Initialize as empty
+            participants: participantUids,
+            participantEmails: participantEmailsForStorage,
+            mediaUrls: [], 
+            coverPhotoUrl: '', 
             ratings: {},
             comments: [],
             createdAt: serverTimestamp(),
@@ -332,7 +367,7 @@ export default function CreateEventPage() {
                 email: user.email || 'Anonyme',
                 avatar: user.photoURL || undefined,
                 text: values.initialComment.trim(),
-                timestamp: serverTimestamp() // Let Firestore handle the timestamp
+                timestamp: serverTimestamp() 
             };
         }
 
@@ -343,13 +378,11 @@ export default function CreateEventPage() {
              try {
                  await updateDoc(partyDocRef, { comments: arrayUnion(initialCommentData) });
              } catch (commentError: any) {
-                 // Log but don't block the event creation if comment fails
                  console.error("Erreur lors de l'ajout du commentaire initial :", commentError);
                  toast({ title: 'Avertissement', description: 'Le commentaire initial n\'a pas pu être sauvegardé.', variant: 'warning' });
              }
         }
 
-        // 2. Upload Cover Photo (if provided) using centralized uploader
         let coverPhotoUrl = '';
         if (values.coverPhoto) {
             try {
@@ -357,10 +390,8 @@ export default function CreateEventPage() {
                 coverPhotoUrl = await uploadFile(
                     values.coverPhoto,
                     partyId,
-                    true, // isCover = true
+                    true, 
                     (progress) => {
-                         // Optionally update progress for cover photo specifically if needed
-                         // setUploadProgress(prev => ({ ...prev, [`cover_${values.coverPhoto.name}`]: progress }));
                          console.log(`Progression couverture : ${progress}%`);
                     }
                  );
@@ -371,11 +402,9 @@ export default function CreateEventPage() {
                     description: error.message || 'Impossible de téléverser le fichier.',
                     variant: 'destructive',
                 });
-                 // Continue without cover photo
             }
         }
 
-        // 3. Upload Media Files (if any) using centralized uploader
          const mediaUrls: string[] = [];
          if (values.media && values.media.length > 0) {
               console.log(`Téléversement de ${values.media.length} fichier(s) média...`);
@@ -383,7 +412,7 @@ export default function CreateEventPage() {
                   uploadFile(
                       file,
                       partyId,
-                      false, // isCover = false
+                      false, 
                       (progress) => setUploadProgress(prev => ({ ...prev, [file.name]: progress }))
                   ).catch(error => {
                      toast({
@@ -391,7 +420,7 @@ export default function CreateEventPage() {
                          description: error.message || 'Impossible de téléverser le fichier.',
                          variant: 'destructive',
                      });
-                     setUploadProgress(prev => ({ ...prev, [file.name]: -1 })); // Mark as error
+                     setUploadProgress(prev => ({ ...prev, [file.name]: -1 })); 
                      return null;
                  })
              );
@@ -402,15 +431,12 @@ export default function CreateEventPage() {
                  toast({ title: "Certains téléversements ont échoué", description: "Vérifiez les fichiers marqués comme échoués.", variant: 'warning' });
              }
              if (values.media.length > 0 && mediaUrls.length === 0 && !coverPhotoUrl) {
-                  // Decide if this is a critical failure - perhaps allow event creation anyway?
-                  // throw new Error("Tous les téléversements de médias ont échoué. Création de l'événement annulée.");
                   toast({ title: 'Échec critique', description: "Tous les téléversements de médias ont échoué. L'événement a été créé sans média.", variant: 'destructive' });
              }
          }
 
-        // 4. Update party document with URLs
          await updateDoc(partyDocRef, {
-            mediaUrls: mediaUrls, // Use arrayUnion if adding to existing? For creation, set directly.
+            mediaUrls: mediaUrls, 
             coverPhotoUrl: coverPhotoUrl || ''
          });
 
@@ -431,28 +457,21 @@ export default function CreateEventPage() {
 
    if (!user && !isLoading) { return <div className="container mx-auto px-4 py-12 text-center">Redirection vers la connexion...</div>; }
 
-  // --- JSX Structure (largely unchanged, but updates to media section for progress) ---
   return (
     <div className="container mx-auto px-4 py-12 max-w-6xl">
         <h1 className="text-3xl font-bold mb-8 text-center text-primary">Créer un Nouvel Événement</h1>
         <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-                 {/* Column 1: Basic Info, Cover Photo, Participants */}
                  <div className="lg:col-span-2 space-y-8">
-                      {/* --- Informations de base Card --- */}
                       <Card className="bg-card border border-border">
                           <CardHeader className="flex flex-row items-center space-x-2 pb-4">
                                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">1</div>
                                <CardTitle className="text-lg font-semibold">Informations de base</CardTitle>
                           </CardHeader>
                           <CardContent className="space-y-6">
-                                {/* FormField for name */}
                                 <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel>Nom de la soirée *</FormLabel> <FormControl> <Input placeholder="Ex : Anniversaire de Léa" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/> </FormControl> <FormMessage /> </FormItem> )}/>
-                                {/* FormField for description */}
-                                <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl> <div><Textarea placeholder="Décrivez votre soirée..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" {...field}/></div> </FormControl> <FormMessage /> </FormItem> )}/>
+                                <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl> <Textarea placeholder="Décrivez votre soirée..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" {...field}/> </FormControl> <FormMessage /> </FormItem> )}/>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* FormField for date */}
                                      <FormField
                                         control={form.control}
                                         name="date"
@@ -480,7 +499,6 @@ export default function CreateEventPage() {
                                                         mode="single"
                                                         selected={field.value}
                                                         onSelect={field.onChange}
-                                                        // No disabled prop, allow any date
                                                         initialFocus
                                                     />
                                                 </PopoverContent>
@@ -489,61 +507,57 @@ export default function CreateEventPage() {
                                             </FormItem>
                                         )}
                                         />
-                                    {/* FormField for location */}
                                       <FormField control={form.control} name="location" render={({ field }) => ( <FormItem> <FormLabel>Lieu (Optionnel)</FormLabel> <FormControl> <Input placeholder="Ex : Sunset Beach Club" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/> </FormControl> <FormMessage /> </FormItem> )}/>
                                 </div>
                           </CardContent>
                       </Card>
 
-
-                       {/* --- Participants Card --- */}
-                        <Card className="bg-card border border-border">
+                       <Card className="bg-card border border-border">
                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
                                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</div>
                                <CardTitle className="text-lg font-semibold">Participants</CardTitle>
                            </CardHeader>
                            <CardContent className="space-y-4">
-                                <p className="text-sm font-medium text-muted-foreground">Liste des participants</p>
-                                <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
-                                     {mockParticipants.map((p, index) => (
-                                        <div key={p.id} className="flex items-center justify-between">
-                                            <div className="flex items-center space-x-3">
-                                                <Avatar className="h-8 w-8"> <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}> {p.initials} </AvatarFallback> </Avatar>
-                                                <span className="text-sm font-medium">{p.name}</span>
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <Input
+                                        placeholder="Entrer l'email du participant..."
+                                        value={currentParticipantEmail}
+                                        onChange={(e) => setCurrentParticipantEmail(e.target.value)}
+                                        className="bg-input border-border flex-grow"
+                                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddParticipant();}}}
+                                    />
+                                  <Button type="button" variant="outline" onClick={handleAddParticipant} className="bg-secondary hover:bg-accent border-border">
+                                     <UserPlus className="mr-2 h-4 w-4"/> Ajouter
+                                  </Button>
+                               </div>
+                               <FormDescription>Appuyez sur Entrée ou cliquez sur Ajouter. Les participants doivent avoir un compte.</FormDescription>
+                               <FormField name="participants" control={form.control} render={() => <FormMessage />} />
+                                {addedParticipantEmails.length > 0 && (
+                                    <div className="space-y-3 max-h-60 overflow-y-auto pr-2 border-t border-border pt-4 mt-4">
+                                        <p className="text-sm font-medium text-muted-foreground">Participants ajoutés :</p>
+                                         {addedParticipantEmails.map((email, index) => (
+                                            <div key={index} className="flex items-center justify-between p-2 bg-secondary/50 rounded-md">
+                                                <div className="flex items-center space-x-3">
+                                                    <Avatar className="h-8 w-8"> <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}> {getInitials(email)} </AvatarFallback> </Avatar>
+                                                    <span className="text-sm font-medium truncate max-w-[200px] sm:max-w-xs">{email}</span>
+                                                </div>
+                                                <Button type="button" variant="ghost" size="icon" onClick={() => removeParticipant(email)} className="text-muted-foreground hover:text-destructive h-6 w-6">
+                                                    <Trash2 className="h-4 w-4" />
+                                                    <span className="sr-only">Retirer {email}</span>
+                                                </Button>
                                             </div>
-                                            <span className="text-xs text-muted-foreground">{p.status}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                                {/* Updated Participants FormField */}
-                                <FormField
-                                  control={form.control}
-                                  name="participants"
-                                  render={({ field }) => (
-                                      <FormItem>
-                                      <FormLabel className="sr-only">Ajouter des participants</FormLabel>
-                                        <FormControl>
-                                            <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-border">
-                                                 <Input
-                                                     placeholder="Entrer l'email des participants... (bientôt disponible)"
-                                                     disabled // Disabled until UI/backend is ready
-                                                     className="bg-input border-border flex-grow"
-                                                 />
-                                               <Button type="button" variant="outline" className="bg-secondary hover:bg-accent border-border" disabled>
-                                                  <UserPlus className="mr-2 h-4 w-4"/> Ajouter
-                                               </Button>
-                                            </div>
-                                        </FormControl>
-                                      <FormDescription>Fonctionnalité en développement.</FormDescription>
-                                      <FormMessage />
-                                      </FormItem>
-                                  )}
-                                />
+                                        ))}
+                                    </div>
+                                )}
+                                {user && addedParticipantEmails.length === 0 && (
+                                     <div className="flex items-center space-x-3 p-2 bg-secondary/30 rounded-md border border-border/20">
+                                        <Avatar className="h-8 w-8"> <AvatarFallback className={`${participantColors[0]} text-primary-foreground text-xs`}> {getInitials(user.email)} </AvatarFallback> </Avatar>
+                                        <span className="text-sm font-medium">{user.email} (Vous)</span>
+                                     </div>
+                                )}
                            </CardContent>
                       </Card>
 
-
-                       {/* --- Photo de l'Event Card (Cover Photo) --- */}
                        <Card className="bg-card border border-border">
                            <CardHeader className="flex flex-row items-center space-x-2 pb-4">
                                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">2</div>
@@ -555,13 +569,12 @@ export default function CreateEventPage() {
                                     name="coverPhoto"
                                     render={({ field }) => (
                                         <FormItem className="flex-1">
-                                            <FormLabel className="sr-only">Photo de couverture</FormLabel> {/* Hidden label for accessibility */}
+                                            <FormLabel className="sr-only">Photo de couverture</FormLabel> 
                                             <FormControl>
                                             <div
                                                 className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative cursor-pointer"
-                                                onClick={() => document.getElementById('cover-photo-input')?.click()} // Trigger file input
+                                                onClick={() => document.getElementById('cover-photo-input')?.click()} 
                                             >
-                                                {/* Preview or Placeholder */}
                                                 {coverPhotoPreview ? (
                                                     <div className="relative w-full h-full">
                                                         <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
@@ -571,19 +584,18 @@ export default function CreateEventPage() {
                                                     <div className="flex flex-col items-center justify-center text-center h-full">
                                                         <ImageIcon className="h-12 w-12 text-muted-foreground mb-4" />
                                                         <p className="text-sm text-muted-foreground mb-2">Ajoutez une photo (max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo).</p>
-                                                        <Button type="button" variant="outline" size="sm" disabled={isLoading} className="pointer-events-none"> {/* Visually indicates clickable area, but click handled by div */}
+                                                        <Button type="button" variant="outline" size="sm" disabled={isLoading} className="pointer-events-none"> 
                                                             <Upload className="mr-2 h-4 w-4" /> Ajouter une photo
                                                         </Button>
                                                     </div>
                                                 )}
-                                                {/* Hidden Input controlled by React Hook Form */}
                                                  <Input
                                                       id="cover-photo-input"
                                                       type="file"
                                                       accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
                                                       onChange={handleCoverPhotoChange}
                                                       className="sr-only"
-                                                      ref={field.ref} // Ensure RHF can track the input
+                                                      ref={field.ref} 
                                                       onBlur={field.onBlur}
                                                       name={field.name}
                                                       disabled={field.disabled}
@@ -595,8 +607,6 @@ export default function CreateEventPage() {
                                     )}
                                 />
 
-
-                               {/* Preview Card -- Moved Inside Column 1 */}
                                <div className="w-full md:w-64 flex-shrink-0">
                                     <Card className="bg-secondary border-border overflow-hidden">
                                         <CardHeader className="p-0 relative">
@@ -622,31 +632,24 @@ export default function CreateEventPage() {
                                </div>
                            </CardContent>
                        </Card>
-
-
                  </div>
 
-                 {/* Column 2: Import Souvenirs, Evaluation & Submit */}
                   <div className="lg:col-span-1 space-y-8">
-                     {/* --- Importer Souvenirs Card --- */}
                         <Card className="bg-card border border-border">
                             <CardHeader className="flex flex-row items-center space-x-2 pb-4">
                                 <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">4</div>
                                 <CardTitle className="text-lg font-semibold">Importer des Souvenirs</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
-                                 {/* Media Upload Button */}
                                  <FormField
                                     control={form.control}
                                     name="media"
                                     render={({ field }) => (
                                         <FormItem>
-                                            {/* Button triggers the hidden input */}
                                             <Button type="button" variant="outline" className="w-full sm:w-auto bg-secondary hover:bg-accent border-border" onClick={() => document.getElementById('media-upload-input')?.click()}>
                                                 <Upload className="mr-2 h-4 w-4" />
                                                 Importer Souvenirs
                                             </Button>
-                                            {/* Hidden input - wrapped by FormControl */}
                                             <FormControl>
                                                 <Input
                                                     id="media-upload-input"
@@ -654,10 +657,10 @@ export default function CreateEventPage() {
                                                     multiple
                                                     accept={ACCEPTED_MEDIA_TYPES.join(',')}
                                                     onChange={handleMediaFileChange}
-                                                    className="sr-only" // Keep it hidden
-                                                    ref={field.ref} // Pass ref
-                                                    name={field.name} // Pass name
-                                                    onBlur={field.onBlur} // Pass onBlur
+                                                    className="sr-only" 
+                                                    ref={field.ref} 
+                                                    name={field.name} 
+                                                    onBlur={field.onBlur} 
                                                     disabled={field.disabled}
                                                 />
                                             </FormControl>
@@ -666,14 +669,13 @@ export default function CreateEventPage() {
                                         </FormItem>
                                     )}
                                     />
-                                {/* Media Previews & Progress */}
-                                {(form.getValues('media') || []).length > 0 && ( // Use getValues for reliability inside map
+                                {(form.getValues('media') || []).length > 0 && ( 
                                     <div className="space-y-4">
                                         <h4 className="text-sm font-medium text-foreground">Souvenirs ajoutés :</h4>
                                         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-3 gap-4">
                                             {(form.getValues('media') || []).map((file, index) => {
                                                 const previewUrl = mediaPreviews[index];
-                                                const progress = uploadProgress[file.name]; // Get progress by name
+                                                const progress = uploadProgress[file.name]; 
                                                 const fileTypeIcon = getFileType(file);
 
                                                 return (
@@ -703,14 +705,12 @@ export default function CreateEventPage() {
                             </CardContent>
                         </Card>
 
-                        {/* --- Evaluation Card --- */}
                          <Card className="bg-card border border-border">
                             <CardHeader className="flex flex-row items-center space-x-2 pb-4">
                                 <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">5</div>
                                 <CardTitle className="text-lg font-semibold">Évaluation Initiale</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
-                                {/* Rating Slider */}
                                 <FormField control={form.control} name="initialRating" render={({ field }) => (
                                     <FormItem>
                                         <FormLabel className="flex items-center justify-between">
@@ -726,12 +726,11 @@ export default function CreateEventPage() {
                                         <FormMessage />
                                     </FormItem>
                                 )}/>
-                                {/* Comment Textarea */}
                                 <FormField control={form.control} name="initialComment" render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Commentaire (Optionnel)</FormLabel>
                                         <FormControl>
-                                             <div><Textarea placeholder="Ajoutez un premier commentaire..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" rows={4} {...field} /></div>
+                                             <Textarea placeholder="Ajoutez un premier commentaire..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" rows={4} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -739,7 +738,6 @@ export default function CreateEventPage() {
                             </CardContent>
                         </Card>
 
-                       {/* Submit Button */}
                        <Button type="submit" className="w-full bg-primary hover:bg-primary/90 mt-8" disabled={isLoading}>
                             {isLoading ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Création...</> ) : ( "Créer l'Événement" )}
                         </Button>
