@@ -1,3 +1,4 @@
+
 // src/components/ui/combobox.tsx
 "use client"
 
@@ -39,7 +40,7 @@ export function Combobox({
   onSelect,
   placeholder = "Sélectionner...",
   searchPlaceholder = "Rechercher...",
-  emptyPlaceholder = "Aucun résultat.",
+  emptyPlaceholder = "Aucun utilisateur trouvé.",
   triggerIcon,
 }: ComboboxProps) {
   const [open, setOpen] = React.useState(false)
@@ -98,3 +99,4 @@ export function Combobox({
     </Popover>
   )
 }
+
