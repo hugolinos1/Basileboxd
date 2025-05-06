@@ -4,7 +4,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users, Menu } from 'lucide-react';
 import { useFirebase } from '@/context/FirebaseContext';
@@ -19,10 +18,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import type { KeyboardEvent } from 'react';
 
 export function Navbar() {
   const { user, isAdmin } = useFirebase();
   const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handleSignOut = async () => {
     try {
@@ -30,20 +32,27 @@ export function Navbar() {
       router.push('/auth'); // Redirect to auth page after sign out
     } catch (error) {
       console.error("Erreur lors de la déconnexion: ", error);
-      // Handle error (e.g., show a toast message)
     }
   };
 
-  const getInitials = (email: string | null | undefined): string => {
-    if (!email) return 'P';
-    const parts = email.split('@')[0];
-    return parts[0]?.toUpperCase() || 'P';
+  const handleSearch = () => {
+    if (searchQuery.trim()) {
+      router.push(`/parties?q=${encodeURIComponent(searchQuery.trim())}`);
+    } else {
+      router.push('/parties'); // Navigate to all parties if search is empty
+    }
+  };
+
+  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      handleSearch();
+    }
   };
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 max-w-screen-2xl items-center justify-between px-4 md:px-6">
-        <div className="flex items-center space-x-6"> {/* Container for Logo and Nav Links */}
+        <div className="flex items-center space-x-6">
           <Link href="/" className="flex items-center space-x-2">
             <Image
                 src="https://i.ibb.co/nMGMZNPq/logo2.png"
@@ -56,7 +65,6 @@ export function Navbar() {
             <span className="font-bold text-primary">BaliseBoxd</span>
           </Link>
 
-           {/* Navigation Links */}
            <div className="hidden md:flex items-center space-x-4">
                 <Link href="/parties" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
                    <List className="mr-1 h-4 w-4" /> Events
@@ -69,21 +77,23 @@ export function Navbar() {
 
 
         <div className="flex flex-1 items-center justify-end space-x-4">
-          {/* Search Bar - Simplified */}
           <div className="relative w-full max-w-sm hidden md:block">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
               placeholder="Rechercher des Events..."
               className="w-full pl-10 pr-4 py-2 h-9 bg-secondary border-border focus:bg-background focus:border-primary"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
             />
           </div>
 
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                 <Button variant="default" className="h-12 w-12 p-0"> {/* Changed variant to default */}
-                    <Menu className="h-8 w-8" /> {/* Increased icon size */}
+                 <Button variant="default" className="h-12 w-12 p-0 bg-primary hover:bg-primary/80">
+                    <Menu className="h-8 w-8 text-primary-foreground" />
                     <span className="sr-only">Ouvrir le menu utilisateur</span>
                   </Button>
               </DropdownMenuTrigger>
@@ -99,7 +109,6 @@ export function Navbar() {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                 {/* Mobile Nav Links */}
                  <div className="md:hidden">
                     <DropdownMenuItem onClick={() => router.push('/parties')}>
                         <List className="mr-2 h-4 w-4" />
@@ -109,7 +118,22 @@ export function Navbar() {
                         <Users className="mr-2 h-4 w-4" />
                         <span>Utilisateurs</span>
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator />
+                    {/* Mobile Search Input */}
+                    <DropdownMenuSeparator className="md:hidden" />
+                    <div className="p-2 md:hidden">
+                        <div className="relative">
+                           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                           <Input
+                             type="search"
+                             placeholder="Rechercher des Events..."
+                             className="w-full pl-10 pr-4 py-2 h-9 bg-input border-border focus:bg-background focus:border-primary"
+                             value={searchQuery}
+                             onChange={(e) => setSearchQuery(e.target.value)}
+                             onKeyDown={handleSearchKeyDown}
+                           />
+                        </div>
+                    </div>
+                    <DropdownMenuSeparator className="md:hidden"/>
                  </div>
                  <DropdownMenuItem onClick={() => router.push(`/user/${user.uid}`)}>
                     <UserIcon className="mr-2 h-4 w-4" />
