@@ -34,18 +34,18 @@ import {
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
-import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
+import { coverPhotoSchema } from '@/services/validation-schemas'; 
+import { Skeleton } from '@/components/ui/skeleton'; 
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
-// Revert Comment interface timestamp type
+
 interface Comment {
     userId: string;
     email: string;
     avatar?: string | null;
     text: string;
-    timestamp: Timestamp | FirestoreTimestamp | Date; // Reverted: Removed FieldValue here
+    timestamp: Timestamp | FirestoreTimestamp | Date | FieldValue; 
 }
 interface MediaItem { url: string; type: 'image' | 'video' | 'audio' | 'autre'; }
 interface PartyData {
@@ -122,6 +122,9 @@ export default function PartyDetailsPage() {
   const [showAddParticipantDialog, setShowAddParticipantDialog] = useState(false);
   const [participantEmail, setParticipantEmail] = useState('');
   const [isAddingParticipant, setIsAddingParticipant] = useState(false);
+  const [showEditPartyNameDialog, setShowEditPartyNameDialog] = useState(false);
+  const [newPartyName, setNewPartyName] = useState('');
+  const [isUpdatingPartyName, setIsUpdatingPartyName] = useState(false);
 
 
   const isCreator = useMemo(() => user && party && user.uid === party.createdBy, [user, party]);
@@ -172,6 +175,7 @@ export default function PartyDetailsPage() {
         console.log(`[PartyDetailsPage] Snapshot reçu pour ${partyId}.`);
         const data = { id: docSnap.id, ...docSnap.data() } as PartyData;
         setParty(data);
+        setNewPartyName(data.name); // Initialize newPartyName with current party name
         calculateAndSetAverageRating(data.ratings);
         if (user && data.ratings && data.ratings[user.uid]) {
             setUserRating(data.ratings[user.uid]);
@@ -265,17 +269,17 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const partyDocRef = doc(db, 'parties', party.id);
-      // Correctly create the comment object WITH serverTimestamp() for the timestamp field
-      const newCommentData = {
+      // Use serverTimestamp directly for FieldValue type
+      const newComment: Comment = {
         userId: user.uid,
         email: user.email || 'anonyme',
-        avatar: user.photoURL ?? null, // Use null instead of undefined
+        avatar: user.photoURL ?? null, // Ensure null instead of undefined
         text: comment.trim(),
-        timestamp: serverTimestamp() // Use the server timestamp function here
+        timestamp: serverTimestamp() // Use FieldValue directly
       };
 
       await updateDoc(partyDocRef, {
-        comments: arrayUnion(newCommentData) // Pass the prepared object
+        comments: arrayUnion(newComment)
       });
 
       setComment('');
@@ -521,6 +525,26 @@ export default function PartyDetailsPage() {
         }
     };
 
+    const handleUpdatePartyName = async () => {
+        if (!user || !party || !isCreator || !db || !newPartyName.trim()) {
+            toast({ title: 'Erreur', description: 'Impossible de mettre à jour le nom pour le moment.', variant: 'destructive' });
+            return;
+        }
+        setIsUpdatingPartyName(true);
+        try {
+            const partyDocRef = doc(db, 'parties', party.id);
+            await updateDoc(partyDocRef, {
+                name: newPartyName.trim()
+            });
+            toast({ title: 'Nom de l\'événement mis à jour !' });
+            setShowEditPartyNameDialog(false);
+        } catch (error: any) {
+            console.error("Erreur lors de la mise à jour du nom de l'événement:", error);
+            toast({ title: 'Échec de la mise à jour', description: "Impossible de mettre à jour le nom de l'événement.", variant: 'destructive' });
+        } finally {
+            setIsUpdatingPartyName(false);
+        }
+    };
 
 
   // --- Render Logic ---
@@ -651,7 +675,39 @@ export default function PartyDetailsPage() {
 
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/40 to-transparent" />
                 <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 text-white z-10">
-                    <CardTitle className="text-2xl md:text-4xl font-bold mb-1 text-shadow"> {party.name} </CardTitle>
+                    <div className="flex items-center">
+                        <CardTitle className="text-2xl md:text-4xl font-bold mb-1 text-shadow"> {party.name} </CardTitle>
+                        {isCreator && (
+                            <Dialog open={showEditPartyNameDialog} onOpenChange={setShowEditPartyNameDialog}>
+                                <DialogTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="ml-2 text-white hover:text-gray-300 h-7 w-7 p-1">
+                                        <Edit2 className="h-4 w-4" />
+                                        <span className="sr-only">Modifier le nom</span>
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle>Modifier le Nom de l'Événement</DialogTitle>
+                                    </DialogHeader>
+                                    <div className="grid gap-4 py-4">
+                                        <Input 
+                                            id="new-party-name" 
+                                            value={newPartyName}
+                                            onChange={(e) => setNewPartyName(e.target.value)} 
+                                            className="col-span-3"
+                                        />
+                                    </div>
+                                    <DialogFooter>
+                                        <DialogClose asChild><Button type="button" variant="outline">Annuler</Button></DialogClose>
+                                        <Button type="button" onClick={handleUpdatePartyName} disabled={!newPartyName.trim() || isUpdatingPartyName}>
+                                            {isUpdatingPartyName ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                            Sauvegarder
+                                        </Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+                        )}
+                    </div>
                     <CardDescription className="text-gray-300 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                        {partyDate && <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4"/> {format(partyDate, 'PPP', { locale: fr })} ({formatDistanceToNow(partyDate, { addSuffix: true, locale: fr })})</span>}
                        {party.location && <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4"/> {party.location}</span>}
@@ -745,6 +801,7 @@ export default function PartyDetailsPage() {
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
+                                    
                                 </div>
                             </div>
                         </div>
