@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useMemo, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc, collection, query, where, getDocs, orderBy, Timestamp, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, orderBy, Timestamp, updateDoc, collectionGroup } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import Image from 'next/image';
@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { uploadFile, ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE, COMPRESSED_COVER_PHOTO_MAX_SIZE_MB } from '@/services/media-uploader';
+import { uploadFile, ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE } from '@/services/media-uploader'; // Renamed MAX_FILE_SIZE
 import { coverPhotoSchema } from '@/services/validation-schemas';
 import type { PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
 
@@ -109,7 +109,7 @@ export default function UserProfilePage() {
     const params = useParams();
     const profileUserId = params.id as string;
     const router = useRouter();
-    const { user: currentUser, loading: authLoading, firebaseInitialized } = useFirebase();
+    const { user: currentUser, loading: authLoading, firebaseInitialized, isAdmin } = useFirebase();
     const { toast } = useToast();
 
     const [profileUserData, setProfileUserData] = useState<UserData | null>(null);
@@ -125,7 +125,10 @@ export default function UserProfilePage() {
     const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
 
 
-    const isOwnProfile = currentUser?.uid === profileUserId;
+    const isOwnProfileOrAdmin = useMemo(() => {
+        if (!currentUser || !profileUserData) return false;
+        return currentUser.uid === profileUserId || isAdmin;
+    }, [currentUser, profileUserId, isAdmin, profileUserData]);
 
     useEffect(() => {
         if (!firebaseInitialized || authLoading) {
@@ -156,9 +159,24 @@ export default function UserProfilePage() {
                 const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as Omit<UserData, 'eventCount' | 'commentCount' | 'averageRatingGiven'>;
 
                 const partiesRef = collection(db, 'parties');
-                const participatedQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
-                const partiesSnapshot = await getDocs(participatedQuery);
-                const partiesData: PartyData[] = partiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
+                // Query for parties where the user is the creator OR a participant
+                const createdPartiesQuery = query(partiesRef, where('createdBy', '==', profileUserId));
+                const participatedPartiesQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
+
+                const [createdPartiesSnapshot, participatedPartiesSnapshot] = await Promise.all([
+                    getDocs(createdPartiesQuery),
+                    getDocs(participatedPartiesQuery)
+                ]);
+
+                const createdParties = createdPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
+                const participatedParties = participatedPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
+                
+                // Combine and deduplicate parties
+                const allUserPartiesMap = new Map<string, PartyData>();
+                createdParties.forEach(party => allUserPartiesMap.set(party.id, party));
+                participatedParties.forEach(party => allUserPartiesMap.set(party.id, party));
+                const partiesData = Array.from(allUserPartiesMap.values());
+
 
                 const commentsCollectionRef = collectionGroup(db, 'comments');
                 const commentsQuery = query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'));
@@ -190,6 +208,9 @@ export default function UserProfilePage() {
                  let userFriendlyError = err.message || "Impossible de charger le profil.";
                   if (err.code === 'permission-denied') {
                      userFriendlyError = "Permission refusée. Vérifiez les règles Firestore.";
+                 } else if (err.message?.includes('collectionGroup') && err.message?.includes('index')) {
+                     userFriendlyError = "Index Firestore manquant pour la requête collectionGroup sur 'comments'. Veuillez créer cet index dans votre console Firebase.";
+                     console.error("INDEX REQUIRED for collectionGroup query on 'comments': The query requires an index. You can create it here: ... (Firebase should provide a link in the detailed error in browser console or Firebase console)");
                  }
                 setError(userFriendlyError);
             } finally {
@@ -224,7 +245,7 @@ export default function UserProfilePage() {
     };
 
     const handleUpdateAvatar = async () => {
-        if (!currentUser || !newAvatarFile || !db) {
+        if (!currentUser || !newAvatarFile || !db || !profileUserData) { // Added profileUserData check
             toast({ title: 'Erreur', description: 'Impossible de mettre à jour l\'avatar pour le moment.', variant: 'destructive' });
             return;
         }
@@ -232,14 +253,16 @@ export default function UserProfilePage() {
         setAvatarUploadProgress(0);
 
         try {
-            const newAvatarUrl = await uploadFile(newAvatarFile, currentUser.uid, false, (progress) => {
+            // Use profileUserId for the path, as we might be an admin editing another user's avatar
+            const newAvatarUrl = await uploadFile(newAvatarFile, profileUserId, false, (progress) => {
                 setAvatarUploadProgress(progress);
-            }, 'userAvatar'); // Specify type as 'userAvatar'
+            }, 'userAvatar'); 
 
-            const userDocRef = doc(db, 'users', currentUser.uid);
+            const userDocRef = doc(db, 'users', profileUserId); // Use profileUserId here as well
             await updateDoc(userDocRef, { avatarUrl: newAvatarUrl });
 
             toast({ title: 'Avatar mis à jour !' });
+            // Update local state for the profile being viewed
             setProfileUserData(prev => prev ? { ...prev, avatarUrl: newAvatarUrl } : null);
             setNewAvatarFile(null);
             if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
@@ -345,7 +368,7 @@ export default function UserProfilePage() {
                 <Avatar className="h-24 w-24 md:h-32 md:w-32 border-2 border-primary relative group">
                     <AvatarImage src={profileUserData.avatarUrl || undefined} alt={displayUsername} />
                     <AvatarFallback className="text-4xl bg-muted">{getInitials(displayUsername, profileUserData.email)}</AvatarFallback>
-                     {isOwnProfile && (
+                     {isOwnProfileOrAdmin && (
                         <Dialog open={showEditAvatarDialog} onOpenChange={setShowEditAvatarDialog}>
                             <DialogTrigger asChild>
                                 <button className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer">
@@ -356,7 +379,7 @@ export default function UserProfilePage() {
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
                                     <DialogTitle>Modifier l'Avatar</DialogTitle>
-                                    <DialogDescription>Choisissez une nouvelle image de profil. Max {MAX_FILE_SIZE.image / (1024*1024)}Mo, sera compressée si besoin.</DialogDescription>
+                                    <DialogDescription>Choisissez une nouvelle image de profil. Max {MEDIA_MAX_FILE_SIZE.userAvatar / (1024*1024)}Mo, sera compressée si besoin.</DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <Input id="new-avatar-input" type="file" accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')} onChange={handleNewAvatarFileChange} className="col-span-3" />
@@ -388,7 +411,7 @@ export default function UserProfilePage() {
                      )}
                     <p className="text-sm text-muted-foreground">{profileUserData.email}</p>
                      {joinDate && <p className="text-xs text-muted-foreground">Membre depuis {formatDistanceToNow(joinDate, { addSuffix: true, locale: fr })}</p>}
-                     {isOwnProfile && (
+                     {isOwnProfileOrAdmin && ( // Changed from isOwnProfile
                          <Button variant="outline" size="sm" className="mt-2" onClick={() => router.push('/settings/profile')}>
                              <Edit2 className="mr-2 h-3 w-3" /> Modifier le profil
                          </Button>
@@ -438,7 +461,7 @@ export default function UserProfilePage() {
                                                 </div>
                                                 <CardContent className="p-3">
                                                      <p className="text-sm font-semibold truncate text-foreground group-hover:text-primary">{party.name}</p>
-                                                     {getDateFromTimestamp(party.date) && <p className="text-xs text-muted-foreground"><CalendarDays className="inline h-3 w-3 mr-1"/> {format(getDateFromTimestamp(party.date)!, 'P', { locale: fr })}</p>}
+                                                     {getDateFromTimestamp(party.date ?? party.createdAt) && <p className="text-xs text-muted-foreground"><CalendarDays className="inline h-3 w-3 mr-1"/> {format(getDateFromTimestamp(party.date ?? party.createdAt)!, 'P', { locale: fr })}</p>}
                                                 </CardContent>
                                             </Card>
                                         </Link>
@@ -480,7 +503,7 @@ export default function UserProfilePage() {
                                                      </div>
                                                      <CardContent className="p-3">
                                                           <p className="text-sm font-semibold truncate text-foreground group-hover:text-primary">{party.name}</p>
-                                                          {getDateFromTimestamp(party.date) && <p className="text-xs text-muted-foreground"><CalendarDays className="inline h-3 w-3 mr-1"/> {format(getDateFromTimestamp(party.date)!, 'P', { locale: fr })}</p>}
+                                                          {getDateFromTimestamp(party.date ?? party.createdAt) && <p className="text-xs text-muted-foreground"><CalendarDays className="inline h-3 w-3 mr-1"/> {format(getDateFromTimestamp(party.date ?? party.createdAt)!, 'P', { locale: fr })}</p>}
                                                      </CardContent>
                                                  </Card>
                                              </Link>
@@ -546,4 +569,5 @@ export default function UserProfilePage() {
         </div>
     );
 }
+
 
