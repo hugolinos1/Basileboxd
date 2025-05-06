@@ -205,28 +205,34 @@ export default function PartyDetailsPage() {
         setPageLoading(false);
     });
 
-     // Fetch all users for participant Combobox
-     const fetchAllUsers = async () => {
-        if (!db) return;
-        try {
-            const usersCollectionRef = collection(db, 'users');
-            const usersSnapshot = await getDocs(usersCollectionRef);
-            const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
-            setAllUsers(fetchedUsers);
-        } catch (error) {
-            console.error("Erreur lors de la récupération de tous les utilisateurs:", error);
-            toast({ title: "Erreur Utilisateurs", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive" });
-        }
-    };
-    fetchAllUsers();
-
-
     return () => {
         console.log(`[PartyDetailsPage] Nettoyage du listener snapshot pour ${partyId}`);
         unsubscribe();
     }
 
-  }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage, toast]); // Added toast to dependencies
+  }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage]); 
+
+  // Fetch all users for participant Combobox - runs once when firebase is initialized
+   useEffect(() => {
+    const fetchAllUsers = async () => {
+        if (!firebaseInitialized || !db) {
+             console.log("[PartyDetailsPage - fetchAllUsers] Firebase pas prêt. Attente...");
+             return;
+        }
+        console.log("[PartyDetailsPage - fetchAllUsers] Récupération de tous les utilisateurs...");
+        try {
+            const usersCollectionRef = collection(db, 'users');
+            const usersSnapshot = await getDocs(usersCollectionRef);
+            const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
+            setAllUsers(fetchedUsers);
+             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length);
+        } catch (error) {
+            console.error("[PartyDetailsPage - fetchAllUsers] Erreur lors de la récupération de tous les utilisateurs:", error);
+            toast({ title: "Erreur Utilisateurs", description: "Impossible de charger la liste des utilisateurs pour l'ajout.", variant: "destructive" });
+        }
+    };
+    fetchAllUsers();
+   }, [firebaseInitialized, toast]); // Rerun if firebaseInitialized changes
 
    useEffect(() => {
         return () => {
@@ -491,16 +497,28 @@ export default function PartyDetailsPage() {
 
     // --- Add Participant Handler ---
     const handleAddParticipant = async (selectedUserId: string | null) => {
+        console.log("[handleAddParticipant] Début. Utilisateur sélectionné:", selectedUserId);
+        console.log("[handleAddParticipant] Utilisateur actuel (currentUser):", user?.email);
+        console.log("[handleAddParticipant] Détails de l'événement (party):", party);
+        console.log("[handleAddParticipant] Liste de tous les utilisateurs (allUsers):", allUsers);
+        console.log("[handleAddParticipant] Peut gérer les participants (canManageParticipants):", canManageParticipants);
+        console.log("[handleAddParticipant] DB initialisé:", !!db);
+
+
         if (!user || !party || !canManageParticipants || !db || !selectedUserId) {
             toast({ title: 'Erreur', description: 'Permissions insuffisantes ou utilisateur non sélectionné.', variant: 'destructive' });
+             console.error("[handleAddParticipant] Préconditions non remplies:", {user:!!user, party:!!party, canManageParticipants, db:!!db, selectedUserId});
             return;
         }
 
         setIsAddingParticipant(true);
         const userToAdd = allUsers.find(u => u.uid === selectedUserId);
+        console.log("[handleAddParticipant] Utilisateur trouvé dans allUsers:", userToAdd);
+
 
         if (!userToAdd) {
             toast({ title: 'Utilisateur non trouvé', description: 'Impossible de trouver les détails de l\'utilisateur sélectionné.', variant: 'destructive' });
+            console.error("[handleAddParticipant] Utilisateur non trouvé dans la liste allUsers. UID recherché:", selectedUserId);
             setIsAddingParticipant(false);
             return;
         }
@@ -509,12 +527,14 @@ export default function PartyDetailsPage() {
 
          if (party.participantEmails?.map(e => e.toLowerCase()).includes(emailToAdd)) {
             toast({ title: 'Info', description: `${userToAdd.pseudo || userToAdd.displayName || userToAdd.email} est déjà participant.`, variant: 'default' });
+            console.log("[handleAddParticipant] L'utilisateur est déjà participant:", userToAdd.email);
             setIsAddingParticipant(false);
             setShowAddParticipantDialog(false);
             return;
          }
 
         try {
+             console.log("[handleAddParticipant] Tentative de mise à jour de Firestore pour ajouter le participant...");
              const partyDocRef = doc(db, 'parties', party.id);
              await updateDoc(partyDocRef, {
                  participants: arrayUnion(userToAdd.uid), // Add UID
@@ -522,16 +542,18 @@ export default function PartyDetailsPage() {
              });
 
              toast({ title: 'Participant ajouté', description: `${userToAdd.pseudo || userToAdd.displayName || userToAdd.email} a été ajouté à l'événement.` });
+             console.log("[handleAddParticipant] Participant ajouté avec succès:", userToAdd.email);
              setShowAddParticipantDialog(false);
 
         } catch (error: any) {
-             console.error("Erreur lors de l'ajout du participant:", error);
+             console.error("[handleAddParticipant] Erreur lors de l'ajout du participant à Firestore:", error);
               let userFriendlyError = "Impossible d'ajouter le participant.";
               if (error.code === 'permission-denied') {
                    userFriendlyError = "Permission refusée. Vérifiez les règles Firestore.";
               }
              toast({ title: 'Erreur', description: userFriendlyError, variant: 'destructive' });
         } finally {
+            console.log("[handleAddParticipant] Fin.");
             setIsAddingParticipant(false);
         }
     };
@@ -912,3 +934,6 @@ function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
 
+
+
+    
