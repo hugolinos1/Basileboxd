@@ -328,14 +328,13 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      // Use serverTimestamp directly for FieldValue type
       const newCommentData: Comment = {
         userId: user.uid,
         email: user.email || 'anonyme',
-        avatar: user.photoURL ?? null, // Ensure null instead of undefined
+        avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: serverTimestamp(), // Use FieldValue directly
-        partyId: party.id, // Explicitly set partyId
+        timestamp: serverTimestamp(),
+        partyId: party.id,
       };
 
       await addDoc(commentsCollectionRef, newCommentData);
@@ -346,9 +345,8 @@ export default function PartyDetailsPage() {
         console.error('Erreur commentaire:', commentError);
         let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
         if (commentError.code === 'invalid-argument') {
-            if (commentError.message?.includes('Unsupported field value: a custom FieldValue object')) {
-                errorMessage = "Le format du timestamp du commentaire est incorrect. Veuillez réessayer.";
-                console.error("Detailed error: Firestore expects a native serverTimestamp() object, but received something else for the timestamp field in the comment.", commentError);
+            if (commentError.message?.includes('Unsupported field value')) {
+                errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
             } else if (commentError.message?.includes('serverTimestamp')) {
                 errorMessage = "Erreur de timestamp serveur. Réessayez.";
             }
@@ -362,34 +360,6 @@ export default function PartyDetailsPage() {
 };
 
 
-  const handleGetServerTime = async () => {
-    try {
-        // This function is for testing serverTimestamp behavior independently.
-        // It tries to write a document with a server timestamp to a temporary collection.
-        if (!db) {
-            toast({ title: 'Erreur', description: 'Instance Firestore non disponible.', variant: 'destructive' });
-            return;
-        }
-        const testDocRef = doc(collection(db, '_test_timestamps'), 'testDoc');
-        await setDoc(testDocRef, {
-            myTime: serverTimestamp(),
-            message: 'Test de timestamp serveur'
-        });
-        const docSnap = await getDoc(testDocRef);
-        if (docSnap.exists()) {
-            const data = docSnap.data();
-            const serverTime = getDateFromTimestamp(data.myTime);
-            console.log('Heure du serveur récupérée via document test :', serverTime);
-            toast({ title: 'Succès Test Timestamp', description: `Timestamp serveur (via doc): ${serverTime?.toLocaleString()}`, duration: 10000 });
-        } else {
-             toast({ title: 'Erreur Test Timestamp', description: 'Document test non trouvé après écriture.', variant: 'destructive' });
-        }
-
-    } catch (error: any) {
-        console.error('Erreur lors du test de l\'heure du serveur :', error);
-        toast({ title: 'Erreur Test Timestamp', description: `Impossible de tester l'heure du serveur: ${error.message}`, variant: 'destructive' });
-    }
-};
 
 
   // --- Souvenir Upload Handlers ---
@@ -579,7 +549,7 @@ export default function PartyDetailsPage() {
         setIsAddingParticipant(true);
         console.log("[handleAddParticipant] Recherche de l'utilisateur dans `allUsers`. UID recherché:", selectedUserId);
 
-        const userToAdd = allUsers.find(u => u.uid === selectedUserId);
+        const userToAdd = allUsers.find(u => u.uid.toLowerCase() === selectedUserId.toLowerCase());
         console.log("[handleAddParticipant] Utilisateur trouvé dans allUsers:", userToAdd ? {uid: userToAdd.uid, email: userToAdd.email, pseudo: userToAdd.pseudo} : "Non trouvé");
 
 
