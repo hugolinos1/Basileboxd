@@ -3,8 +3,8 @@
 
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-// Import necessary Firestore functions, including FieldValue and orderBy
-import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit, serverTimestamp, collectionGroup, orderBy } from 'firebase/firestore'; // Import serverTimestamp and orderBy
+// Import necessary Firestore functions, including FieldValue, orderBy, and addDoc
+import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit, serverTimestamp, collectionGroup, orderBy, addDoc } from 'firebase/firestore'; // Import serverTimestamp, orderBy and addDoc
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
@@ -34,8 +34,8 @@ import {
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; 
-import { Skeleton } from '@/components/ui/skeleton'; 
+import { coverPhotoSchema } from '@/services/validation-schemas';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Combobox } from '@/components/ui/combobox'; // Import Combobox
 
 // --- Interfaces ---
@@ -47,7 +47,7 @@ interface Comment {
     email: string;
     avatar?: string | null;
     text: string;
-    timestamp: Timestamp | FirestoreTimestamp | Date | FieldValue; 
+    timestamp: Timestamp | FirestoreTimestamp | Date | FieldValue;
     partyId?: string; // Ensure partyId is part of the comment data structure
 }
 interface MediaItem { url: string; type: 'image' | 'video' | 'audio' | 'autre'; }
@@ -64,7 +64,7 @@ interface PartyData {
     mediaUrls: string[];
     coverPhotoUrl?: string;
     ratings: { [userId: string]: number };
-    comments: Comment[]; // Use the Comment type defined above
+    comments?: Comment[]; // Use the Comment type defined above
     createdAt: FirestoreTimestamp | Timestamp;
 }
 // Interface for User data fetched from Firestore 'users' collection
@@ -208,11 +208,11 @@ export default function PartyDetailsPage() {
          setError(userFriendlyError);
         setPageLoading(false);
     });
-    
+
     // Listener for comments subcollection
     const commentsRef = collection(db, 'parties', partyId, 'comments');
     const commentsQuery = query(commentsRef, orderBy('timestamp', 'desc'));
-    
+
     const unsubscribeComments = onSnapshot(commentsQuery, (querySnapshot) => {
         console.log(`[PartyDetailsPage] Snapshot reçu pour les commentaires de ${partyId}. Nombre de commentaires: ${querySnapshot.size}`);
         const fetchedComments: Comment[] = [];
@@ -241,7 +241,7 @@ export default function PartyDetailsPage() {
         unsubscribeComments();
     }
 
-  }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage]); 
+  }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage]);
 
   // Fetch all users for participant Combobox
    useEffect(() => {
@@ -328,12 +328,13 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      const newCommentData: Omit<Comment, 'id' | 'partyId'> = { // Exclude id and partyId from type, as they are handled
+      // Use serverTimestamp directly for FieldValue type
+      const newCommentData: Omit<Comment, 'id' | 'partyId'> = {
         userId: user.uid,
         email: user.email || 'anonyme',
-        avatar: user.photoURL ?? null,
+        avatar: user.photoURL ?? null, // Ensure null instead of undefined
         text: comment.trim(),
-        timestamp: serverTimestamp(),
+        timestamp: serverTimestamp() // Use FieldValue directly
       };
 
       await addDoc(commentsCollectionRef, newCommentData);
@@ -359,6 +360,34 @@ export default function PartyDetailsPage() {
 };
 
 
+  const handleGetServerTime = async () => {
+    try {
+        // This function is for testing serverTimestamp behavior independently.
+        // It tries to write a document with a server timestamp to a temporary collection.
+        if (!db) {
+            toast({ title: 'Erreur', description: 'Instance Firestore non disponible.', variant: 'destructive' });
+            return;
+        }
+        const testDocRef = doc(collection(db, '_test_timestamps'), 'testDoc');
+        await setDoc(testDocRef, {
+            myTime: serverTimestamp(),
+            message: 'Test de timestamp serveur'
+        });
+        const docSnap = await getDoc(testDocRef);
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            const serverTime = getDateFromTimestamp(data.myTime);
+            console.log('Heure du serveur récupérée via document test :', serverTime);
+            toast({ title: 'Succès Test Timestamp', description: `Timestamp serveur (via doc): ${serverTime?.toLocaleString()}`, duration: 10000 });
+        } else {
+             toast({ title: 'Erreur Test Timestamp', description: 'Document test non trouvé après écriture.', variant: 'destructive' });
+        }
+
+    } catch (error: any) {
+        console.error('Erreur lors du test de l\'heure du serveur :', error);
+        toast({ title: 'Erreur Test Timestamp', description: `Impossible de tester l'heure du serveur: ${error.message}`, variant: 'destructive' });
+    }
+};
 
 
   // --- Souvenir Upload Handlers ---
@@ -547,7 +576,7 @@ export default function PartyDetailsPage() {
 
         setIsAddingParticipant(true);
         console.log("[handleAddParticipant] Recherche de l'utilisateur dans `allUsers`. UID recherché:", selectedUserId);
-        
+
         const userToAdd = allUsers.find(u => u.uid === selectedUserId);
         console.log("[handleAddParticipant] Utilisateur trouvé dans allUsers:", userToAdd);
 
@@ -558,7 +587,7 @@ export default function PartyDetailsPage() {
             setIsAddingParticipant(false);
             return;
         }
-        
+
         const emailToAdd = userToAdd.email.toLowerCase();
 
          if (party.participantEmails?.map(e => e.toLowerCase()).includes(emailToAdd)) {
@@ -767,10 +796,10 @@ export default function PartyDetailsPage() {
                                         <DialogTitle>Modifier le Nom de l'Événement</DialogTitle>
                                     </DialogHeader>
                                     <div className="grid gap-4 py-4">
-                                        <Input 
-                                            id="new-party-name" 
+                                        <Input
+                                            id="new-party-name"
                                             value={newPartyName}
-                                            onChange={(e) => setNewPartyName(e.target.value)} 
+                                            onChange={(e) => setNewPartyName(e.target.value)}
                                             className="col-span-3"
                                         />
                                     </div>
@@ -878,7 +907,7 @@ export default function PartyDetailsPage() {
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
-                                    
+                                   
                                 </div>
                             </div>
                         </div>
@@ -970,10 +999,3 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
-
-
-
-    
-    
-
-
