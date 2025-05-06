@@ -177,6 +177,7 @@ export default function StatisticsPage() {
               <MapPin className="h-16 w-16 mx-auto mb-4 opacity-50" />
               <p className="text-lg font-medium">Carte Interactive Bientôt Disponible</p>
               <p className="text-sm">Nous travaillons à l'intégration d'une carte pour localiser tous vos events !</p>
+              <p className="text-xs mt-2">(Cette fonctionnalité nécessite une intégration de bibliothèque de cartographie et potentiellement des services de géocodage.)</p>
             </div>
           </CardContent>
         </Card>
@@ -184,3 +185,4 @@ export default function StatisticsPage() {
     </div>
   );
 }
+
