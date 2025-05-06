@@ -1,15 +1,24 @@
+
 import { HeroSection } from '@/components/home/HeroSection';
 import { TopPartiesSection } from '@/components/home/TopPartiesSection';
 import { RecentPartiesSection } from '@/components/home/RecentPartiesSection';
 import { AddPartySection } from '@/components/home/AddPartySection';
 import { Separator } from '@/components/ui/separator';
-import { collection, getDocs, query, orderBy, limit, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit, Timestamp, doc, getDoc as getFirestoreDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { calculatePartyAverageRating, PartyData as SharedPartyData, MediaItem as SharedMediaItem } from '@/lib/party-utils';
 
 // Extend PartyData to include id if not already present
 type PartyData = SharedPartyData & { id: string };
 
+interface UserProfile {
+    id: string;
+    uid: string;
+    email: string;
+    displayName?: string;
+    pseudo?: string;
+    avatarUrl?: string;
+}
 
 // Define a structure for the data passed to components
 interface TopPartyDisplayData {
@@ -25,7 +34,13 @@ interface RecentPartyDisplayData {
   name: string;
   imageUrl?: string; 
   rating: string;
-  participants: { id: string; avatarUrl?: string }[]; 
+  participants: { 
+    id: string; 
+    avatarUrl?: string;
+    email?: string;
+    displayName?: string;
+    pseudo?: string;
+  }[]; 
 }
 
 
@@ -39,7 +54,7 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
     console.log("Fetching party data from Firestore...");
     const partiesCollectionRef = collection(db, 'parties');
     const recentQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(15));
-    const allPartiesQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(50));
+    const allPartiesQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(50)); // For ranking
 
     const [recentSnapshot, allPartiesSnapshot] = await Promise.all([
         getDocs(recentQuery),
@@ -68,15 +83,32 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
         };
     });
 
-    const recentParties: RecentPartyDisplayData[] = recentSnapshot.docs.map(doc => {
-      const party = { id: doc.id, ...doc.data() } as PartyData;
+    const recentPartiesPromises = recentSnapshot.docs.map(async (partyDoc) => {
+      const party = { id: partyDoc.id, ...partyDoc.data() } as PartyData;
       const averageRating = calculatePartyAverageRating(party);
-      const participants = (party.participantEmails || []).slice(0, 5).map((email, index) => ({
-          id: party.participants?.[index] || `user-${index}-${email}`, 
-          avatarUrl: undefined 
-      }));
+      
+      const participantDetailsPromises = (party.participants || []).slice(0, 5).map(async (participantId) => {
+        let userProfile: UserProfile | null = null;
+        try {
+          const userDocRef = doc(db, 'users', participantId);
+          const userDocSnap = await getFirestoreDoc(userDocRef);
+          if (userDocSnap.exists()) {
+            userProfile = { id: userDocSnap.id, ...userDocSnap.data() } as UserProfile;
+          }
+        } catch (e) {
+          console.warn(`Could not fetch profile for participant ${participantId}:`, e);
+        }
+        return {
+          id: participantId,
+          avatarUrl: userProfile?.avatarUrl || undefined,
+          email: userProfile?.email || undefined,
+          displayName: userProfile?.displayName || undefined,
+          pseudo: userProfile?.pseudo || undefined,
+        };
+      });
+      const participants = await Promise.all(participantDetailsPromises);
 
-       console.log(`Recent Party: ${party.name}, Cover URL: ${party.coverPhotoUrl}`); 
+      console.log(`Recent Party: ${party.name}, Cover URL: ${party.coverPhotoUrl}`); 
       return {
         id: party.id,
         name: party.name || 'Événement sans nom',
@@ -85,6 +117,8 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
         participants: participants,
       };
     });
+
+    const recentParties = await Promise.all(recentPartiesPromises);
 
     console.log(`Prepared ${topParties.length} top parties and ${recentParties.length} recent parties.`);
     return { topParties, recentParties };

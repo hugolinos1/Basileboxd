@@ -1,3 +1,4 @@
+
 'use client';
 
 import Image from 'next/image';
@@ -9,6 +10,9 @@ import { Star, Image as ImageIcon } from 'lucide-react'; // Added ImageIcon
 interface Participant {
     id: string;
     avatarUrl?: string; // Make avatarUrl optional
+    email?: string; // Add email for fallback initials
+    displayName?: string; // Add displayName for fallback initials
+    pseudo?: string; // Add pseudo for fallback initials
 }
 
 interface Party {
@@ -25,9 +29,10 @@ interface RecentPartiesSectionProps {
 
 export function RecentPartiesSection({ parties }: RecentPartiesSectionProps) {
 
-   const getInitials = (id: string): string => {
-        // Basic fallback based on id, replace with actual user data if available
-        return id.substring(0, 1).toUpperCase();
+   const getInitials = (participant: Participant): string => {
+        const name = participant.pseudo || participant.displayName || participant.email;
+        if (name && name.length > 0) return name.charAt(0).toUpperCase();
+        return participant.id.substring(0, 1).toUpperCase() || '?';
    }
 
   return (
@@ -80,20 +85,20 @@ export function RecentPartiesSection({ parties }: RecentPartiesSectionProps) {
               <CardFooter className="p-4 pt-0 flex justify-between items-center">
                  {/* Stacked Avatars */}
                  <div className="flex items-center stacked-avatars">
-                   {party.participants.slice(0, 4).map((participant, index) => ( // Show max 4 avatars
+                   {party.participants.slice(0, 3).map((participant, index) => ( // Show max 3 avatars
                      <Avatar key={participant.id} className="h-6 w-6 border-2 border-background">
                        {participant.avatarUrl ? (
-                          <AvatarImage src={participant.avatarUrl} alt={`Participant ${index + 1}`} />
+                          <AvatarImage src={participant.avatarUrl} alt={participant.displayName || participant.pseudo || participant.email || `Participant ${index + 1}`} />
                        ) : null }
                        <AvatarFallback className="text-xs bg-muted">
-                            {getInitials(participant.id)}
+                            {getInitials(participant)}
                        </AvatarFallback>
                      </Avatar>
                    ))}
-                   {party.participants.length > 4 && (
+                   {party.participants.length > 3 && (
                        <Avatar className="h-6 w-6 border-2 border-background -ml-2">
                            <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                               +{party.participants.length - 4}
+                               +{party.participants.length - 3}
                            </AvatarFallback>
                        </Avatar>
                    )}
