@@ -4,7 +4,7 @@
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 // Import necessary Firestore functions, including FieldValue, orderBy, and addDoc
-import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit, serverTimestamp, collectionGroup, orderBy, addDoc } from 'firebase/firestore'; // Import serverTimestamp, orderBy and addDoc
+import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit, serverTimestamp, collectionGroup, orderBy, addDoc, setDoc } from 'firebase/firestore'; // Import serverTimestamp, orderBy and addDoc
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
@@ -34,9 +34,9 @@ import {
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Combobox } from '@/components/ui/combobox'; // Import Combobox
+import { coverPhotoSchema } from '@/services/validation-schemas'; 
+import { Skeleton } from '@/components/ui/skeleton'; 
+import { Combobox } from '@/components/ui/combobox'; 
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
@@ -256,7 +256,7 @@ export default function PartyDetailsPage() {
             const usersSnapshot = await getDocs(usersCollectionRef);
             const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
             setAllUsers(fetchedUsers);
-             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length, fetchedUsers.map(u => u.uid));
+             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length, fetchedUsers.map(u => ({uid: u.uid, email: u.email, pseudo: u.pseudo, displayName: u.displayName}) ));
         } catch (error) {
             console.error("[PartyDetailsPage - fetchAllUsers] Erreur lors de la récupération de tous les utilisateurs:", error);
             toast({ title: "Erreur Utilisateurs", description: "Impossible de charger la liste des utilisateurs pour l'ajout.", variant: "destructive" });
@@ -329,12 +329,13 @@ export default function PartyDetailsPage() {
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
       // Use serverTimestamp directly for FieldValue type
-      const newCommentData: Omit<Comment, 'id' | 'partyId'> = {
+      const newCommentData: Comment = {
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null, // Ensure null instead of undefined
         text: comment.trim(),
-        timestamp: serverTimestamp() // Use FieldValue directly
+        timestamp: serverTimestamp(), // Use FieldValue directly
+        partyId: party.id, // Explicitly set partyId
       };
 
       await addDoc(commentsCollectionRef, newCommentData);
@@ -345,8 +346,9 @@ export default function PartyDetailsPage() {
         console.error('Erreur commentaire:', commentError);
         let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
         if (commentError.code === 'invalid-argument') {
-            if (commentError.message?.includes('Unsupported field value')) {
-                errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
+            if (commentError.message?.includes('Unsupported field value: a custom FieldValue object')) {
+                errorMessage = "Le format du timestamp du commentaire est incorrect. Veuillez réessayer.";
+                console.error("Detailed error: Firestore expects a native serverTimestamp() object, but received something else for the timestamp field in the comment.", commentError);
             } else if (commentError.message?.includes('serverTimestamp')) {
                 errorMessage = "Erreur de timestamp serveur. Réessayez.";
             }
@@ -494,7 +496,7 @@ export default function PartyDetailsPage() {
         const isBrowser = typeof window !== 'undefined';
         const file = event.target.files?.[0];
         if (file) {
-            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true };
+            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; 
             if (validationResult.success) {
                 setNewCoverFile(file);
                 if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
@@ -563,7 +565,7 @@ export default function PartyDetailsPage() {
         console.log("[handleAddParticipant] Début. Utilisateur sélectionné:", selectedUserId);
         console.log("[handleAddParticipant] Utilisateur actuel (currentUser):", user?.email);
         console.log("[handleAddParticipant] Détails de l'événement (party):", party);
-        console.log("[handleAddParticipant] Liste de tous les utilisateurs (allUsers):", allUsers);
+        console.log("[handleAddParticipant] Liste de tous les utilisateurs (allUsers - premiers 5 pour concision):", allUsers.slice(0,5).map(u => ({uid: u.uid, email: u.email, pseudo: u.pseudo})));
         console.log("[handleAddParticipant] Peut gérer les participants (canManageParticipants):", canManageParticipants);
         console.log("[handleAddParticipant] DB initialisé:", !!db);
 
@@ -578,12 +580,12 @@ export default function PartyDetailsPage() {
         console.log("[handleAddParticipant] Recherche de l'utilisateur dans `allUsers`. UID recherché:", selectedUserId);
 
         const userToAdd = allUsers.find(u => u.uid === selectedUserId);
-        console.log("[handleAddParticipant] Utilisateur trouvé dans allUsers:", userToAdd);
+        console.log("[handleAddParticipant] Utilisateur trouvé dans allUsers:", userToAdd ? {uid: userToAdd.uid, email: userToAdd.email, pseudo: userToAdd.pseudo} : "Non trouvé");
 
 
         if (!userToAdd) {
             toast({ title: 'Utilisateur non trouvé', description: 'Impossible de trouver les détails de l\'utilisateur sélectionné.', variant: 'destructive' });
-            console.error("[handleAddParticipant] Utilisateur non trouvé dans la liste allUsers. UID recherché:", selectedUserId);
+            console.error("[handleAddParticipant] Utilisateur non trouvé dans la liste allUsers. UID recherché:", selectedUserId, "Liste complète des UIDs dans allUsers:", allUsers.map(u => u.uid));
             setIsAddingParticipant(false);
             return;
         }
@@ -999,3 +1001,6 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
+
+    
