@@ -4,7 +4,7 @@
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 // Import necessary Firestore functions, including FieldValue, orderBy, and addDoc
-import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit, serverTimestamp, collectionGroup, orderBy, addDoc, setDoc, arrayRemove } from 'firebase/firestore'; // Import serverTimestamp, orderBy and addDoc
+import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit, serverTimestamp, collectionGroup, addDoc, setDoc, arrayRemove, orderBy as firestoreOrderBy } from 'firebase/firestore'; // Import serverTimestamp, orderBy and addDoc, aliased firestoreOrderBy
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
@@ -130,7 +130,11 @@ export default function PartyDetailsPage() {
 
 
   const participantColors = [ 'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', ];
-  const getInitials = (email: string | null | undefined): string => { if (!email) return '?'; const parts = email.split('@')[0]; return parts[0]?.toUpperCase() || '?'; };
+  const getInitials = (nameOrEmail: string | null | undefined, fallbackEmail?: string ): string => { 
+    if (nameOrEmail && nameOrEmail.length > 0) return nameOrEmail.charAt(0).toUpperCase();
+    if (fallbackEmail && fallbackEmail.length > 0) return fallbackEmail.charAt(0).toUpperCase();
+    return '?'; 
+  };
 
   const getDateFromTimestamp = (timestamp: Timestamp | FieldValue | Date | undefined): Date | null => {
         if (!timestamp) return null;
@@ -203,7 +207,7 @@ export default function PartyDetailsPage() {
 
     // Listener for comments subcollection
     const commentsRef = collection(db, 'parties', partyId, 'comments');
-    const commentsQuery = query(commentsRef, orderBy('timestamp', 'desc'));
+    const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'desc')); // Use aliased import
 
     const unsubscribeComments = onSnapshot(commentsQuery, (querySnapshot) => {
         console.log(`[PartyDetailsPage] Snapshot reçu pour les commentaires de ${partyId}. Nombre de commentaires: ${querySnapshot.size}`);
@@ -337,12 +341,12 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      const newCommentData: Omit<Comment, 'id'> = { // Omit id as it's auto-generated
+      const newCommentData: Omit<Comment, 'id'> = { 
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: Timestamp.now(), // Use Timestamp.now() for client-side timestamp
+        timestamp: Timestamp.now(), 
         partyId: party.id, 
       };
 
@@ -913,7 +917,7 @@ export default function PartyDetailsPage() {
                          )}
                      </div>
                     {party.mediaItems && party.mediaItems.length > 0 ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4"> {party.mediaItems.map(renderMedia)} </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4"> {party.mediaItems.map((item, index) => renderMedia(item, index))} </div>
                     ) : ( <p className="text-muted-foreground text-sm">Aucun souvenir importé.</p> )}
                 </CardContent>
 
@@ -923,7 +927,7 @@ export default function PartyDetailsPage() {
                     <div className="space-y-6">
                        {user && (
                         <div className="flex items-start space-x-3">
-                            <Avatar className="h-9 w-9 border mt-1"> <AvatarImage src={user.photoURL || undefined} alt={user.email || ''}/> <AvatarFallback>{getInitials(user.email)}</AvatarFallback> </Avatar>
+                            <Avatar className="h-9 w-9 border mt-1"> <AvatarImage src={user.photoURL || undefined} alt={user.email || ''}/> <AvatarFallback>{getInitials(user.displayName, user.email)}</AvatarFallback> </Avatar>
                             <div className="flex-1">
                                 <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
                                 <div className="flex gap-2">
@@ -940,7 +944,7 @@ export default function PartyDetailsPage() {
                                 const commentDate = getDateFromTimestamp(cmt.timestamp); // Accepts Date objects now
                                 return (
                                     <div key={cmt.id || index} className="flex items-start space-x-3">
-                                        <Avatar className="h-8 w-8 border"> <AvatarImage src={cmt.avatar || undefined} alt={cmt.email}/> <AvatarFallback className="text-xs">{getInitials(cmt.email)}</AvatarFallback> </Avatar>
+                                        <Avatar className="h-8 w-8 border"> <AvatarImage src={cmt.avatar || undefined} alt={cmt.email}/> <AvatarFallback className="text-xs">{getInitials(cmt.email, cmt.email)}</AvatarFallback> </Avatar>
                                         <div className="flex-1 bg-secondary/50 p-3 rounded-lg border border-border/30">
                                         <div className="flex justify-between items-center mb-1">
                                             <p className="text-xs font-medium text-foreground">{cmt.email}</p>
@@ -963,7 +967,7 @@ export default function PartyDetailsPage() {
                  <CardContent className="p-4 md:p-6 border-t border-border/50"> <RatingDistributionChart ratings={party.ratings || {}} /> </CardContent>
                  <CardContent className="p-4 md:p-6 border-t border-border/50">
                       <div className="flex justify-between items-center mb-4">
-                           <h3 className="text-xl font-semibold text-foreground">Participants ({party.participantEmails?.length || 1})</h3>
+                           <h3 className="text-xl font-semibold text-foreground">Participants ({party.participants?.length || 0})</h3>
                             {canManageParticipants && (
                                 <Dialog open={showAddParticipantDialog} onOpenChange={setShowAddParticipantDialog}>
                                     <DialogTrigger asChild>
@@ -997,15 +1001,20 @@ export default function PartyDetailsPage() {
                             )}
                       </div>
                       <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-                         {(party.participantEmails || [party.creatorEmail]).map((email, index) => (
-                            <div key={email || index} className="flex items-center space-x-3 p-2 rounded-md hover:bg-secondary/50">
+                         {(party.participants || []).map((participantId, index) => {
+                            const participantUser = allUsers.find(u => u.uid === participantId);
+                            const displayName = participantUser?.pseudo || participantUser?.displayName || participantUser?.email || 'Participant inconnu';
+                            const isCreatorParticipant = participantId === party.createdBy;
+                            return (
+                            <div key={participantId || index} className="flex items-center space-x-3 p-2 rounded-md hover:bg-secondary/50">
                                 <Avatar className="h-8 w-8 border">
-                                     <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}> {getInitials(email)} </AvatarFallback>
+                                     <AvatarImage src={participantUser?.avatarUrl || undefined} alt={displayName}/>
+                                     <AvatarFallback className={`${participantColors[index % participantColors.length]} text-primary-foreground text-xs`}> {getInitials(displayName, participantUser?.email)} </AvatarFallback>
                                  </Avatar>
-                                 <span className="text-sm font-medium text-foreground truncate">{email || 'Créateur'}</span>
-                                 {email === party.creatorEmail && <Badge variant="outline" className="text-xs ml-auto">Créateur</Badge>}
+                                 <span className="text-sm font-medium text-foreground truncate">{displayName}</span>
+                                 {isCreatorParticipant && <Badge variant="outline" className="text-xs ml-auto">Créateur</Badge>}
                             </div>
-                         ))}
+                         )})}
                       </div>
                  </CardContent>
              </div>
@@ -1041,3 +1050,4 @@ function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
 
+    
