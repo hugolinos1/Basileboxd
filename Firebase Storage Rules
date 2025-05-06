@@ -1,0 +1,74 @@
+Le message d'erreur `FirebaseError: Firebase Storage: User does not have permission to access 'userAvatars/2MhVLopnYRYRt9mergiwYy0dx893/1746559133665_Gab.jpg'. (storage/unauthorized)` indique clairement que les règles de sécurité de Firebase Storage empêchent l'utilisateur actuel de téléverser un fichier à cet emplacement.
+
+Pour résoudre ce problème, vous devez modifier vos **Règles de Sécurité Firebase Storage**.
+
+Voici les étapes et les règles que vous devriez mettre en place :
+
+**1. Accéder aux Règles de Firebase Storage :**
+
+*   Allez sur votre console Firebase.
+*   Dans le menu de gauche, sous "Compilation" (Build), sélectionnez "Storage".
+*   Cliquez sur l'onglet "Règles" (Rules).
+
+**2. Mettre à jour les Règles de Sécurité Storage :**
+
+Vous devez autoriser un utilisateur authentifié à écrire dans son propre dossier d'avatars. Voici un exemple de règles que vous pouvez utiliser. Assurez-vous de les adapter si vous avez d'autres besoins spécifiques.
+
+```
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Match all files in the userAvatars directory
+    match /userAvatars/{userId}/{allPaths=**} {
+      // Allow read access to anyone (e.g., to display avatars)
+      allow read: if true;
+      // Allow write (upload, update, delete) only if the authenticated user's UID
+      // matches the {userId} in the path.
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Rules for party media (souvenirs and cover photos)
+    match /parties/{partyId}/{allPaths=**} {
+      // Allow anyone to read party media (adjust if needed)
+      allow read: if true;
+      // Allow authenticated users to upload media to any party folder for now.
+      // For more granular control (e.g., only participants), you'd need more complex rules
+      // or a Cloud Function to manage uploads and associate them with the party.
+      allow write: if request.auth != null;
+    }
+  }
+}
+```
+
+**Explication des règles pour `/userAvatars/{userId}/{allPaths=**}`:**
+
+*   `match /userAvatars/{userId}/{allPaths=**}`:
+    *   Cela cible tous les fichiers dans n'importe quel sous-dossier sous `userAvatars/<un-ID-utilisateur-specifique>`.
+    *   `{userId}` est un joker qui capture l'UID de l'utilisateur.
+    *   `{allPaths=**}` est un joker récursif qui correspond à tous les fichiers et sous-dossiers à l'intérieur du dossier de cet utilisateur.
+*   `allow read: if true;`:
+    *   Permet à quiconque de lire les fichiers d'avatar. C'est généralement ce que vous voulez pour afficher les photos de profil publiquement. Si vous voulez que seuls les utilisateurs authentifiés voient les avatars, changez `true` en `request.auth != null;`.
+*   `allow write: if request.auth != null && request.auth.uid == userId;`:
+    *   C'est la règle cruciale pour votre problème. Elle permet les opérations d'écriture (téléversement, mise à jour, suppression) sur un avatar **uniquement si** :
+        1.  L'utilisateur effectuant la requête est authentifié (`request.auth != null`).
+        2.  L'UID de l'utilisateur authentifié (`request.auth.uid`) correspond au joker `{userId}` dans le chemin du fichier. Cela signifie que l'utilisateur ne peut modifier que son propre avatar.
+
+**3. Publier les Règles :**
+
+*   Après avoir modifié les règles, cliquez sur le bouton **"Publier"** (Publish) en haut à droite de l'éditeur de règles.
+*   **Important :** Les modifications des règles peuvent prendre quelques minutes pour être appliquées.
+
+**4. Tester à nouveau :**
+
+*   Revenez à votre application.
+*   Actualisez la page (forcez une actualisation si nécessaire : Ctrl+Shift+R ou Cmd+Shift+R).
+*   Essayez à nouveau de téléverser/modifier votre miniature de profil.
+
+**Points importants :**
+
+*   **Chemin de stockage dans le code client :** Assurez-vous que le code de votre application qui téléverse l'avatar utilise le bon chemin de stockage. Il devrait correspondre au format `userAvatars/{currentUser.uid}/{nom_du_fichier}`. Le code actuel dans `src/services/media-uploader.ts` pour le type `'userAvatar'` semble correct : `filePath = \`userAvatars/${itemId}/${Date.now()}_${fileToUpload.name}\`;` (où `itemId` devrait être l'UID de l'utilisateur).
+*   **Sécurité vs. Flexibilité :** Les règles ci-dessus sont un bon point de départ. Vous pourriez vouloir les rendre plus restrictives ou plus flexibles en fonction des besoins exacts de votre application. Par exemple, pour les médias de fêtes (`/parties/{partyId}/{allPaths=**}`), la règle `allow write: if request.auth != null;` est assez permissive. Vous pourriez vouloir la restreindre pour que seuls les participants à la fête puissent ajouter des souvenirs, ce qui nécessiterait de vérifier l'appartenance à la liste des participants dans les règles ou, plus probablement, d'utiliser des Cloud Functions pour gérer ces téléversements de manière sécurisée.
+
+En appliquant ces règles de stockage, l'erreur de permission pour le téléversement de l'avatar devrait être résolue.
+    
