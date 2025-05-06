@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
-import { Info, PlusCircle } from 'lucide-react'; // Changed Play to PlusCircle
+import { PlusCircle } from 'lucide-react'; // Changed Play to PlusCircle
 import Link from 'next/link'; // Import Link
 
 export function HeroSection() {
@@ -9,7 +9,7 @@ export function HeroSection() {
       {/* Background Image */}
       <Image
         src="https://i.ibb.co/NnTT13h0/Snapchat-1715506731.jpg" // Updated image URL
-        alt="Jeunes faisant la fête lors d'une soirée" // Updated alt text
+        alt="Groupe de jeunes s'amusant à une fête ou un concert" // Updated alt text for better description
         layout="fill"
         objectFit="cover"
         quality={85}
@@ -40,10 +40,6 @@ export function HeroSection() {
                   Créer un Event {/* Updated text */}
                 </Button>
               </Link>
-              <Button variant="secondary" size="lg" className="bg-gray-600 bg-opacity-70 text-white hover:bg-gray-500 hover:bg-opacity-70">
-                <Info className="mr-2 h-5 w-5" />
-                Plus d'infos
-              </Button>
             </div>
         </div>
       </div>
