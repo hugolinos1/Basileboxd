@@ -1,9 +1,9 @@
 // src/app/user/[id]/page.tsx
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc, collection, query, where, getDocs, orderBy, limit, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, orderBy, Timestamp, updateDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import Image from 'next/image';
@@ -11,54 +11,51 @@ import Link from 'next/link';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Star, MessageSquare, CalendarDays, Edit2, Loader2, AlertTriangle, ImageIcon, Users } from 'lucide-react'; // Added Users icon
+import { Star, MessageSquare, CalendarDays, Edit2, Loader2, AlertTriangle, ImageIcon, Users, Edit3, Upload, X } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import type { ChartConfig } from "@/components/ui/chart";
-import { Button } from '@/components/ui/button'; // Added Button import
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import { useToast } from '@/hooks/use-toast';
+import { uploadFile, ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE, COMPRESSED_COVER_PHOTO_MAX_SIZE_MB } from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/validation-schemas';
+import type { PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
+
 
 // --- Interfaces ---
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
-// Updated UserData interface to match Firestore structure
+
 interface UserData {
-    id: string; // Document ID from Firestore (useful if needed later)
+    id: string;
     uid: string;
     email: string;
     displayName?: string;
-    pseudo?: string; // Added optional pseudo field
+    pseudo?: string;
     avatarUrl?: string;
-    createdAt?: FirestoreTimestamp | Timestamp; // Assuming this field exists in Firestore doc
-}
-interface PartyData {
-    id: string;
-    name: string;
-    coverPhotoUrl?: string;
-    ratings?: { [userId: string]: number };
-    date?: FirestoreTimestamp | Timestamp;
-    comments?: CommentData[];
-    participants?: string[]; // Array of user UIDs
-    createdBy: string; // Added createdBy field
-    createdAt?: FirestoreTimestamp | Timestamp;
-}
-interface CommentData {
-    userId: string;
-    partyId: string; // Add partyId to comment data structure
-    partyName: string; // Add partyName for display
-    text: string;
-    timestamp: FirestoreTimestamp | Timestamp;
+    createdAt?: FirestoreTimestamp | Timestamp | Date;
+    eventCount: number;
+    commentCount: number;
+    averageRatingGiven: number;
 }
 
+type PartyData = SharedPartyData & { id: string, createdBy: string };
+type CommentData = SharedCommentData & { partyName?: string };
+
+
 // --- Helper Functions ---
-const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefined): Date | null => {
+const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date | undefined): Date | null => {
     if (!timestamp) return null;
     try {
         if (timestamp instanceof Timestamp) return timestamp.toDate();
-        if (typeof timestamp === 'object' && typeof timestamp.seconds === 'number') {
+        if (timestamp instanceof Date) return timestamp;
+        if (typeof timestamp === 'object' && 'seconds' in timestamp && typeof timestamp.seconds === 'number') {
             const date = new Date(timestamp.seconds * 1000);
             return isNaN(date.getTime()) ? null : date;
         }
@@ -66,7 +63,6 @@ const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | undefi
     } catch (e) { console.error("Erreur conversion timestamp:", timestamp, e); return null; }
 }
 
-// Calculate average rating GIVEN BY this specific user across all parties they rated
 const calculateAverageRatingGiven = (parties: PartyData[], userId: string): number => {
     let totalRating = 0;
     let ratingCount = 0;
@@ -79,7 +75,6 @@ const calculateAverageRatingGiven = (parties: PartyData[], userId: string): numb
     return ratingCount > 0 ? totalRating / ratingCount : 0;
 };
 
-// Calculate the distribution of ratings GIVEN BY this specific user
 const calculateRatingDistribution = (parties: PartyData[], userId: string): { rating: number; votes: number; fill: string }[] => {
     const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 10 }, (_, i) => ({ rating: (i + 1) * 0.5, votes: 0, fill: '' }));
     parties.forEach(party => {
@@ -91,11 +86,9 @@ const calculateRatingDistribution = (parties: PartyData[], userId: string): { ra
             }
         }
     });
-    // Assign colors after counting
      return counts.map(c => ({ ...c, fill: "hsl(var(--primary))" }));
 };
 
-// Helper to calculate overall average rating RECEIVED by a party (across all users)
 const calculatePartyAverageRating = (party: PartyData): number => {
     if (!party.ratings) return 0;
     const allRatings = Object.values(party.ratings);
@@ -105,8 +98,8 @@ const calculatePartyAverageRating = (party: PartyData): number => {
 };
 
 const getInitials = (name: string | null | undefined, email: string): string => {
-    if (name) return name.charAt(0).toUpperCase();
-    if (email) return email.charAt(0).toUpperCase();
+    if (name && name.length > 0) return name.charAt(0).toUpperCase();
+    if (email && email.length > 0) return email.charAt(0).toUpperCase();
     return '?';
 };
 
@@ -114,15 +107,23 @@ const getInitials = (name: string | null | undefined, email: string): string => 
 // --- User Profile Page Component ---
 export default function UserProfilePage() {
     const params = useParams();
-    const profileUserId = params.id as string; // The ID of the user whose profile we're viewing
+    const profileUserId = params.id as string;
     const router = useRouter();
-    const { user: currentUser, loading: authLoading, firebaseInitialized } = useFirebase(); // Logged-in user
+    const { user: currentUser, loading: authLoading, firebaseInitialized } = useFirebase();
+    const { toast } = useToast();
 
-    const [profileUserData, setProfileUserData] = useState<UserData | null>(null); // Data of the profile being viewed
-    const [userParties, setUserParties] = useState<PartyData[]>([]); // Parties created or participated in BY THE PROFILE USER
-    const [userComments, setUserComments] = useState<CommentData[]>([]); // Comments made BY THE PROFILE USER
+    const [profileUserData, setProfileUserData] = useState<UserData | null>(null);
+    const [userParties, setUserParties] = useState<PartyData[]>([]);
+    const [userComments, setUserComments] = useState<CommentData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const [showEditAvatarDialog, setShowEditAvatarDialog] = useState(false);
+    const [newAvatarFile, setNewAvatarFile] = useState<File | null>(null);
+    const [newAvatarPreview, setNewAvatarPreview] = useState<string | null>(null);
+    const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+    const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
+
 
     const isOwnProfile = currentUser?.uid === profileUserId;
 
@@ -145,60 +146,44 @@ export default function UserProfilePage() {
         const fetchData = async () => {
             setLoading(true);
             setError(null);
-            console.log(`[UserProfilePage] Récupération des données pour l'utilisateur ${profileUserId}`);
             try {
-                // 1. Fetch Profile User Data from 'users' collection
                 const userDocRef = doc(db, 'users', profileUserId);
                 const userDocSnap = await getDoc(userDocRef);
 
                 if (!userDocSnap.exists()) {
-                    console.error(`[UserProfilePage] Utilisateur ${profileUserId} non trouvé dans Firestore.`);
                     throw new Error("Utilisateur non trouvé.");
                 }
-                const fetchedUserData = { id: userDocSnap.id, ...userDocSnap.data() } as UserData;
-                console.log("[UserProfilePage] Données utilisateur récupérées:", fetchedUserData);
-                setProfileUserData(fetchedUserData);
+                const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as Omit<UserData, 'eventCount' | 'commentCount' | 'averageRatingGiven'>;
 
-                // 2. Fetch Parties where the profile user is a participant
-                // We need ALL parties the user participated in to calculate stats accurately.
                 const partiesRef = collection(db, 'parties');
                 const participatedQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
-
-                console.log(`[UserProfilePage] Récupération des fêtes pour l'utilisateur ${profileUserId}`);
                 const partiesSnapshot = await getDocs(participatedQuery);
-                console.log(`[UserProfilePage] ${partiesSnapshot.size} fêtes trouvées.`);
+                const partiesData: PartyData[] = partiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
 
-                const partiesData: PartyData[] = partiesSnapshot.docs.map(docSnap => ({
-                    id: docSnap.id,
-                    ...docSnap.data()
-                } as PartyData));
-                setUserParties(partiesData); // Store all participated parties
-
-                 // 3. Extract User's Comments from the fetched parties data
-                 console.log(`[UserProfilePage] Extraction des commentaires pour l'utilisateur ${profileUserId}`);
-                const commentsData: CommentData[] = [];
-                partiesData.forEach(party => {
-                    if (party.comments) {
-                         party.comments.forEach(comment => {
-                            if (comment.userId === profileUserId) {
-                                commentsData.push({
-                                    ...comment,
-                                    partyId: party.id, // Add partyId
-                                    partyName: party.name // Add partyName
-                                });
-                            }
-                         });
+                const commentsCollectionRef = collectionGroup(db, 'comments');
+                const commentsQuery = query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'));
+                const commentsSnapshot = await getDocs(commentsQuery);
+                const commentsDataPromises = commentsSnapshot.docs.map(async (commentDoc) => {
+                    const commentData = commentDoc.data() as Omit<CommentData, 'partyName'>;
+                    const partyDocRef = commentDoc.ref.parent.parent; // Get parent document (party)
+                    if (partyDocRef) {
+                        const partySnap = await getDoc(partyDocRef);
+                        if (partySnap.exists()) {
+                            return { ...commentData, id: commentDoc.id, partyId: partySnap.id, partyName: partySnap.data()?.name || 'Événement inconnu' } as CommentData;
+                        }
                     }
+                    return { ...commentData, id: commentDoc.id, partyId: 'unknown', partyName: 'Événement inconnu' } as CommentData; // Fallback
                 });
-                 // Sort comments by timestamp descending
-                 commentsData.sort((a, b) => {
-                     const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
-                     const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
-                     return timeB - timeA;
-                 });
-                 console.log(`[UserProfilePage] ${commentsData.length} commentaires trouvés pour l'utilisateur.`);
-                 setUserComments(commentsData);
+                const resolvedCommentsData = await Promise.all(commentsDataPromises);
 
+                setProfileUserData({
+                    ...fetchedUser,
+                    eventCount: partiesData.length,
+                    commentCount: resolvedCommentsData.length,
+                    averageRatingGiven: calculateAverageRatingGiven(partiesData, profileUserId),
+                });
+                setUserParties(partiesData);
+                setUserComments(resolvedCommentsData);
 
             } catch (err: any) {
                 console.error("Erreur lors de la récupération des données utilisateur:", err);
@@ -207,67 +192,116 @@ export default function UserProfilePage() {
                      userFriendlyError = "Permission refusée. Vérifiez les règles Firestore.";
                  }
                 setError(userFriendlyError);
-                setProfileUserData(null); // Reset data on error
-                setUserParties([]);
-                setUserComments([]);
             } finally {
-                console.log("[UserProfilePage] Récupération des données terminée.");
                 setLoading(false);
             }
         };
-
         fetchData();
+    }, [profileUserId, firebaseInitialized, authLoading]);
 
-    }, [profileUserId, firebaseInitialized, authLoading]); // Re-run if profileUserId changes or Firebase init status changes
+    const handleNewAvatarFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+        const isBrowser = typeof window !== 'undefined';
+        const file = event.target.files?.[0];
+        if (file) {
+            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; // Use coverPhotoSchema for avatar too
+            if (validationResult.success) {
+                setNewAvatarFile(file);
+                if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
+                setNewAvatarPreview(URL.createObjectURL(file));
+            } else {
+                const errorMessage = (validationResult as any).error?.errors[0]?.message || 'Fichier invalide.';
+                toast({ title: "Erreur Photo de Profil", description: errorMessage, variant: "destructive" });
+                setNewAvatarFile(null);
+                if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
+                setNewAvatarPreview(null);
+            }
+        } else {
+             setNewAvatarFile(null);
+             if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
+             setNewAvatarPreview(null);
+        }
+        if (event.target) event.target.value = '';
+    };
 
-    // --- Memoized Calculations ---
-    const stats = useMemo(() => {
-        if (!profileUserData || !userParties) return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
-        const avgRatingGiven = calculateAverageRatingGiven(userParties, profileUserId);
-        return {
-            eventCount: userParties.length, // Total parties participated in/created
-            commentCount: userComments.length,
-            averageRatingGiven: avgRatingGiven, // Average rating this user GAVE
+    const handleUpdateAvatar = async () => {
+        if (!currentUser || !newAvatarFile || !db) {
+            toast({ title: 'Erreur', description: 'Impossible de mettre à jour l\'avatar pour le moment.', variant: 'destructive' });
+            return;
+        }
+        setIsUploadingAvatar(true);
+        setAvatarUploadProgress(0);
+
+        try {
+            const newAvatarUrl = await uploadFile(newAvatarFile, currentUser.uid, false, (progress) => {
+                setAvatarUploadProgress(progress);
+            }, 'userAvatar'); // Specify type as 'userAvatar'
+
+            const userDocRef = doc(db, 'users', currentUser.uid);
+            await updateDoc(userDocRef, { avatarUrl: newAvatarUrl });
+
+            toast({ title: 'Avatar mis à jour !' });
+            setProfileUserData(prev => prev ? { ...prev, avatarUrl: newAvatarUrl } : null);
+            setNewAvatarFile(null);
+            if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
+            setNewAvatarPreview(null);
+            setShowEditAvatarDialog(false);
+
+        } catch (error: any) {
+            console.error("Erreur lors de la mise à jour de l'avatar:", error);
+            let userFriendlyError = "Impossible de mettre à jour l'avatar.";
+            if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied') {
+                userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité.";
+            }
+            toast({ title: 'Échec de la mise à jour', description: userFriendlyError, variant: 'destructive' });
+        } finally {
+            setIsUploadingAvatar(false);
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
         };
-    }, [profileUserData, userParties, userComments, profileUserId]); // Depend on profileUserId
+    }, [newAvatarPreview]);
+
+
+    const stats = useMemo(() => {
+        if (!profileUserData) return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
+        return {
+            eventCount: profileUserData.eventCount,
+            commentCount: profileUserData.commentCount,
+            averageRatingGiven: profileUserData.averageRatingGiven,
+        };
+    }, [profileUserData]);
 
      const ratingDistributionGiven = useMemo(() => {
         if (!userParties || !profileUserId) return [];
-         return calculateRatingDistribution(userParties, profileUserId); // Distribution of ratings GIVEN by this user
-    }, [userParties, profileUserId]); // Depend on profileUserId
+         return calculateRatingDistribution(userParties, profileUserId);
+    }, [userParties, profileUserId]);
 
-     // Parties CREATED by this user, sorted by overall average rating (descending)
      const topRatedCreatedParties = useMemo(() => {
         return userParties
-            .filter(party => party.createdBy === profileUserId) // Filter for created parties
-            .sort((a, b) => {
-                const overallAvgA = calculatePartyAverageRating(a);
-                const overallAvgB = calculatePartyAverageRating(b);
-                return overallAvgB - overallAvgA; // Sort descending by overall average
-            })
+            .filter(party => party.createdBy === profileUserId)
+            .sort((a, b) => calculatePartyAverageRating(b) - calculatePartyAverageRating(a))
             .slice(0, 4);
-    }, [userParties, profileUserId]); // Depend on profileUserId
+    }, [userParties, profileUserId]);
 
-    // Parties PARTICIPATED IN (including created), sorted by date (descending)
     const recentParticipatedParties = useMemo(() => {
         return [...userParties].sort((a, b) => {
-            const timeA = getDateFromTimestamp(a.date ?? a.createdAt)?.getTime() || 0; // Use event date primarily
+            const timeA = getDateFromTimestamp(a.date ?? a.createdAt)?.getTime() || 0;
             const timeB = getDateFromTimestamp(b.date ?? b.createdAt)?.getTime() || 0;
-            return timeB - timeA; // Sort descending by event date
+            return timeB - timeA;
         }).slice(0, 4);
     }, [userParties]);
 
 
-    // --- Chart Config ---
      const chartConfig = {
         votes: { label: "Votes", color: "hsl(var(--primary))" },
      } satisfies ChartConfig
 
-    // --- Render Logic ---
     if (loading) {
         return (
             <div className="container mx-auto max-w-6xl px-4 py-8">
-                 {/* Skeleton Header */}
                  <div className="flex flex-col md:flex-row items-center md:items-end gap-6 mb-8 border-b border-border pb-8">
                     <Skeleton className="h-24 w-24 md:h-32 md:w-32 rounded-full bg-muted" />
                     <div className="flex-1 space-y-3 text-center md:text-left">
@@ -281,7 +315,6 @@ export default function UserProfilePage() {
                         <div><Skeleton className="h-6 w-10 bg-muted mx-auto mb-1" /><Skeleton className="h-3 w-14 bg-muted mx-auto" /></div>
                     </div>
                 </div>
-                 {/* Skeleton Body */}
                 <Skeleton className="h-96 w-full bg-muted" />
             </div>
         );
@@ -300,41 +333,63 @@ export default function UserProfilePage() {
     }
 
     if (!profileUserData) {
-        // This case should be covered by the error state if fetch failed,
-        // but good to have a fallback.
         return <div className="container mx-auto px-4 py-12 text-center">Utilisateur non trouvé.</div>;
     }
 
     const joinDate = getDateFromTimestamp(profileUserData.createdAt);
-    const displayUsername = profileUserData.pseudo || profileUserData.displayName || profileUserData.email.split('@')[0]; // Define displayUsername
+    const displayUsername = profileUserData.pseudo || profileUserData.displayName || profileUserData.email.split('@')[0];
 
     return (
         <div className="container mx-auto max-w-6xl px-4 py-8">
-            {/* User Header */}
             <div className="flex flex-col md:flex-row items-center md:items-end gap-4 md:gap-6 mb-8 border-b border-border pb-8">
                 <Avatar className="h-24 w-24 md:h-32 md:w-32 border-2 border-primary relative group">
                     <AvatarImage src={profileUserData.avatarUrl || undefined} alt={displayUsername} />
                     <AvatarFallback className="text-4xl bg-muted">{getInitials(displayUsername, profileUserData.email)}</AvatarFallback>
-                    {/* Edit button - only visible to the logged-in user viewing their own profile */}
                      {isOwnProfile && (
-                        <button className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer">
-                            <Edit2 className="h-8 w-8 text-white" />
-                            <span className="sr-only">Modifier photo</span>
-                            {/* TODO: Add Dialog/Modal for upload */}
-                        </button>
+                        <Dialog open={showEditAvatarDialog} onOpenChange={setShowEditAvatarDialog}>
+                            <DialogTrigger asChild>
+                                <button className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer">
+                                    <Edit3 className="h-8 w-8 text-white" />
+                                    <span className="sr-only">Modifier photo</span>
+                                </button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Modifier l'Avatar</DialogTitle>
+                                    <DialogDescription>Choisissez une nouvelle image de profil. Max {MAX_FILE_SIZE.image / (1024*1024)}Mo, sera compressée si besoin.</DialogDescription>
+                                </DialogHeader>
+                                <div className="grid gap-4 py-4">
+                                    <Input id="new-avatar-input" type="file" accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')} onChange={handleNewAvatarFileChange} className="col-span-3" />
+                                    {newAvatarPreview && (
+                                        <div className="relative aspect-square w-32 h-32 mx-auto border rounded-full mt-2 bg-muted overflow-hidden">
+                                            <Image src={newAvatarPreview} alt="Aperçu nouvel avatar" layout="fill" objectFit="cover" />
+                                            <Button variant="destructive" size="icon" className="absolute top-0 right-0 h-6 w-6 rounded-full z-10 text-xs" onClick={() => { setNewAvatarFile(null); if(newAvatarPreview) URL.revokeObjectURL(newAvatarPreview); setNewAvatarPreview(null); }}> <X className="h-3 w-3" /> </Button>
+                                        </div>
+                                    )}
+                                    {isUploadingAvatar && avatarUploadProgress > 0 && avatarUploadProgress < 100 && (
+                                        <Progress value={avatarUploadProgress} className="h-2 w-full mt-2" />
+                                    )}
+                                </div>
+                                <DialogFooter>
+                                    <DialogClose asChild><Button type="button" variant="outline">Annuler</Button></DialogClose>
+                                    <Button type="button" onClick={handleUpdateAvatar} disabled={!newAvatarFile || isUploadingAvatar}>
+                                        {isUploadingAvatar ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />}
+                                        Mettre à jour
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
                      )}
                 </Avatar>
                 <div className="flex-1 space-y-1 text-center md:text-left">
                     <h1 className="text-2xl md:text-3xl font-bold text-foreground">{displayUsername}</h1>
-                     {/* Display pseudo if available and different from displayName/email part */}
                      {profileUserData.pseudo && profileUserData.pseudo !== (profileUserData.displayName || profileUserData.email.split('@')[0]) && (
                          <p className="text-lg text-primary">{profileUserData.pseudo}</p>
                      )}
                     <p className="text-sm text-muted-foreground">{profileUserData.email}</p>
                      {joinDate && <p className="text-xs text-muted-foreground">Membre depuis {formatDistanceToNow(joinDate, { addSuffix: true, locale: fr })}</p>}
-                     {/* Button to set/edit pseudo - only for own profile */}
                      {isOwnProfile && (
-                         <Button variant="outline" size="sm" className="mt-2" onClick={() => router.push('/settings/profile')}> {/* Redirect to a future settings page */}
+                         <Button variant="outline" size="sm" className="mt-2" onClick={() => router.push('/settings/profile')}>
                              <Edit2 className="mr-2 h-3 w-3" /> Modifier le profil
                          </Button>
                       )}
@@ -355,7 +410,6 @@ export default function UserProfilePage() {
                 </div>
             </div>
 
-            {/* User Content Sections */}
             <Tabs defaultValue="activity" className="w-full">
                 <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6 bg-secondary">
                     <TabsTrigger value="activity" className="data-[state=active]:bg-card data-[state=active]:text-foreground">Activité Récente</TabsTrigger>
@@ -364,7 +418,6 @@ export default function UserProfilePage() {
                     <TabsTrigger value="stats" className="data-[state=active]:bg-card data-[state=active]:text-foreground">Statistiques</TabsTrigger>
                 </TabsList>
 
-                {/* Activité Récente (Last Participated Parties) */}
                 <TabsContent value="activity">
                     <Card className="bg-card border-border">
                         <CardHeader>
@@ -378,7 +431,7 @@ export default function UserProfilePage() {
                                             <Card className="overflow-hidden h-full bg-secondary hover:border-primary/50">
                                                 <div className="aspect-video relative w-full bg-muted">
                                                    {party.coverPhotoUrl ? (
-                                                        <Image src={party.coverPhotoUrl} alt={party.name} layout="fill" objectFit="cover" className="group-hover:scale-105 transition-transform"/>
+                                                        <Image src={party.coverPhotoUrl} alt={party.name} layout="fill" objectFit="cover" className="group-hover:scale-105 transition-transform" data-ai-hint="fête evenement" />
                                                    ) : (
                                                        <div className="flex items-center justify-center h-full"> <ImageIcon className="h-10 w-10 text-muted-foreground/50"/></div>
                                                    )}
@@ -398,7 +451,6 @@ export default function UserProfilePage() {
                     </Card>
                 </TabsContent>
 
-                 {/* Mieux Notés (Top Rated CREATED Parties) */}
                 <TabsContent value="top-rated">
                     <Card className="bg-card border-border">
                         <CardHeader>
@@ -409,17 +461,16 @@ export default function UserProfilePage() {
                              {topRatedCreatedParties.length > 0 ? (
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     {topRatedCreatedParties.map(party => {
-                                         const overallAvg = calculatePartyAverageRating(party); // Calculate overall average
+                                         const overallAvg = calculatePartyAverageRating(party);
                                         return (
                                              <Link href={`/party/${party.id}`} key={party.id} className="block group">
                                                  <Card className="overflow-hidden h-full bg-secondary hover:border-primary/50">
                                                      <div className="aspect-video relative w-full bg-muted">
                                                         {party.coverPhotoUrl ? (
-                                                             <Image src={party.coverPhotoUrl} alt={party.name} layout="fill" objectFit="cover" className="group-hover:scale-105 transition-transform"/>
+                                                             <Image src={party.coverPhotoUrl} alt={party.name} layout="fill" objectFit="cover" className="group-hover:scale-105 transition-transform" data-ai-hint="fête populaire" />
                                                         ) : (
                                                             <div className="flex items-center justify-center h-full"> <ImageIcon className="h-10 w-10 text-muted-foreground/50"/></div>
                                                         )}
-                                                          {/* Display OVERALL average rating for the party */}
                                                           {overallAvg > 0 && (
                                                               <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white text-xs font-semibold px-2 py-1 rounded-full flex items-center space-x-1">
                                                                  <Star className="h-3 w-3 text-yellow-400 fill-current" />
@@ -443,7 +494,6 @@ export default function UserProfilePage() {
                     </Card>
                 </TabsContent>
 
-                {/* Commentaires */}
                 <TabsContent value="comments">
                      <Card className="bg-card border-border">
                          <CardHeader>
@@ -454,7 +504,7 @@ export default function UserProfilePage() {
                                 userComments.map((comment, index) => {
                                      const commentDate = getDateFromTimestamp(comment.timestamp);
                                     return (
-                                        <div key={index} className="p-3 bg-secondary/50 rounded-md border border-border/30">
+                                        <div key={comment.id || index} className="p-3 bg-secondary/50 rounded-md border border-border/30">
                                              <p className="text-sm text-foreground/90 mb-1 italic">"{comment.text}"</p>
                                              <div className="flex justify-between items-center text-xs text-muted-foreground">
                                                  <span>Sur : <Link href={`/party/${comment.partyId}`} className="text-primary hover:underline">{comment.partyName || 'Événement supprimé'}</Link></span>
@@ -470,7 +520,6 @@ export default function UserProfilePage() {
                      </Card>
                 </TabsContent>
 
-                 {/* Statistiques */}
                  <TabsContent value="stats">
                      <Card className="bg-card border-border">
                          <CardHeader>
@@ -497,3 +546,4 @@ export default function UserProfilePage() {
         </div>
     );
 }
+

@@ -9,10 +9,15 @@ export const MAX_FILE_SIZE = {
   image: 10 * 1024 * 1024, // 10MB for initial upload
   video: 10 * 1024 * 1024, // 10MB
   audio: 5 * 1024 * 1024, // 5MB
+  userAvatar: 5 * 1024 * 1024, // 5MB for avatars
 };
 export const COMPRESSED_COVER_PHOTO_MAX_SIZE_MB = 1; // Compress cover photos to 1MB
+export const COMPRESSED_AVATAR_MAX_SIZE_MB = 0.5; // Compress avatars to 0.5MB
+
 export const ACCEPTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'audio/mpeg', 'audio/wav'];
 export const ACCEPTED_COVER_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+export const ACCEPTED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
 
 // Helper to check if running in the browser
 const isBrowser = typeof window !== 'undefined';
@@ -34,16 +39,35 @@ export const coverPhotoSchema = fileSchema
     .refine(
         (file) => {
             if (!isBrowser || !(file instanceof File)) return true;
-            return file.size <= MAX_FILE_SIZE.image; // Check against initial upload size
+            return file.size <= MAX_FILE_SIZE.image; // Check against initial upload size for cover
         },
         `La photo de couverture initiale ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
     )
-    .optional(); // Make cover photo optional
+    .optional();
+
+// --- Define and Export Avatar Schema ---
+export const avatarSchema = fileSchema
+    .refine(
+        (file) => {
+            if (!isBrowser || !(file instanceof File)) return true;
+            return ACCEPTED_AVATAR_TYPES.includes(file.type);
+        },
+        "Type d'avatar non supporté."
+    )
+    .refine(
+        (file) => {
+            if (!isBrowser || !(file instanceof File)) return true;
+            return file.size <= MAX_FILE_SIZE.userAvatar; // Check against initial upload size for avatar
+        },
+        `L'avatar initial ne doit pas dépasser ${MAX_FILE_SIZE.userAvatar / (1024 * 1024)}Mo.`
+    )
+    .optional();
+
 
 // Helper to get file type category
-export const getFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => {
+export const getFileType = (file: File): 'image' | 'video' | 'audio' | 'userAvatar' | 'autre' => {
   if (!file || !file.type) return 'autre';
-  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('image/')) return 'image'; // Generic image, could be cover or souvenir
   if (file.type.startsWith('video/')) return 'video';
   if (file.type.startsWith('audio/')) return 'audio';
   return 'autre';
@@ -53,49 +77,65 @@ export const getFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' =
  * Uploads a file to Firebase Storage, optionally compressing images.
  *
  * @param file The file to upload.
- * @param partyId The ID of the party/event.
+ * @param itemId The ID of the party/event or user UID for avatars.
  * @param isCover Whether the file is a cover photo (triggers specific compression).
  * @param onProgress Callback function to report upload progress (0-100 or -1 for error).
+ * @param uploadType Type of upload: 'coverPhoto', 'souvenir', or 'userAvatar'.
  * @returns A promise resolving to the download URL of the uploaded file.
  * @throws An error if the upload fails or preconditions are not met.
  */
 export const uploadFile = async (
     file: File,
-    partyId: string,
-    isCover: boolean = false,
-    onProgress?: (progress: number) => void
+    itemId: string, // Can be partyId or userId
+    isCover: boolean = false, // Kept for backward compatibility for cover photos, but uploadType is more specific
+    onProgress?: (progress: number) => void,
+    uploadType: 'coverPhoto' | 'souvenir' | 'userAvatar' = 'souvenir' // Default to souvenir
 ): Promise<string> => {
     if (!storage) {
         throw new Error("Le service de stockage Firebase n'est pas disponible.");
     }
-    if (!partyId) {
-        throw new Error("L'ID de la fête est requis pour le téléversement.");
+    if (!itemId) {
+        throw new Error("L'ID de l'élément (fête/utilisateur) est requis pour le téléversement.");
     }
     if (!file) {
         throw new Error("Aucun fichier fourni pour le téléversement.");
     }
 
     return new Promise(async (resolve, reject) => {
-        const fileType = getFileType(file);
+        const localFileType = getFileType(file); // This gives 'image', 'video', etc.
         let fileToUpload = file;
         let maxSize = Infinity;
         let targetSizeMBForCompression = 0;
+        let filePath = '';
 
-        // Determine max size and compression target
-        if (fileType === 'image') {
+        // Determine max size, compression target, and file path based on uploadType
+        if (uploadType === 'coverPhoto' && localFileType === 'image') {
             maxSize = MAX_FILE_SIZE.image;
-            targetSizeMBForCompression = isCover ? COMPRESSED_COVER_PHOTO_MAX_SIZE_MB : MAX_FILE_SIZE.image / (1024 * 1024);
-        } else if (fileType === 'video') {
-            maxSize = MAX_FILE_SIZE.video;
-            targetSizeMBForCompression = MAX_FILE_SIZE.video / (1024 * 1024); // Placeholder, video compression not implemented
-        } else if (fileType === 'audio') {
-            maxSize = MAX_FILE_SIZE.audio;
-            targetSizeMBForCompression = MAX_FILE_SIZE.audio / (1024 * 1024); // Placeholder, audio compression not implemented
+            targetSizeMBForCompression = COMPRESSED_COVER_PHOTO_MAX_SIZE_MB;
+            filePath = `parties/${itemId}/cover/${Date.now()}_${fileToUpload.name}`;
+        } else if (uploadType === 'userAvatar' && localFileType === 'image') {
+            maxSize = MAX_FILE_SIZE.userAvatar;
+            targetSizeMBForCompression = COMPRESSED_AVATAR_MAX_SIZE_MB;
+            filePath = `userAvatars/${itemId}/${Date.now()}_${fileToUpload.name}`;
+        } else if (uploadType === 'souvenir') {
+            if (localFileType === 'image') {
+                maxSize = MAX_FILE_SIZE.image;
+                targetSizeMBForCompression = MAX_FILE_SIZE.image / (1024*1024); // Less aggressive compression for souvenirs
+            } else if (localFileType === 'video') {
+                maxSize = MAX_FILE_SIZE.video;
+                // Video compression not implemented yet
+            } else if (localFileType === 'audio') {
+                maxSize = MAX_FILE_SIZE.audio;
+                // Audio compression not implemented yet
+            } else {
+                maxSize = 50 * 1024 * 1024; // Default for 'autre'
+            }
+            filePath = `parties/${itemId}/souvenirs/${localFileType}s/${Date.now()}_${fileToUpload.name}`;
         } else {
-            console.warn(`Type de fichier non supporté pour la compression : ${file.type}. Téléversement du fichier original.`);
-            // Allow a reasonable max size for 'other' types for now, e.g., 50MB
-            maxSize = 50 * 1024 * 1024;
+            reject(new Error(`Type de téléversement ou type de fichier non supporté: ${uploadType}, ${localFileType}`));
+            return;
         }
+
 
         // Initial size check
         if (file.size > maxSize) {
@@ -103,8 +143,8 @@ export const uploadFile = async (
             return;
         }
 
-        // Compress image if applicable
-        if (fileType === 'image') {
+        // Compress image if applicable and targetSizeMB is set
+        if (localFileType === 'image' && targetSizeMBForCompression > 0) {
             try {
                 console.log(`Compression de l'image ${file.name} (cible ${targetSizeMBForCompression}Mo)...`);
                 const compressedResult = await compressMedia(file, { maxSizeMB: targetSizeMBForCompression });
@@ -119,38 +159,40 @@ export const uploadFile = async (
                 }
             } catch (compressionError) {
                 console.warn(`Impossible de compresser l'image ${file.name}:`, compressionError);
-                fileToUpload = file; // Proceed with original if compression fails
+                fileToUpload = file;
             }
         }
 
-        // Final size check (especially relevant for compressed images or large 'other' files)
-        const finalMaxSizeCheck = isCover && fileType === 'image' ? (COMPRESSED_COVER_PHOTO_MAX_SIZE_MB * 1024 * 1024) : maxSize;
+        // Final size check
+        const finalMaxSizeCheck = (uploadType === 'coverPhoto' && localFileType === 'image')
+            ? (COMPRESSED_COVER_PHOTO_MAX_SIZE_MB * 1024 * 1024)
+            : (uploadType === 'userAvatar' && localFileType === 'image')
+            ? (COMPRESSED_AVATAR_MAX_SIZE_MB * 1024 * 1024)
+            : maxSize;
+
         if (fileToUpload.size > finalMaxSizeCheck) {
             reject(new Error(`Le fichier final ${fileToUpload.name} après traitement dépasse la limite de taille autorisée (${(finalMaxSizeCheck / 1024 / 1024).toFixed(1)}Mo).`));
             return;
         }
 
-        const filePath = isCover
-            ? `parties/${partyId}/cover/${Date.now()}_${fileToUpload.name}`
-            : `parties/${partyId}/souvenirs/${fileType}s/${Date.now()}_${fileToUpload.name}`; // Changed path for souvenirs
         const storageRef = ref(storage, filePath);
         const uploadTask = uploadBytesResumable(storageRef, fileToUpload);
 
         uploadTask.on('state_changed',
             (snapshot) => {
                 const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                onProgress?.(progress); // Call progress callback if provided
+                onProgress?.(progress);
             },
             (error) => {
                 console.error(`Échec du téléversement pour ${fileToUpload.name}:`, error);
-                onProgress?.(-1); // Indicate error
+                onProgress?.(-1);
                 reject(error);
             },
             async () => {
                 try {
                     const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
                     console.log(`Fichier ${fileToUpload.name} téléversé avec succès : ${downloadURL}`);
-                    onProgress?.(100); // Mark as complete
+                    onProgress?.(100);
                     resolve(downloadURL);
                 } catch (error) {
                     console.error(`Erreur lors de l'obtention de l'URL de téléchargement pour ${fileToUpload.name}:`, error);
