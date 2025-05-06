@@ -5,7 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users, Menu } from 'lucide-react';
+import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users, Menu, BarChart3 } from 'lucide-react'; // Added BarChart3
 import { useFirebase } from '@/context/FirebaseContext';
 import { auth } from '@/config/firebase';
 import { signOut } from 'firebase/auth';
@@ -72,6 +72,9 @@ export function Navbar() {
                 <Link href="/users" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
                     <Users className="mr-1 h-4 w-4" /> Les Membres
                 </Link>
+                 <Link href="/stats" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                    <BarChart3 className="mr-1 h-4 w-4" /> Statistiques
+                </Link>
            </div>
         </div>
 
@@ -117,6 +120,10 @@ export function Navbar() {
                     <DropdownMenuItem onClick={() => router.push('/users')}>
                         <Users className="mr-2 h-4 w-4" />
                         <span>Les Membres</span>
+                    </DropdownMenuItem>
+                     <DropdownMenuItem onClick={() => router.push('/stats')}>
+                        <BarChart3 className="mr-2 h-4 w-4" />
+                        <span>Statistiques</span>
                     </DropdownMenuItem>
                     {/* Mobile Search Input */}
                     <DropdownMenuSeparator className="md:hidden" />
