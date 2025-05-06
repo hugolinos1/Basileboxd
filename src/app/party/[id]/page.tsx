@@ -288,7 +288,7 @@ export default function PartyDetailsPage() {
      else { mediaElement = ( <div key={item.id || index} className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> {item.fileName || `Média ${index + 1}`} </a> </div> );}
 
      return (
-         <div className="relative group">
+         <div key={item.id || `media-item-${index}`} className="relative group">
              {mediaElement}
              {canDeleteSouvenir && (
                  <Button
@@ -1040,3 +1040,4 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
