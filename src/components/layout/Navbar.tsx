@@ -70,7 +70,7 @@ export function Navbar() {
                    <List className="mr-1 h-4 w-4" /> Events
                 </Link>
                 <Link href="/users" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                    <Users className="mr-1 h-4 w-4" /> La Team
+                    <Users className="mr-1 h-4 w-4" /> Les Membres
                 </Link>
            </div>
         </div>
@@ -116,7 +116,7 @@ export function Navbar() {
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/users')}>
                         <Users className="mr-2 h-4 w-4" />
-                        <span>La Team</span>
+                        <span>Les Membres</span>
                     </DropdownMenuItem>
                     {/* Mobile Search Input */}
                     <DropdownMenuSeparator className="md:hidden" />
