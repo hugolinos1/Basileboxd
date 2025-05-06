@@ -65,19 +65,19 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
         className="flex space-x-4 md:space-x-6 overflow-x-auto pb-6 scrollbar-hide top10-slider" // Added top10-slider class
       >
         {parties.length === 0 && (
-            <p className="text-muted-foreground text-center w-full">Aucun événement dans le top 10 pour le moment.</p> // Updated empty state message
+            <p className="text-muted-foreground text-center w-full">Aucun événement dans le top 10 pour le moment.</p>
         )}
         {parties.map((party, index) => (
           <Link href={`/party/${party.id}`} key={party.id} className="block flex-shrink-0">
             <Card className="w-48 md:w-64 border-none bg-transparent overflow-visible group/item relative transition-transform duration-300 ease-in-out hover:scale-105">
-              <CardContent className="p-0 flex items-end space-x-2 md:space-x-4">
+              <CardContent className="p-0 flex flex-col items-start space-y-2"> {/* Changed to flex-col for title */}
                 {/* Rank Number */}
-                 <div className={cn("top-number z-10", getRankColor(party.rank))}>
+                 <div className={cn("top-number z-10 absolute -left-4 -bottom-4", getRankColor(party.rank))}> {/* Adjusted for layout with title */}
                    {party.rank}
                  </div>
 
                 {/* Image Thumbnail */}
-                <div className="w-full h-64 md:h-80 ml-6 md:ml-10 relative rounded-md overflow-hidden shadow-lg thumbnail-hover bg-muted"> {/* Added bg-muted */}
+                <div className="w-full h-64 md:h-80 ml-6 md:ml-10 relative rounded-md overflow-hidden shadow-lg thumbnail-hover bg-muted">
                    {party.imageUrl ? (
                      <Image
                        src={party.imageUrl}
@@ -89,9 +89,8 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
                        data-ai-hint="fête événement célébration"
                        onError={(e) => {
                         console.error(`Error loading image for Top Party ${party.rank} (${party.id}): ${party.imageUrl}`, e);
-                        // Optionally, set a state to show a fallback icon if the image fails
                        }}
-                       unoptimized={party.imageUrl.includes('localhost')} // Keep for local emulator if needed
+                       unoptimized={party.imageUrl.includes('localhost')}
                      />
                    ) : (
                      <div className="flex items-center justify-center h-full">
@@ -99,6 +98,10 @@ export function TopPartiesSection({ parties }: TopPartiesSectionProps) {
                      </div>
                    )}
                 </div>
+                {/* Party Name */}
+                <p className="text-sm font-semibold text-white ml-6 md:ml-10 mt-2 truncate w-full text-center group-hover/item:text-primary transition-colors">
+                  {party.name}
+                </p>
               </CardContent>
             </Card>
           </Link>
