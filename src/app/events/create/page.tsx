@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Loader2, UserPlus, X, Image as ImageIcon, Upload, StarIcon, ChevronDown, Edit, Trash2 } from 'lucide-react';
+import { CalendarIcon, Loader2, UserPlus, X, Image as ImageIcon, Upload, StarIcon, ChevronDown, Edit, Trash2, MapPin, CalendarDays } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -35,16 +35,15 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Slider } from '@/components/ui/slider';
 import {
   uploadFile,
-  getFileType as getMediaFileType, // Renamed to avoid conflict
+  getFileType as getMediaFileType,
   ACCEPTED_MEDIA_TYPES,
-  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE, // Renamed to avoid conflict
+  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
   ACCEPTED_COVER_PHOTO_TYPES
 } from '@/services/media-uploader';
 import { coverPhotoSchema } from '@/services/validation-schemas';
-import { Combobox } from '@/components/ui/combobox'; // Import Combobox
+import { Combobox } from '@/components/ui/combobox';
 
-// Define UserData interface for combobox
 interface UserData {
   id: string;
   uid: string;
@@ -55,7 +54,7 @@ interface UserData {
 }
 
 const fileSchema = z.custom<File>((val) => {
-  if (typeof window === 'undefined') return true; // Skip validation on server
+  if (typeof window === 'undefined') return true;
   return val instanceof File;
 }, 'Veuillez télécharger un fichier');
 
@@ -70,7 +69,7 @@ const formSchema = z.object({
     if (typeof window === 'undefined' || !(file instanceof File)) return true;
     return file.size <= MAX_FILE_SIZE_COVER;
   }, `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE_COVER / 1024 / 1024}Mo.`).optional(),
-  participants: z.array(z.string()).optional(), // Array of user UIDs for participants
+  participants: z.array(z.string()).optional(),
   media: z.array(fileSchema).optional(),
   initialRating: z.number().min(0).max(5).optional(),
   initialComment: z.string().max(1000).optional(),
@@ -78,7 +77,6 @@ const formSchema = z.object({
 
 type PartyFormValues = z.infer<typeof formSchema>;
 
-// Renamed getFileType to avoid conflict with imported one
 const getLocalFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => {
     if (!file || !file.type) return 'autre';
     if (file.type.startsWith('image/')) return 'image';
@@ -137,14 +135,13 @@ export default function CreateEventPage() {
       date: undefined,
       location: '',
       coverPhoto: undefined,
-      participants: user ? [user.uid] : [], // Add creator as default participant
+      participants: user ? [user.uid] : [],
       media: [],
       initialRating: 0,
       initialComment: '',
     },
   });
 
-  // Update default participants when user data is available
   useEffect(() => {
     if (user && form.getValues('participants')?.length === 0) {
       form.setValue('participants', [user.uid]);
@@ -196,7 +193,7 @@ export default function CreateEventPage() {
       const newPreviews: string[] = [];
 
       newFilesArray.forEach(file => {
-        const fileType = getMediaFileType(file); // Use imported helper
+        const fileType = getMediaFileType(file);
         let maxSize = 0;
         if (fileType === 'image') maxSize = MEDIA_MAX_FILE_SIZE.image;
         else if (fileType === 'video') maxSize = MEDIA_MAX_FILE_SIZE.video;
@@ -282,7 +279,7 @@ export default function CreateEventPage() {
         location: values.location || '',
         createdBy: user.uid,
         creatorEmail: user.email,
-        participants: values.participants || [user.uid], // Ensure creator is always a participant
+        participants: values.participants || [user.uid],
         participantEmails: selectedParticipants.map(p => p.email),
         mediaUrls: [],
         coverPhotoUrl: '',
@@ -353,13 +350,13 @@ export default function CreateEventPage() {
   }
 
   const comboboxOptions = allUsers
-    .filter(u => !(form.getValues('participants') || []).includes(u.uid)) // Exclude already selected users
+    .filter(u => !(form.getValues('participants') || []).includes(u.uid))
     .map(u => ({ value: u.uid, label: u.pseudo || u.displayName || u.email }));
 
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl">
-      <h1 className="text-3xl font-bold mb-8 text-center text-primary">Créer un Nouvel Événement</h1>
+      <h1 className="text-3xl font-bold mb-8 text-center text-primary">Créer un Nouvel Event</h1>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-10">
           <Accordion type="multiple" defaultValue={['item-1', 'item-2', 'item-3', 'item-4', 'item-5']} className="w-full">
@@ -380,7 +377,7 @@ export default function CreateEventPage() {
                       name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Nom de la Soirée *</FormLabel>
+                          <FormLabel>Nom de l'Event *</FormLabel>
                           <FormControl>
                             <Input placeholder="Ex : Soirée plage d'été" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/>
                           </FormControl>
@@ -468,42 +465,42 @@ export default function CreateEventPage() {
                         name="coverPhoto"
                         render={({ field }) => (
                             <FormItem>
-                                 {/* Removed FormLabel to use custom UI */}
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
-
-                                    {coverPhotoPreview ? (
+                                  <FormControl>
+                                    <>
+                                      {coverPhotoPreview ? (
+                                          <>
+                                              <div className="relative w-full h-full">
+                                                  <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
+                                              </div>
+                                              <Button
+                                                  type="button"
+                                                  variant="destructive"
+                                                  size="icon"
+                                                  className="absolute top-2 right-2 h-6 w-6 rounded-full z-10"
+                                                  onClick={removeCoverPhoto}
+                                              >
+                                                  <X className="h-3 w-3" />
+                                              </Button>
+                                          </>
+                                      ) : (
                                         <>
-                                            <div className="relative w-full h-full">
-                                                <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
-                                            </div>
-                                            <Button
-                                                type="button"
-                                                variant="destructive"
-                                                size="icon"
-                                                className="absolute top-2 right-2 h-6 w-6 rounded-full z-10"
-                                                onClick={removeCoverPhoto}
-                                            >
-                                                <X className="h-3 w-3" />
-                                            </Button>
+                                          <ImageIcon className="h-12 w-12 text-muted-foreground mb-2" />
+                                          <p className="text-sm text-muted-foreground mb-2">Glissez-déposez ou cliquez pour ajouter</p>
+                                           <Button type="button" variant="outline" size="sm" onClick={() => coverPhotoInputRef.current?.click()}>
+                                              Ajouter une photo
+                                          </Button>
                                         </>
-                                    ) : (
-                                      <>
-                                        <ImageIcon className="h-12 w-12 text-muted-foreground mb-2" />
-                                        <p className="text-sm text-muted-foreground mb-2">Glissez-déposez ou cliquez pour ajouter</p>
-                                         <Button type="button" variant="outline" size="sm" onClick={() => coverPhotoInputRef.current?.click()}>
-                                            Ajouter une photo
-                                        </Button>
-                                      </>
-                                    )}
-                                     <FormControl>
-                                        <Input
-                                            ref={coverPhotoInputRef}
-                                            type="file"
-                                            accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
-                                            className="hidden" // Hidden, triggered by button
-                                            onChange={handleCoverPhotoChange}
-                                        />
-                                     </FormControl>
+                                      )}
+                                       <Input
+                                          ref={coverPhotoInputRef}
+                                          type="file"
+                                          accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                          className="hidden"
+                                          onChange={handleCoverPhotoChange}
+                                      />
+                                    </>
+                                  </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
                                     <Progress value={uploadProgress.coverPhoto} className="h-1 w-full mt-2" />
@@ -540,16 +537,18 @@ export default function CreateEventPage() {
                         render={({ field }) => (
                             <FormItem>
                             <FormLabel>Ajouter des participants</FormLabel>
-                            <Combobox
-                                options={comboboxOptions}
-                                onSelect={(userId) => {
-                                    if (userId) handleAddParticipant(userId);
-                                }}
-                                placeholder="Rechercher un utilisateur..."
-                                searchPlaceholder="Tapez un nom ou email..."
-                                emptyPlaceholder="Aucun utilisateur trouvé."
-                                triggerIcon={<UserPlus className="mr-2 h-4 w-4" />}
-                            />
+                            <FormControl>
+                              <Combobox
+                                  options={comboboxOptions}
+                                  onSelect={(userId) => {
+                                      if (userId) handleAddParticipant(userId);
+                                  }}
+                                  placeholder="Rechercher un utilisateur..."
+                                  searchPlaceholder="Tapez un nom ou email..."
+                                  emptyPlaceholder="Aucun utilisateur trouvé."
+                                  triggerIcon={<UserPlus className="mr-2 h-4 w-4" />}
+                              />
+                            </FormControl>
                             <FormDescription>Les participants doivent avoir un compte.</FormDescription>
                             <FormMessage />
                             </FormItem>
@@ -593,18 +592,20 @@ export default function CreateEventPage() {
                       name="media"
                       render={({ field }) => (
                         <FormItem>
-                          <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
-                            <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
-                          </Button>
                            <FormControl>
+                            <div> {/* Wrapper div */}
+                              <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
+                                <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
+                              </Button>
                                <Input
                                  ref={mediaInputRef}
                                  type="file"
                                  multiple
                                  accept={ACCEPTED_MEDIA_TYPES.join(',')}
                                  onChange={handleMediaFileChange}
-                                 className="hidden" // Hidden, triggered by button
+                                 className="hidden"
                                />
+                            </div>
                            </FormControl>
                           <FormDescription className="text-center">
                             Max {MEDIA_MAX_FILE_SIZE.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE.audio / 1024 / 1024}Mo/Son.
@@ -620,7 +621,7 @@ export default function CreateEventPage() {
                           {(form.watch('media') || []).map((file, index) => {
                              const previewUrl = mediaPreviews[index];
                              const progress = uploadProgress[file.name];
-                             const fileTypeDisplay = getLocalFileType(file); // Use local helper
+                             const fileTypeDisplay = getLocalFileType(file);
                             return (
                               <div key={index} className="relative group border rounded-md p-2 bg-secondary space-y-1.5">
                                 {previewUrl && file.type.startsWith('image/') ? (
@@ -628,8 +629,8 @@ export default function CreateEventPage() {
                                 ) : (
                                   <div className="h-16 w-16 flex items-center justify-center bg-muted rounded-md mx-auto text-muted-foreground">
                                     {fileTypeDisplay === 'video' && <Video className="h-8 w-8" />}
-                                    {fileTypeDisplay === 'audio' && <StarIcon className="h-8 w-8" />} {/* Placeholder for Music icon */}
-                                    {fileTypeDisplay === 'autre' && <ImageIcon className="h-8 w-8" />} {/* Placeholder */}
+                                    {fileTypeDisplay === 'audio' && <StarIcon className="h-8 w-8" />}
+                                    {fileTypeDisplay === 'autre' && <ImageIcon className="h-8 w-8" />}
                                   </div>
                                 )}
                                 <p className="text-xs text-muted-foreground truncate text-center px-1">{file.name}</p>
@@ -675,8 +676,8 @@ export default function CreateEventPage() {
                         render={({ field }) => (
                             <FormItem>
                             <FormLabel>Note (Optionnel)</FormLabel>
-                            <div className="flex items-center space-x-3">
-                                <FormControl>
+                              <FormControl>
+                                <div className="flex items-center space-x-3">
                                     <Slider
                                         defaultValue={[0]}
                                         value={[field.value || 0]}
@@ -685,9 +686,9 @@ export default function CreateEventPage() {
                                         onValueChange={(value) => field.onChange(value[0])}
                                         className="w-[calc(100%-5rem)]"
                                     />
-                                </FormControl>
-                                <span className="text-sm font-medium w-16 text-right">{(field.value || 0).toFixed(1)}/5 ★</span>
-                            </div>
+                                    <span className="text-sm font-medium w-16 text-right">{(field.value || 0).toFixed(1)}/5 ★</span>
+                                </div>
+                              </FormControl>
                             <FormMessage />
                             </FormItem>
                         )}

@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -104,26 +105,26 @@ const FormLabel = React.forwardRef<
 FormLabel.displayName = "FormLabel"
 
 const FormControl = React.forwardRef<
-  HTMLDivElement, // Change ElementRef type from Slot to div
-  React.HTMLAttributes<HTMLDivElement> // Change ComponentPropsWithoutRef type
->(({ className, children, ...props }, ref) => { // Accept standard HTMLDivElement props
+  React.ElementRef<typeof Slot>,
+  React.ComponentPropsWithoutRef<typeof Slot>
+>(({ className, children, ...props }, ref) => {
   const { error, formItemId, formDescriptionId, formMessageId } = useFormField();
 
-  // Use a simple div instead of Slot
   return (
-    <div
-      ref={ref}
-      id={formItemId}
-      aria-describedby={
-        !error
-          ? `${formDescriptionId}`
-          : `${formDescriptionId} ${formMessageId}`
-      }
-      aria-invalid={!!error}
-      className={className} // Apply className to the div
-      {...props} // Spread remaining props
-    >
-      {children} {/* Render children directly */}
+    <div className={className}> {/* Add wrapper div */}
+      <Slot
+        ref={ref}
+        id={formItemId}
+        aria-describedby={
+          !error
+            ? `${formDescriptionId}`
+            : `${formDescriptionId} ${formMessageId}`
+        }
+        aria-invalid={!!error}
+        {...props}
+      >
+        {children}
+      </Slot>
     </div>
   );
 });
