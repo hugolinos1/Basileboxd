@@ -731,7 +731,7 @@ export default function CreateEventPage() {
                 {(isUploadingCover || isUploadingMedia) ? "Téléversement des fichiers..." : "Création de l'événement..."}
               </>
             ) : (
-              "Créer l'Événement"
+              "Créer l'Event"
             )}
           </Button>
         </form>
@@ -739,3 +739,4 @@ export default function CreateEventPage() {
     </div>
   );
 }
+
