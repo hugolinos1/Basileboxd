@@ -91,6 +91,9 @@ export default function ProfileSettingsPage() {
     setIsLoading(true);
     try {
       const userDocRef = doc(db, 'users', user.uid);
+
+      console.log("Mise à jour du profil pour l'utilisateur UID:", user.uid);
+      console.log("Référence du document Firestore :", userDocRef.path);
       await updateDoc(userDocRef, {
         displayName: values.displayName,
         pseudo: values.pseudo || '', // Store empty string if undefined
@@ -165,3 +168,4 @@ export default function ProfileSettingsPage() {
     </div>
   );
 }
+

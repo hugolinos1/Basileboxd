@@ -254,11 +254,14 @@ export default function UserProfilePage() {
 
         try {
             // Use profileUserId for the path, as we might be an admin editing another user's avatar
+            const userDocRef = doc(db, 'users', profileUserId); // Use profileUserId here as well
+            console.log("Mise à jour de l'avatar pour l'utilisateur UID:", profileUserId);
+            console.log("Référence du document Firestore :", userDocRef.path);
+
             const newAvatarUrl = await uploadFile(newAvatarFile, profileUserId, false, (progress) => {
                 setAvatarUploadProgress(progress);
             }, 'userAvatar'); 
 
-            const userDocRef = doc(db, 'users', profileUserId); // Use profileUserId here as well
             await updateDoc(userDocRef, { avatarUrl: newAvatarUrl });
 
             toast({ title: 'Avatar mis à jour !' });
@@ -569,5 +572,4 @@ export default function UserProfilePage() {
         </div>
     );
 }
-
 
