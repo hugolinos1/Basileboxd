@@ -1,8 +1,18 @@
 // src/lib/party-utils.ts
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, FieldValue } from 'firebase/firestore';
 
 // --- Interfaces (copied from relevant pages) ---
 export interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
+
+export interface MediaItem {
+    id: string; // Unique ID for the media item
+    url: string;
+    type: 'image' | 'video' | 'audio' | 'autre';
+    uploaderId: string;
+    uploaderEmail?: string;
+    uploadedAt: Timestamp | FieldValue | Date; // Allow Date for easier handling after conversion & FieldValue for serverTimestamp
+    fileName?: string;
+}
 
 export interface CommentData {
     id: string; // Add id field for direct identification
@@ -10,8 +20,7 @@ export interface CommentData {
     email: string;
     avatar?: string | null;
     text: string;
-    timestamp: FirestoreTimestamp | Timestamp | Date; // Allow Date for easier handling after conversion
-    // Include partyId and partyName if fetching comments across parties
+    timestamp: FirestoreTimestamp | Timestamp | Date | FieldValue; // Allow Date for easier handling after conversion & FieldValue
     partyId: string; // Make partyId mandatory for linking
     partyName?: string;
 }
@@ -26,10 +35,10 @@ export interface PartyData {
     creatorEmail?: string;
     participants: string[]; // Array of UIDs
     participantEmails?: string[]; // Array of emails
-    mediaUrls?: string[];
+    mediaItems?: MediaItem[]; // Changed from mediaUrls to mediaItems
     coverPhotoUrl?: string;
     ratings?: { [userId: string]: number };
-    comments?: CommentData[]; // Use the updated CommentData interface
+    // comments subcollection is now handled separately, not as a field in PartyData
     createdAt?: FirestoreTimestamp | Timestamp | Date; // Allow Date
     // Optional calculated field (not stored in Firestore directly)
     averageRating?: number;
@@ -43,14 +52,20 @@ export interface PartyData {
  * @param timestamp The Firestore Timestamp or object to convert.
  * @returns A Date object or null.
  */
-export const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date | undefined): Date | null => {
+export const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date | FieldValue | undefined): Date | null => {
     if (!timestamp) return null;
     try {
         if (timestamp instanceof Timestamp) return timestamp.toDate();
         if (timestamp instanceof Date) return timestamp; // Already a Date
-        if (typeof timestamp === 'object' && 'seconds' in timestamp && typeof timestamp.seconds === 'number') {
-            const date = new Date(timestamp.seconds * 1000);
+        if (typeof timestamp === 'object' && 'seconds' in timestamp && typeof (timestamp as any).seconds === 'number') {
+            const date = new Date((timestamp as FirestoreTimestamp).seconds * 1000);
             return isNaN(date.getTime()) ? null : date;
+        }
+        // FieldValue (like serverTimestamp()) cannot be converted to a Date on the client-side before it's written.
+        // If you need to display it immediately, you might need to handle it as "Pending" or similar.
+        if (timestamp instanceof FieldValue) {
+            // console.warn("Cannot convert FieldValue (serverTimestamp) to Date on client. It will be populated by the server.");
+            return null; // Or return a specific indicator like new Date(0) if you need to differentiate
         }
         console.warn("Unrecognized timestamp format:", timestamp);
         return null;

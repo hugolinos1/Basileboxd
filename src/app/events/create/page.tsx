@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -19,12 +18,12 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Loader2, UserPlus, X, Image as ImageIcon, Upload, StarIcon, Edit, Trash2, MapPin, CalendarDays, ChevronDown } from 'lucide-react';
+import { CalendarIcon, Loader2, UserPlus, X, Image as ImageIcon, Upload, StarIcon, Edit, Trash2, MapPin, CalendarDays, ChevronDown, Video, Music as MusicIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs, query, where, FieldValue } from 'firebase/firestore';
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { useRouter } from 'next/navigation';
@@ -33,13 +32,13 @@ import { useState, useEffect, useRef } from 'react';
 
 import {
   uploadFile,
-  getFileType as getMediaFileType,
+  getFileType as getMediaFileType, // Renamed to avoid conflict
   ACCEPTED_MEDIA_TYPES,
-  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE,
+  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG, // Renamed to avoid conflict
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
   ACCEPTED_COVER_PHOTO_TYPES
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
+import { coverPhotoSchema } from '@/services/validation-schemas'; 
 
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
@@ -49,6 +48,7 @@ import { Slider } from '@/components/ui/slider';
 
 
 import { Combobox } from '@/components/ui/combobox';
+import type { MediaItem } from '@/lib/party-utils';
 
 interface UserData {
   id: string;
@@ -202,9 +202,9 @@ export default function CreateEventPage() {
       newFilesArray.forEach(file => {
         const fileType = getMediaFileType(file);
         let maxSize = 0;
-        if (fileType === 'image') maxSize = MEDIA_MAX_FILE_SIZE.image;
-        else if (fileType === 'video') maxSize = MEDIA_MAX_FILE_SIZE.video;
-        else if (fileType === 'audio') maxSize = MEDIA_MAX_FILE_SIZE.audio;
+        if (fileType === 'image') maxSize = MEDIA_MAX_FILE_SIZE_CONFIG.image;
+        else if (fileType === 'video') maxSize = MEDIA_MAX_FILE_SIZE_CONFIG.video;
+        else if (fileType === 'audio') maxSize = MEDIA_MAX_FILE_SIZE_CONFIG.audio;
 
         if (!ACCEPTED_MEDIA_TYPES.includes(file.type)) {
           toast({ title: `Type non supporté : ${file.name}`, description: `Type ${file.type} non accepté.`, variant: 'destructive' });
@@ -288,7 +288,7 @@ export default function CreateEventPage() {
         creatorEmail: user.email,
         participants: values.participants || [user.uid],
         participantEmails: selectedParticipants.map(p => p.email),
-        mediaUrls: [],
+        mediaItems: [], // Initialize as empty array for structured media
         coverPhotoUrl: '',
         ratings: values.initialRating && user ? { [user.uid]: values.initialRating } : {},
         createdAt: serverTimestamp(),
@@ -312,7 +312,7 @@ export default function CreateEventPage() {
         setIsUploadingCover(true);
         coverPhotoUrl = await uploadFile(values.coverPhoto, partyId, true, (progress) => {
           setUploadProgress(prev => ({ ...prev, coverPhoto: progress }));
-        }).catch(error => {
+        }, 'coverPhoto').catch(error => {
           toast({ title: `Échec téléversement photo de couverture`, description: error.message, variant: 'destructive' });
           return '';
         });
@@ -322,22 +322,35 @@ export default function CreateEventPage() {
         }
       }
 
-      const mediaUrls: string[] = [];
+      const uploadedMediaItems: MediaItem[] = [];
       if (values.media && values.media.length > 0) {
         setIsUploadingMedia(true);
         const uploadPromises = values.media.map(file =>
           uploadFile(file, partyId, false, (progress) => {
             setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
+          }, 'souvenir').then(url => {
+            if (url && user) {
+              return {
+                id: `${partyId}-${file.name}-${Date.now()}`, // Generate a unique ID
+                url,
+                type: getLocalFileType(file),
+                uploaderId: user.uid,
+                uploaderEmail: user.email || undefined,
+                uploadedAt: serverTimestamp() as FieldValue, // Use FieldValue for serverTimestamp
+                fileName: file.name,
+              } as MediaItem;
+            }
+            return null;
           }).catch(error => {
             toast({ title: `Échec téléversement pour ${file.name}`, description: error.message, variant: 'destructive' });
             return null;
           })
         );
         const results = await Promise.all(uploadPromises);
-        results.forEach(url => { if (url) mediaUrls.push(url); });
+        results.forEach(item => { if (item) uploadedMediaItems.push(item); });
         setIsUploadingMedia(false);
-        if (mediaUrls.length > 0) {
-          await updateDoc(partyDocRef, { mediaUrls });
+        if (uploadedMediaItems.length > 0) {
+          await updateDoc(partyDocRef, { mediaItems: uploadedMediaItems });
         }
       }
 
@@ -477,7 +490,7 @@ export default function CreateEventPage() {
                             <FormItem>
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                   <FormControl>
-                                    <div> {/* Wrapper div to ensure a single child */}
+                                    <React.Fragment> {/* Ensure a single child for FormControl */}
                                       {coverPhotoPreview ? (
                                           <>
                                               <div className="relative w-full h-full">
@@ -509,7 +522,7 @@ export default function CreateEventPage() {
                                           className="hidden"
                                           onChange={handleCoverPhotoChange}
                                       />
-                                    </div>
+                                    </React.Fragment>
                                   </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
@@ -603,7 +616,7 @@ export default function CreateEventPage() {
                       render={({ field }) => (
                         <FormItem>
                            <FormControl>
-                            <div> {/* Wrapper div to ensure a single child */}
+                            <React.Fragment> {/* Ensure a single child for FormControl */}
                               <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
                                 <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
                               </Button>
@@ -615,10 +628,10 @@ export default function CreateEventPage() {
                                  onChange={handleMediaFileChange}
                                  className="hidden"
                                />
-                            </div>
+                            </React.Fragment>
                            </FormControl>
                           <FormDescription className="text-center">
-                            Max {MEDIA_MAX_FILE_SIZE.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE.audio / 1024 / 1024}Mo/Son.
+                            Max {MEDIA_MAX_FILE_SIZE_CONFIG.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE_CONFIG.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE_CONFIG.audio / 1024 / 1024}Mo/Son.
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -639,7 +652,7 @@ export default function CreateEventPage() {
                                 ) : (
                                   <div className="h-16 w-16 flex items-center justify-center bg-muted rounded-md mx-auto text-muted-foreground">
                                     {fileTypeDisplay === 'video' && <Video className="h-8 w-8" />}
-                                    {fileTypeDisplay === 'audio' && <StarIcon className="h-8 w-8" />}
+                                    {fileTypeDisplay === 'audio' && <MusicIcon className="h-8 w-8" />} {/* Renamed Music from lucide to MusicIcon */}
                                     {fileTypeDisplay === 'autre' && <ImageIcon className="h-8 w-8" />}
                                   </div>
                                 )}
@@ -726,7 +739,7 @@ export default function CreateEventPage() {
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                {(isUploadingCover || isUploadingMedia) ? "Téléversement des fichiers..." : "Création de l'événement..."}
+                {(isUploadingCover || isUploadingMedia) ? "Téléversement des fichiers..." : "Création de l'Event..."}
               </>
             ) : (
               "Créer l'Event"
@@ -737,4 +750,3 @@ export default function CreateEventPage() {
     </div>
   );
 }
-
