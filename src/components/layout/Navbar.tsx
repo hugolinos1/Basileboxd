@@ -1,4 +1,3 @@
-
 'use client';
 
 import Link from 'next/link';
@@ -85,7 +84,7 @@ export function Navbar() {
               <DropdownMenuTrigger asChild>
                  {/* Replace Avatar with Menu icon Button */}
                  <Button variant="ghost" className="h-8 w-8 p-0">
-                    <Menu className="h-5 w-5" />
+                    <Menu className="h-6 w-6" /> {/* Increased icon size */}
                     <span className="sr-only">Ouvrir le menu utilisateur</span>
                   </Button>
               </DropdownMenuTrigger>
