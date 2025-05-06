@@ -1,3 +1,6 @@
+
+'use client';
+
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -15,67 +18,115 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Loader2, UserPlus, X } from 'lucide-react'; // Added X import
+import { CalendarIcon, Loader2, UserPlus, X, Image as ImageIcon, Upload, StarIcon, ChevronDown, Edit, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { fr } from 'date-fns/locale'; // Import French locale
+import { fr } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
-import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
-import { db, storage } from '@/config/firebase'; // Import potentially null db and storage
+import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs, query, where } from 'firebase/firestore';
+import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
-import { compressMedia } from '@/services/media-compressor';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { useState, useEffect, useRef } from 'react';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Card } from '@/components/ui/card'; // Added Card import
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Slider } from '@/components/ui/slider';
+import {
+  uploadFile,
+  getFileType as getMediaFileType, // Renamed to avoid conflict
+  ACCEPTED_MEDIA_TYPES,
+  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE, // Renamed to avoid conflict
+  COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  ACCEPTED_COVER_PHOTO_TYPES
+} from '@/services/media-uploader';
+import { coverPhotoSchema } from '@/services/validation-schemas';
+import { Combobox } from '@/components/ui/combobox'; // Import Combobox
 
-// Schema Definition
-const MAX_FILE_SIZE = {
-  image: 1 * 1024 * 1024, // 1MB
-  video: 10 * 1024 * 1024, // 10MB
-  audio: 5 * 1024 * 1024, // 5MB
-};
-const ACCEPTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'audio/mpeg', 'audio/wav'];
+// Define UserData interface for combobox
+interface UserData {
+  id: string;
+  uid: string;
+  email: string;
+  displayName?: string;
+  pseudo?: string;
+  avatarUrl?: string;
+}
 
-const fileSchema = z.custom<File>((val) => val instanceof File, 'Veuillez télécharger un fichier');
-// Add more specific checks if needed, e.g., using file.type
+const fileSchema = z.custom<File>((val) => {
+  if (typeof window === 'undefined') return true; // Skip validation on server
+  return val instanceof File;
+}, 'Veuillez télécharger un fichier');
+
+const MAX_FILE_SIZE_COVER = 10 * 1024 * 1024; // 10MB for initial cover photo upload
 
 const formSchema = z.object({
-  name: z.string().min(2, { message: 'Le nom de la fête doit contenir au moins 2 caractères.' }).max(100),
+  name: z.string().min(2, { message: 'Le nom de la soirée doit contenir au moins 2 caractères.' }).max(100),
   description: z.string().max(500).optional(),
   date: z.date({ required_error: 'Une date pour la fête est requise.' }),
   location: z.string().max(150).optional(),
-  participants: z.array(z.string().email()).optional(), // Array of emails for participants
-  media: z.array(fileSchema).optional(), // Array of files for media
+  coverPhoto: fileSchema.refine(file => {
+    if (typeof window === 'undefined' || !(file instanceof File)) return true;
+    return file.size <= MAX_FILE_SIZE_COVER;
+  }, `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE_COVER / 1024 / 1024}Mo.`).optional(),
+  participants: z.array(z.string()).optional(), // Array of user UIDs for participants
+  media: z.array(fileSchema).optional(),
+  initialRating: z.number().min(0).max(5).optional(),
+  initialComment: z.string().max(1000).optional(),
 });
 
 type PartyFormValues = z.infer<typeof formSchema>;
 
-// Helper to get file type category
-const getFileType = (file: File): 'image' | 'video' | 'audio' | 'other' => {
-  if (file.type.startsWith('image/')) return 'image';
-  if (file.type.startsWith('video/')) return 'video';
-  if (file.type.startsWith('audio/')) return 'audio';
-  return 'other';
+// Renamed getFileType to avoid conflict with imported one
+const getLocalFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => {
+    if (!file || !file.type) return 'autre';
+    if (file.type.startsWith('image/')) return 'image';
+    if (file.type.startsWith('video/')) return 'video';
+    if (file.type.startsWith('audio/')) return 'audio';
+    return 'autre';
 };
 
-export default function CreatePartyPage() {
-  const { user } = useFirebase();
+export default function CreateEventPage() {
+  const { user, firebaseInitialized } = useFirebase();
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
-   const [previews, setPreviews] = useState<string[]>([]);
+  const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
+  const [coverPhotoPreview, setCoverPhotoPreview] = useState<string | null>(null);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [allUsers, setAllUsers] = useState<UserData[]>([]);
+  const [selectedParticipants, setSelectedParticipants] = useState<UserData[]>([]);
 
-   useEffect(() => {
-    if (!user && !isLoading) {
-      // Redirect to login if not authenticated and not already processing login state
+  const coverPhotoInputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!user && !isLoading && firebaseInitialized) {
       router.push('/auth');
-      toast({ title: 'Authentification requise', description: 'Veuillez vous connecter pour créer une fête.', variant: 'destructive' });
+      toast({ title: 'Authentification requise', description: 'Veuillez vous connecter pour créer un événement.', variant: 'destructive' });
     }
-   }, [user, isLoading, router, toast]);
+  }, [user, isLoading, router, toast, firebaseInitialized]);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      if (!db) return;
+      try {
+        const usersCollectionRef = collection(db, 'users');
+        const usersSnapshot = await getDocs(usersCollectionRef);
+        const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserData));
+        setAllUsers(fetchedUsers);
+      } catch (error) {
+        console.error("Erreur lors de la récupération des utilisateurs:", error);
+        toast({ title: "Erreur utilisateurs", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive" });
+      }
+    };
+    if (firebaseInitialized) {
+        fetchUsers();
+    }
+  }, [firebaseInitialized, toast]);
 
 
   const form = useForm<PartyFormValues>({
@@ -85,407 +136,593 @@ export default function CreatePartyPage() {
       description: '',
       date: undefined,
       location: '',
-      participants: [],
+      coverPhoto: undefined,
+      participants: user ? [user.uid] : [], // Add creator as default participant
       media: [],
+      initialRating: 0,
+      initialComment: '',
     },
   });
 
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = event.target.files;
-        if (files) {
-            const currentFiles = form.getValues('media') || [];
-            const newFiles = Array.from(files);
-            const combinedFiles = [...currentFiles, ...newFiles];
-            form.setValue('media', combinedFiles, { shouldValidate: true });
-
-            // Generate previews
-            const newPreviews = newFiles.map(file => URL.createObjectURL(file));
-            setPreviews(prev => [...prev, ...newPreviews]);
-        }
-    };
-
-    const removeFile = (index: number) => {
-        const currentFiles = form.getValues('media') || [];
-        const updatedFiles = currentFiles.filter((_, i) => i !== index);
-        form.setValue('media', updatedFiles, { shouldValidate: true });
-
-        // Clean up preview URL
-        URL.revokeObjectURL(previews[index]);
-        setPreviews(prev => prev.filter((_, i) => i !== index));
-    };
-
-    // Cleanup previews on unmount
-    useEffect(() => {
-        return () => previews.forEach(url => URL.revokeObjectURL(url));
-    }, [previews]);
-
-
-  const uploadFile = async (file: File, partyId: string): Promise<string> => {
-      if (!storage) {
-         throw new Error("Le service de stockage n'est pas disponible.");
+  // Update default participants when user data is available
+  useEffect(() => {
+    if (user && form.getValues('participants')?.length === 0) {
+      form.setValue('participants', [user.uid]);
+      const currentUserData = allUsers.find(u => u.uid === user.uid);
+      if (currentUserData && !selectedParticipants.find(p => p.uid === user.uid)) {
+        setSelectedParticipants(prev => [...prev, currentUserData]);
       }
-    return new Promise(async (resolve, reject) => {
-      const fileType = getFileType(file);
-      let fileToUpload = file;
-      let targetSizeMB = 0;
+    }
+  }, [user, form, allUsers, selectedParticipants]);
 
-      if (fileType === 'image') targetSizeMB = MAX_FILE_SIZE.image / (1024 * 1024);
-      else if (fileType === 'video') targetSizeMB = MAX_FILE_SIZE.video / (1024 * 1024);
-      else if (fileType === 'audio') targetSizeMB = MAX_FILE_SIZE.audio / (1024 * 1024);
-      else {
-          reject(new Error('Type de fichier non supporté'));
-          return;
+
+  const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const validationResult = typeof window !== 'undefined' && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true };
+      if (validationResult.success) {
+        form.setValue('coverPhoto', file, { shouldValidate: true });
+        if (coverPhotoPreview) {
+          URL.revokeObjectURL(coverPhotoPreview);
+        }
+        setCoverPhotoPreview(URL.createObjectURL(file));
+      } else {
+        const errorMessage = (validationResult as any).error?.errors[0]?.message || 'Fichier invalide.';
+        toast({ title: "Erreur Photo de Couverture", description: errorMessage, variant: "destructive" });
+        form.setValue('coverPhoto', undefined);
+        if (coverPhotoPreview) URL.revokeObjectURL(coverPhotoPreview);
+        setCoverPhotoPreview(null);
       }
-
-        let compressedBlob: Blob | File = file; // Initialize with original file
-        try {
-             if (fileType === 'image') {
-                compressedBlob = await compressMedia(file, { maxSizeMB: targetSizeMB });
-             }
-             // Add similar conditions for video/audio if compressor.js or another library supports them
-             // else if (fileType === 'video') { ... }
-             // else if (fileType === 'audio') { ... }
-
-             // If no compression was applied or needed, compressedBlob remains the original file
-             fileToUpload = compressedBlob instanceof File ? compressedBlob : new File([compressedBlob], file.name, { type: compressedBlob.type });
-
-        } catch (compressionError) {
-            console.warn(`Impossible de compresser ${fileType} ${file.name}:`, compressionError);
-            // Proceed with original file if compression fails
-             fileToUpload = file;
-        }
-
-       // Check size after potential compression
-       const maxSize = MAX_FILE_SIZE[fileType];
-       if (fileToUpload.size > maxSize) {
-            reject(new Error(`${fileType} dépasse la limite de taille de ${targetSizeMB}Mo.`));
-            return;
-       }
-
-
-      const storageRef = ref(storage, `parties/${partyId}/${fileType}s/${Date.now()}_${fileToUpload.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, fileToUpload);
-
-      uploadTask.on('state_changed',
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(prev => ({ ...prev, [fileToUpload.name]: progress }));
-        },
-        (error) => {
-          console.error("Échec du téléversement :", error);
-          setUploadProgress(prev => ({ ...prev, [fileToUpload.name]: -1 })); // Indicate error
-          reject(error);
-        },
-        async () => {
-          try {
-            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-             setUploadProgress(prev => ({ ...prev, [fileToUpload.name]: 100 })); // Mark as complete
-            resolve(downloadURL);
-          } catch (error) {
-            reject(error);
-          }
-        }
-      );
-    });
+    }
+     if (coverPhotoInputRef.current) {
+        coverPhotoInputRef.current.value = '';
+    }
   };
+
+  const removeCoverPhoto = () => {
+    form.setValue('coverPhoto', undefined);
+    if (coverPhotoPreview) {
+      URL.revokeObjectURL(coverPhotoPreview);
+    }
+    setCoverPhotoPreview(null);
+  };
+
+  const handleMediaFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files) {
+      const currentFiles = form.getValues('media') || [];
+      const newFilesArray = Array.from(files);
+      const validNewFiles: File[] = [];
+      const newPreviews: string[] = [];
+
+      newFilesArray.forEach(file => {
+        const fileType = getMediaFileType(file); // Use imported helper
+        let maxSize = 0;
+        if (fileType === 'image') maxSize = MEDIA_MAX_FILE_SIZE.image;
+        else if (fileType === 'video') maxSize = MEDIA_MAX_FILE_SIZE.video;
+        else if (fileType === 'audio') maxSize = MEDIA_MAX_FILE_SIZE.audio;
+
+        if (!ACCEPTED_MEDIA_TYPES.includes(file.type)) {
+          toast({ title: `Type non supporté : ${file.name}`, description: `Type ${file.type} non accepté.`, variant: 'destructive' });
+          return;
+        }
+        if (maxSize > 0 && file.size > maxSize) {
+          toast({ title: `Fichier trop volumineux : ${file.name}`, description: `La taille dépasse la limite de ${(maxSize / 1024 / 1024).toFixed(1)}Mo.`, variant: 'destructive' });
+          return;
+        }
+        validNewFiles.push(file);
+        newPreviews.push(URL.createObjectURL(file));
+      });
+
+      form.setValue('media', [...currentFiles, ...validNewFiles], { shouldValidate: true });
+      setMediaPreviews(prev => [...prev, ...newPreviews]);
+    }
+     if (mediaInputRef.current) {
+        mediaInputRef.current.value = '';
+    }
+  };
+
+  const removeMediaFile = (index: number) => {
+    const currentFiles = form.getValues('media') || [];
+    const updatedFiles = currentFiles.filter((_, i) => i !== index);
+    form.setValue('media', updatedFiles, { shouldValidate: true });
+
+    URL.revokeObjectURL(mediaPreviews[index]);
+    setMediaPreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddParticipant = (userId: string) => {
+    const currentParticipants = form.getValues('participants') || [];
+    if (!currentParticipants.includes(userId)) {
+      form.setValue('participants', [...currentParticipants, userId]);
+      const participantData = allUsers.find(u => u.uid === userId);
+      if (participantData && !selectedParticipants.find(p => p.uid === userId)) {
+        setSelectedParticipants(prev => [...prev, participantData]);
+      }
+    }
+  };
+
+  const handleRemoveParticipant = (userId: string) => {
+    if (user && userId === user.uid) {
+      toast({ title: "Impossible de retirer", description: "Le créateur ne peut pas être retiré de l'événement.", variant: "warning" });
+      return;
+    }
+    form.setValue('participants', (form.getValues('participants') || []).filter(uid => uid !== userId));
+    setSelectedParticipants(prev => prev.filter(p => p.uid !== userId));
+  };
+
+
+  useEffect(() => {
+    return () => {
+      mediaPreviews.forEach(URL.revokeObjectURL);
+      if (coverPhotoPreview) URL.revokeObjectURL(coverPhotoPreview);
+    };
+  }, [mediaPreviews, coverPhotoPreview]);
+
 
   async function onSubmit(values: PartyFormValues) {
     if (!user) {
-       toast({ title: 'Non authentifié', description: 'Veuillez vous connecter d\'abord.', variant: 'destructive' });
-       return;
-     }
-      if (!db || !storage) {
-         toast({ title: 'Erreur de service', description: 'Les services Firebase ne sont pas disponibles. Veuillez réessayer plus tard.', variant: 'destructive' });
-         setIsLoading(false);
-         return;
-       }
+      toast({ title: 'Non authentifié', description: 'Veuillez vous connecter d\'abord.', variant: 'destructive' });
+      return;
+    }
+    if (!db || !storage) {
+      toast({ title: 'Erreur de service', description: 'Les services Firebase ne sont pas disponibles.', variant: 'destructive' });
+      return;
+    }
     setIsLoading(true);
-    setUploadProgress({}); // Reset progress
+    setUploadProgress({});
+    setIsUploadingCover(false);
+    setIsUploadingMedia(false);
 
     try {
-      // 1. Create party document in Firestore
-      const partyData = {
+      const partyDocRef = await addDoc(collection(db, 'parties'), {
         name: values.name,
         description: values.description || '',
         date: values.date,
         location: values.location || '',
         createdBy: user.uid,
-        creatorEmail: user.email, // Store email for easy display
-        participants: [user.uid], // Initially only the creator
-        participantEmails: [user.email], // Store emails for easier lookup/display initially
-        mediaUrls: [], // Will be populated after uploads
-        ratings: {}, // Structure for user ratings { userId: rating }
-        comments: [], // Structure for comments { userId: string, text: string, timestamp: Date }
+        creatorEmail: user.email,
+        participants: values.participants || [user.uid], // Ensure creator is always a participant
+        participantEmails: selectedParticipants.map(p => p.email),
+        mediaUrls: [],
+        coverPhotoUrl: '',
+        ratings: values.initialRating && user ? { [user.uid]: values.initialRating } : {},
+        comments: values.initialComment && user ? [{
+          userId: user.uid,
+          email: user.email,
+          avatar: user.photoURL || null,
+          text: values.initialComment,
+          timestamp: serverTimestamp(),
+        }] : [],
         createdAt: serverTimestamp(),
-        // Add participant emails if collected from the form
-      };
-
-      const partyDocRef = await addDoc(collection(db, 'parties'), partyData);
+      });
       const partyId = partyDocRef.id;
 
-       // 2. Handle participant invitations (Placeholder - requires user search/tagging UI)
-       // For now, we'll just log the emails. A real implementation needs user lookup.
-       if (values.participants && values.participants.length > 0) {
-         console.log("Emails des participants invités :", values.participants);
-         // TODO: Implement logic to find user UIDs based on emails and add them to the party's participants array.
-         // This might involve a separate cloud function or careful querying if user emails are indexed.
-       }
-
-      // 3. Upload media files (if any)
-      const mediaUrls: string[] = [];
-      if (values.media && values.media.length > 0) {
-          const uploadPromises = values.media.map(file =>
-             uploadFile(file, partyId).catch(error => {
-                 toast({
-                     title: `Échec du téléversement pour ${file.name}`,
-                     description: error.message || 'Impossible de téléverser le fichier.',
-                     variant: 'destructive',
-                 });
-                 return null; // Return null for failed uploads
-             })
-          );
-          const results = await Promise.all(uploadPromises);
-          results.forEach(url => {
-             if (url) mediaUrls.push(url); // Only add successful URLs
-          });
-
-          // 4. Update party document with media URLs
-          if (mediaUrls.length > 0) {
-              await updateDoc(partyDocRef, { mediaUrls });
-          } else if (values.media.length > 0 && mediaUrls.length === 0) {
-              // All uploads failed
-              throw new Error("Tous les téléversements de médias ont échoué. Fête créée sans média.");
-          }
+      let coverPhotoUrl = '';
+      if (values.coverPhoto) {
+        setIsUploadingCover(true);
+        coverPhotoUrl = await uploadFile(values.coverPhoto, partyId, true, (progress) => {
+          setUploadProgress(prev => ({ ...prev, coverPhoto: progress }));
+        }).catch(error => {
+          toast({ title: `Échec téléversement photo de couverture`, description: error.message, variant: 'destructive' });
+          return '';
+        });
+        setIsUploadingCover(false);
+        if (coverPhotoUrl) {
+            await updateDoc(partyDocRef, { coverPhotoUrl });
+        }
       }
 
+      const mediaUrls: string[] = [];
+      if (values.media && values.media.length > 0) {
+        setIsUploadingMedia(true);
+        const uploadPromises = values.media.map(file =>
+          uploadFile(file, partyId, false, (progress) => {
+            setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
+          }).catch(error => {
+            toast({ title: `Échec téléversement pour ${file.name}`, description: error.message, variant: 'destructive' });
+            return null;
+          })
+        );
+        const results = await Promise.all(uploadPromises);
+        results.forEach(url => { if (url) mediaUrls.push(url); });
+        setIsUploadingMedia(false);
+        if (mediaUrls.length > 0) {
+          await updateDoc(partyDocRef, { mediaUrls });
+        }
+      }
 
-      toast({
-        title: 'Fête créée !',
-        description: `"${values.name}" est prête à être partagée.`,
-      });
-      router.push(`/party/${partyId}`); // Navigate to the new party page
+      toast({ title: 'Événement créé !', description: `"${values.name}" est prêt à être partagé.` });
+      router.push(`/party/${partyId}`);
 
     } catch (error: any) {
-      console.error('Erreur lors de la création de la fête :', error);
-      toast({
-        title: 'Échec de la création de la fête',
-        description: error.message || 'Une erreur inattendue est survenue.',
-        variant: 'destructive',
-      });
+      console.error('Erreur lors de la création de l\'événement :', error);
+      toast({ title: 'Échec de la création', description: error.message || 'Une erreur inattendue est survenue.', variant: 'destructive' });
     } finally {
       setIsLoading(false);
+      setIsUploadingCover(false);
+      setIsUploadingMedia(false);
     }
   }
 
-  // If user is null and not loading, we might be in the process of redirecting, render minimal UI
-   if (!user && !isLoading) {
-     return <div className="container mx-auto px-4 py-12 text-center">Redirection vers la connexion...</div>;
-   }
+  if (!firebaseInitialized) {
+    return <div className="container mx-auto px-4 py-12 text-center">Chargement de Firebase...</div>;
+  }
+  if (!user && !isLoading) {
+    return <div className="container mx-auto px-4 py-12 text-center">Redirection vers la connexion...</div>;
+  }
+
+  const comboboxOptions = allUsers
+    .filter(u => !(form.getValues('participants') || []).includes(u.uid)) // Exclude already selected users
+    .map(u => ({ value: u.uid, label: u.pseudo || u.displayName || u.email }));
+
 
   return (
-    <div className="container mx-auto px-4 py-12 max-w-3xl">
-      <h1 className="text-3xl font-bold mb-8 text-center text-primary">Créer une Nouvelle Fête</h1>
-      <Card className="bg-card p-6 md:p-8 border border-border">
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-            {/* Party Name */}
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Nom de la fête *</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ex : Soirée plage d'été" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+    <div className="container mx-auto px-4 py-12 max-w-4xl">
+      <h1 className="text-3xl font-bold mb-8 text-center text-primary">Créer un Nouvel Événement</h1>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-10">
+          <Accordion type="multiple" defaultValue={['item-1', 'item-2', 'item-3', 'item-4', 'item-5']} className="w-full">
 
-            {/* Description */}
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Décrivez votre Event..."
-                      className="resize-none bg-input border-border focus:bg-background focus:border-primary"
-                      {...field}
+            {/* Section 1: Informations de base */}
+            <AccordionItem value="item-1">
+              <AccordionTrigger className="text-lg font-semibold hover:no-underline">
+                <div className="flex items-center space-x-2">
+                  <span className="bg-primary text-primary-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs">1</span>
+                  <span>Informations de base</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <Card className="bg-card border-none shadow-none p-0">
+                  <CardContent className="space-y-6 pt-6">
+                    <FormField
+                      control={form.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Nom de la Soirée *</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Ex : Soirée plage d'été" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </FormControl>
-                  <FormDescription>Restez bref et concis !</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    <FormField
+                      control={form.control}
+                      name="description"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Description</FormLabel>
+                          <FormControl>
+                            <Textarea placeholder="Décrivez votre Event..." className="resize-none bg-input border-border focus:bg-background focus:border-primary" {...field} />
+                          </FormControl>
+                          <FormDescription>Restez bref et concis !</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <FormField
+                      control={form.control}
+                      name="date"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                          <FormLabel>Date *</FormLabel>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  variant={'outline'}
+                                  className={cn('w-full pl-3 text-left font-normal bg-input border-border hover:bg-accent', !field.value && 'text-muted-foreground')}
+                                >
+                                  {field.value ? format(field.value, 'PPP', { locale: fr }) : <span>Choisir une date</span>}
+                                  <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0 bg-popover border-border" align="start">
+                              <Calendar locale={fr} mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                            </PopoverContent>
+                          </Popover>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="location"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Lieu (Optionnel)</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Ex : Sunset Beach Club" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    </div>
+                  </CardContent>
+                </Card>
+              </AccordionContent>
+            </AccordionItem>
 
-             {/* Date */}
-            <FormField
-              control={form.control}
-              name="date"
-              render={({ field }) => (
-                <FormItem className="flex flex-col">
-                  <FormLabel>Date *</FormLabel>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button
-                          variant={'outline'}
-                          className={cn(
-                            'w-full pl-3 text-left font-normal bg-input border-border hover:bg-accent',
-                            !field.value && 'text-muted-foreground'
-                          )}
-                        >
-                          {field.value ? (
-                            format(field.value, 'PPP', { locale: fr })
-                          ) : (
-                            <span>Choisir une date</span>
-                          )}
-                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0 bg-popover border-border" align="start">
-                      <Calendar
-                        locale={fr} // Set locale for calendar
-                        mode="single"
-                        selected={field.value}
-                        onSelect={field.onChange}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* Section 2: Photo de l'Événement */}
+            <AccordionItem value="item-2">
+               <AccordionTrigger className="text-lg font-semibold hover:no-underline">
+                <div className="flex items-center space-x-2">
+                  <span className="bg-primary text-primary-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs">2</span>
+                  <span>Photo de l'Event</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <Card className="bg-card border-none shadow-none p-0">
+                  <CardHeader className="flex flex-row items-center space-x-2 pb-4">
+                    {/* Icon can be added here if needed */}
+                    {/* <CardTitle className="text-base font-medium">Photo de couverture</CardTitle> */}
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <FormField
+                        control={form.control}
+                        name="coverPhoto"
+                        render={({ field }) => (
+                            <FormItem>
+                                 {/* Removed FormLabel to use custom UI */}
+                                <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
 
-            {/* Location */}
-             <FormField
-              control={form.control}
-              name="location"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Lieu</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ex : Sunset Beach Club" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/>
-                  </FormControl>
-                   <FormDescription>Où la magie a-t-elle eu lieu ?</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                                    {coverPhotoPreview ? (
+                                        <>
+                                            <div className="relative w-full h-full">
+                                                <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                variant="destructive"
+                                                size="icon"
+                                                className="absolute top-2 right-2 h-6 w-6 rounded-full z-10"
+                                                onClick={removeCoverPhoto}
+                                            >
+                                                <X className="h-3 w-3" />
+                                            </Button>
+                                        </>
+                                    ) : (
+                                      <>
+                                        <ImageIcon className="h-12 w-12 text-muted-foreground mb-2" />
+                                        <p className="text-sm text-muted-foreground mb-2">Glissez-déposez ou cliquez pour ajouter</p>
+                                         <Button type="button" variant="outline" size="sm" onClick={() => coverPhotoInputRef.current?.click()}>
+                                            Ajouter une photo
+                                        </Button>
+                                      </>
+                                    )}
+                                     <FormControl>
+                                        <Input
+                                            ref={coverPhotoInputRef}
+                                            type="file"
+                                            accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')}
+                                            className="hidden" // Hidden, triggered by button
+                                            onChange={handleCoverPhotoChange}
+                                        />
+                                     </FormControl>
+                                </div>
+                                 {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
+                                    <Progress value={uploadProgress.coverPhoto} className="h-1 w-full mt-2" />
+                                )}
+                                {uploadProgress.coverPhoto === -1 && (
+                                    <p className="text-xs text-destructive text-center mt-1">Échec du téléversement de la couverture</p>
+                                )}
+                                <FormDescription className="text-center mt-2">
+                                    Max {MAX_FILE_SIZE_COVER / 1024 / 1024}Mo initial, compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo.
+                                </FormDescription>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                        />
+                  </CardContent>
+                </Card>
+              </AccordionContent>
+            </AccordionItem>
 
-             {/* Participants (Placeholder UI) */}
-             <FormField
-                control={form.control}
-                name="participants"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Inviter des Participants (Optionnel)</FormLabel>
-                    <FormControl>
-                       {/* Basic Input - Replace with a proper user search/tagging component later */}
-                        <div className="flex gap-2">
-                             <Input
-                                placeholder="Entrer l'email des participants... (bientôt disponible)"
-                                // value={field.value?.join(', ') || ''} // Display emails for now
-                                // onChange={(e) => field.onChange(e.target.value.split(',').map(email => email.trim()))}
-                                disabled // Disabled until UI is built
-                                className="bg-input border-border flex-grow"
-                             />
-                            <Button type="button" variant="outline" disabled> <UserPlus className="h-4 w-4" /></Button>
+            {/* Section 3: Participants */}
+            <AccordionItem value="item-3">
+               <AccordionTrigger className="text-lg font-semibold hover:no-underline">
+                <div className="flex items-center space-x-2">
+                  <span className="bg-primary text-primary-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs">3</span>
+                  <span>Participants</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <Card className="bg-card border-none shadow-none p-0">
+                  <CardContent className="space-y-4 pt-6">
+                     <FormField
+                        control={form.control}
+                        name="participants"
+                        render={({ field }) => (
+                            <FormItem>
+                            <FormLabel>Ajouter des participants</FormLabel>
+                            <Combobox
+                                options={comboboxOptions}
+                                onSelect={(userId) => {
+                                    if (userId) handleAddParticipant(userId);
+                                }}
+                                placeholder="Rechercher un utilisateur..."
+                                searchPlaceholder="Tapez un nom ou email..."
+                                emptyPlaceholder="Aucun utilisateur trouvé."
+                                triggerIcon={<UserPlus className="mr-2 h-4 w-4" />}
+                            />
+                            <FormDescription>Les participants doivent avoir un compte.</FormDescription>
+                            <FormMessage />
+                            </FormItem>
+                        )}
+                        />
+                    {selectedParticipants.length > 0 && (
+                        <div className="space-y-2">
+                            <h4 className="text-sm font-medium">Participants sélectionnés :</h4>
+                            <div className="flex flex-wrap gap-2">
+                            {selectedParticipants.map((participant) => (
+                                <Badge key={participant.uid} variant="secondary" className="py-1 px-2 text-xs">
+                                    {participant.pseudo || participant.displayName || participant.email}
+                                    {user && participant.uid === user.uid ? " (Créateur)" : (
+                                    <button type="button" onClick={() => handleRemoveParticipant(participant.uid)} className="ml-1.5 text-muted-foreground hover:text-destructive">
+                                        <X className="h-3 w-3" />
+                                    </button>
+                                    )}
+                                </Badge>
+                            ))}
+                            </div>
                         </div>
-                    </FormControl>
-                    <FormDescription>Recherchez des utilisateurs pour les ajouter à la fête. (Fonctionnalité en développement)</FormDescription>
-                    <FormMessage />
-                    </FormItem>
-                )}
-             />
+                    )}
+                  </CardContent>
+                </Card>
+              </AccordionContent>
+            </AccordionItem>
 
-
-            {/* Media Upload */}
-             <FormField
-              control={form.control}
-              name="media"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Téléverser des Médias (Photos, Vidéos, Sons)</FormLabel>
-                   <FormControl>
-                     <Input
-                       type="file"
-                       multiple
-                       accept={ACCEPTED_MEDIA_TYPES.join(',')}
-                       onChange={handleFileChange}
-                       className="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer bg-input border-border focus:bg-background focus:border-primary"
-                     />
-                   </FormControl>
-                  <FormDescription>
-                      Taille max : Images (1Mo), Vidéos (10Mo), Sons (5Mo). Les fichiers seront compressés si possible.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-             {/* File Previews & Progress */}
-              {(form.watch('media') || []).length > 0 && (
-                  <div className="space-y-4">
-                      <h4 className="text-sm font-medium text-foreground">Fichiers sélectionnés :</h4>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                          {(form.watch('media') || []).map((file, index) => (
-                              <div key={index} className="relative group border rounded-md p-2 bg-secondary space-y-2">
-                                  {previews[index] && file.type.startsWith('image/') ? (
-                                      <Image src={previews[index]} alt={`Aperçu ${file.name}`} width={100} height={100} className="rounded-md object-cover mx-auto h-20 w-20" />
-                                  ) : (
-                                       <div className="h-20 w-20 flex items-center justify-center bg-muted rounded-md mx-auto text-muted-foreground">
-                                           <span className="text-xs truncate px-1">{file.name}</span>
-                                       </div>
-                                  )}
-                                  <p className="text-xs text-muted-foreground truncate text-center">{file.name}</p>
-                                   {uploadProgress[file.name] !== undefined && uploadProgress[file.name] >= 0 && uploadProgress[file.name] < 100 && (
-                                     <Progress value={uploadProgress[file.name]} className="h-1 w-full" />
-                                   )}
-                                   {uploadProgress[file.name] === 100 && (
-                                       <p className="text-xs text-green-500 text-center">Téléversé</p>
-                                   )}
-                                    {uploadProgress[file.name] === -1 && (
-                                       <p className="text-xs text-destructive text-center">Échec</p>
-                                   )}
-                                  <Button
-                                      type="button"
-                                      variant="destructive"
-                                      size="icon"
-                                      className="absolute -top-2 -right-2 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity rounded-full"
-                                      onClick={() => removeFile(index)}
-                                  >
-                                      <X className="h-3 w-3" /> {/* Use X icon */}
-                                      <span className="sr-only">Retirer {file.name}</span>
-                                  </Button>
+            {/* Section 4: Importer des Souvenirs */}
+            <AccordionItem value="item-4">
+              <AccordionTrigger className="text-lg font-semibold hover:no-underline">
+                <div className="flex items-center space-x-2">
+                  <span className="bg-primary text-primary-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs">4</span>
+                  <span>Importer des Souvenirs</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <Card className="bg-card border-none shadow-none p-0">
+                  <CardContent className="space-y-4 pt-6">
+                    <FormField
+                      control={form.control}
+                      name="media"
+                      render={({ field }) => (
+                        <FormItem>
+                          <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
+                            <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
+                          </Button>
+                           <FormControl>
+                               <Input
+                                 ref={mediaInputRef}
+                                 type="file"
+                                 multiple
+                                 accept={ACCEPTED_MEDIA_TYPES.join(',')}
+                                 onChange={handleMediaFileChange}
+                                 className="hidden" // Hidden, triggered by button
+                               />
+                           </FormControl>
+                          <FormDescription className="text-center">
+                            Max {MEDIA_MAX_FILE_SIZE.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE.audio / 1024 / 1024}Mo/Son.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    {(form.watch('media') || []).length > 0 && (
+                      <div className="space-y-3">
+                        <h4 className="text-sm font-medium">Souvenirs sélectionnés :</h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                          {(form.watch('media') || []).map((file, index) => {
+                             const previewUrl = mediaPreviews[index];
+                             const progress = uploadProgress[file.name];
+                             const fileTypeDisplay = getLocalFileType(file); // Use local helper
+                            return (
+                              <div key={index} className="relative group border rounded-md p-2 bg-secondary space-y-1.5">
+                                {previewUrl && file.type.startsWith('image/') ? (
+                                  <Image src={previewUrl} alt={`Aperçu ${file.name}`} width={80} height={80} className="rounded-md object-cover mx-auto h-16 w-16" />
+                                ) : (
+                                  <div className="h-16 w-16 flex items-center justify-center bg-muted rounded-md mx-auto text-muted-foreground">
+                                    {fileTypeDisplay === 'video' && <Video className="h-8 w-8" />}
+                                    {fileTypeDisplay === 'audio' && <StarIcon className="h-8 w-8" />} {/* Placeholder for Music icon */}
+                                    {fileTypeDisplay === 'autre' && <ImageIcon className="h-8 w-8" />} {/* Placeholder */}
+                                  </div>
+                                )}
+                                <p className="text-xs text-muted-foreground truncate text-center px-1">{file.name}</p>
+                                {progress !== undefined && progress >= 0 && progress < 100 && (
+                                  <Progress value={progress} className="h-1 w-full" />
+                                )}
+                                {progress === 100 && <p className="text-xs text-green-500 text-center">Téléversé</p>}
+                                {progress === -1 && <p className="text-xs text-destructive text-center">Échec</p>}
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="icon"
+                                  className="absolute -top-1.5 -right-1.5 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity rounded-full"
+                                  onClick={() => removeMediaFile(index)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
                               </div>
-                          ))}
+                            );
+                          })}
+                        </div>
                       </div>
-                  </div>
-              )}
+                    )}
+                  </CardContent>
+                </Card>
+              </AccordionContent>
+            </AccordionItem>
 
+            {/* Section 5: Évaluation Initiale */}
+            <AccordionItem value="item-5">
+               <AccordionTrigger className="text-lg font-semibold hover:no-underline">
+                <div className="flex items-center space-x-2">
+                  <span className="bg-primary text-primary-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs">5</span>
+                  <span>Évaluation Initiale</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <Card className="bg-card border-none shadow-none p-0">
+                  <CardContent className="space-y-6 pt-6">
+                     <FormField
+                        control={form.control}
+                        name="initialRating"
+                        render={({ field }) => (
+                            <FormItem>
+                            <FormLabel>Note (Optionnel)</FormLabel>
+                            <div className="flex items-center space-x-3">
+                                <FormControl>
+                                    <Slider
+                                        defaultValue={[0]}
+                                        value={[field.value || 0]}
+                                        max={5}
+                                        step={0.5}
+                                        onValueChange={(value) => field.onChange(value[0])}
+                                        className="w-[calc(100%-5rem)]"
+                                    />
+                                </FormControl>
+                                <span className="text-sm font-medium w-16 text-right">{(field.value || 0).toFixed(1)}/5 ★</span>
+                            </div>
+                            <FormMessage />
+                            </FormItem>
+                        )}
+                        />
+                     <FormField
+                        control={form.control}
+                        name="initialComment"
+                        render={({ field }) => (
+                            <FormItem>
+                            <FormLabel>Commentaire (Optionnel)</FormLabel>
+                            <FormControl>
+                                <Textarea placeholder="Un premier avis sur l'événement..." {...field} className="bg-input border-border focus:bg-background focus:border-primary"/>
+                            </FormControl>
+                            <FormMessage />
+                            </FormItem>
+                        )}
+                        />
+                  </CardContent>
+                </Card>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
 
-            <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
-              {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Création de la fête & Téléversement...
-                  </>
-              ) : (
-                  'Créer la Fête'
-              )}
-            </Button>
-          </form>
-        </Form>
-      </Card>
+          <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-lg py-6" disabled={isLoading || isUploadingCover || isUploadingMedia}>
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                {(isUploadingCover || isUploadingMedia) ? "Téléversement des fichiers..." : "Création de l'événement..."}
+              </>
+            ) : (
+              "Créer l'Événement"
+            )}
+          </Button>
+        </form>
+      </Form>
     </div>
   );
 }
-
