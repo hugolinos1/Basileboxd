@@ -30,20 +30,18 @@ interface MappedParty extends PartyData {
 
 const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple | null> => {
   if (!cityName || typeof cityName !== 'string' || cityName.trim() === '') {
-    console.warn(`[getCoordinates] Invalid or empty city name provided: ${cityName}`);
+    console.warn(`[getCoordinates] Nom de ville invalide ou vide fourni: ${cityName}`);
     return null;
   }
 
   const normalizedCity = cityName.trim();
 
   try {
-    console.log(`[getCoordinates] Fetching coordinates for city: ${normalizedCity}`);
-    // Using a more structured query with city and country for better accuracy if possible, though country is not available directly here.
-    // For simplicity, keeping it to city. Add `&country=France` if all events are in France.
-    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(normalizedCity)}&limit=1&addressdetails=1`);
+    console.log(`[getCoordinates] Récupération des coordonnées pour la ville: ${normalizedCity}`);
+    // Use the general query parameter 'q' instead of 'city' for more flexibility
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`);
     
     if (!response.ok) {
-      // Log the response text for more details on the error
       const errorText = await response.text().catch(() => "Impossible de lire le corps de l'erreur");
       console.error(`Erreur API Nominatim: ${response.status} pour la ville: ${cityName} (normalisé: ${normalizedCity}). Détails: ${errorText}`);
       return null;
@@ -54,7 +52,7 @@ const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple
       const lat = parseFloat(data[0].lat);
       const lon = parseFloat(data[0].lon);
       if (!isNaN(lat) && !isNaN(lon)) {
-        console.log(`[getCoordinates] Coordinates found for ${normalizedCity}: [${lat}, ${lon}]`);
+        console.log(`[getCoordinates] Coordonnées trouvées pour ${normalizedCity}: [${lat}, ${lon}]`);
         return [lat, lon];
       }
     }
@@ -66,10 +64,11 @@ const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple
   }
 };
 
-const DynamicMapUpdater = ({ partiesWithCoords }: { partiesWithCoords: MappedParty[] }) => {
+
+const DynamicMapUpdater = ({ parties }: { parties: MappedParty[] }) => {
   const map = useMap();
   useEffect(() => {
-    const validMarkers = partiesWithCoords.filter(p => p.coordinates !== null);
+    const validMarkers = parties.filter(p => p.coordinates !== null);
     if (validMarkers.length > 0 && map) {
       const bounds = L.latLngBounds(validMarkers.map(p => p.coordinates as LatLngTuple));
       if (bounds.isValid()) {
@@ -78,33 +77,47 @@ const DynamicMapUpdater = ({ partiesWithCoords }: { partiesWithCoords: MappedPar
         map.setView(validMarkers[0].coordinates, 10);
       }
     } else if (map) {
-      // Default view if no valid markers or map instance exists
-      map.setView([46.2276, 2.2137], 5); // Default view (France)
+      map.setView([46.2276, 2.2137], 5); // Vue par défaut (France)
     }
-  }, [partiesWithCoords, map]); // Rerun when partiesWithCoords or map instance changes
+  }, [parties, map]);
   return null;
 };
 
+const MAP_CONTAINER_ID = "event-map-leaflet-container";
 
 export function EventMap({ parties }: EventMapProps) {
   const [mappedParties, setMappedParties] = useState<MappedParty[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const mapRef = useRef<L.Map | null>(null);
   const [isClient, setIsClient] = useState(false);
-  const mapKeyRef = useRef(0); // Used to force remount of MapContainer if needed
+  const mapContainerRef = useRef<HTMLDivElement>(null); // Ref for the map container div
 
   useEffect(() => {
     setIsClient(true);
   }, []);
-  
+
   useEffect(() => {
-    if (!isClient || !parties) {
+    if (!isClient || !parties || !mapContainerRef.current) {
       setIsLoading(false);
       return;
     }
+    
+    // Clean up previous map instance if it exists
+    if (mapRef.current) {
+      console.log("[EventMap] Suppression de l'instance de carte précédente.");
+      mapRef.current.remove();
+      mapRef.current = null;
+    }
+     // Ensure the container is clean for Leaflet
+    if (mapContainerRef.current && (mapContainerRef.current as any)._leaflet_id) {
+        console.log("[EventMap] Nettoyage de l'ID Leaflet du conteneur.");
+        (mapContainerRef.current as any)._leaflet_id = null;
+    }
+
 
     const processParties = async () => {
       setIsLoading(true);
-      console.log("[EventMap] Processing parties for geocoding:", parties.length);
+      console.log("[EventMap] Traitement des fêtes pour le géocodage:", parties.length);
       const processedParties = await Promise.all(
         parties.map(async (party) => {
           const locationString = typeof party.location === 'string' ? party.location : undefined;
@@ -114,12 +127,12 @@ export function EventMap({ parties }: EventMapProps) {
       );
       setMappedParties(processedParties);
       setIsLoading(false);
-      mapKeyRef.current += 1; // Increment key to ensure map re-renders with new data if necessary
-      console.log("[EventMap] Geocoding complete. Mapped parties with valid locations:", processedParties.filter(p => p.coordinates).length);
+      console.log("[EventMap] Géocodage terminé. Fêtes mappées avec des emplacements valides:", processedParties.filter(p => p.coordinates).length);
     };
 
     processParties();
-  }, [parties, isClient]); // Rerun if parties or isClient status changes
+
+  }, [parties, isClient]);
 
 
   if (!isClient) {
@@ -132,7 +145,7 @@ export function EventMap({ parties }: EventMapProps) {
   
   const validMarkers = mappedParties.filter(p => p.coordinates !== null);
 
-  if (validMarkers.length === 0 && !isLoading) { // Added !isLoading check
+  if (validMarkers.length === 0 && !isLoading) {
      return (
         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-4">
             <MapPin className="h-12 w-12 mb-4 opacity-50" />
@@ -145,44 +158,42 @@ export function EventMap({ parties }: EventMapProps) {
   let initialCenter: LatLngExpression = [46.2276, 2.2137]; 
   let initialZoom = 5;
 
-  // This initial logic might be less effective if DynamicMapUpdater handles it well.
-  // Keeping it for a sensible first render.
   if (validMarkers.length > 0 && validMarkers[0].coordinates) {
     initialCenter = validMarkers[0].coordinates;
     initialZoom = validMarkers.length === 1 ? 10 : 6; 
   }
   
-  // Use a unique key for MapContainer to ensure it re-initializes if critical props change or for forced refresh.
-  // Using mapKeyRef.current ensures it changes only when geocoding is complete.
   return (
-    <div className="h-full w-full">
-      <MapContainer
-        key={`event-map-${mapKeyRef.current}`} 
-        center={initialCenter}
-        zoom={initialZoom}
-        scrollWheelZoom={true}
-        className="leaflet-container"
-        style={{ height: '100%', width: '100%' }}
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &amp; <a href="https://nominatim.org/" target="_blank" rel="noopener noreferrer">Nominatim</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        {validMarkers.map((party) =>
-          party.coordinates ? (
-            <Marker key={party.id} position={party.coordinates}>
-              <Popup>
-                <div className="font-semibold text-sm">{party.name}</div>
-                <div className="text-xs">{party.location}</div>
-                <a href={`/party/${party.id}`} target="_blank" rel="noopener noreferrer" className="text-primary text-xs hover:underline mt-1 block">
-                  Voir l'événement
-                </a>
-              </Popup>
-            </Marker>
-          ) : null
-        )}
-        <DynamicMapUpdater partiesWithCoords={validMarkers} />
-      </MapContainer>
+    <div ref={mapContainerRef} className="h-full w-full" key={isClient ? "map-client-container" : "map-server-container-placeholder"}>
+      {isClient && ( 
+        <MapContainer
+          center={initialCenter}
+          zoom={initialZoom}
+          scrollWheelZoom={true}
+          className="leaflet-container" // Ensure this class is applied for styling
+          style={{ height: '100%', width: '100%' }}
+          whenCreated={mapInstance => { mapRef.current = mapInstance; }}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &amp; <a href="https://nominatim.org/" target="_blank" rel="noopener noreferrer">Nominatim</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          {validMarkers.map((party) =>
+            party.coordinates ? (
+              <Marker key={party.id} position={party.coordinates}>
+                <Popup>
+                  <div className="font-semibold text-sm">{party.name}</div>
+                  <div className="text-xs">{party.location}</div>
+                  <a href={`/party/${party.id}`} target="_blank" rel="noopener noreferrer" className="text-primary text-xs hover:underline mt-1 block">
+                    Voir l'événement
+                  </a>
+                </Popup>
+              </Marker>
+            ) : null
+          )}
+          <DynamicMapUpdater parties={mappedParties} />
+        </MapContainer>
+      )}
     </div>
   );
 }
