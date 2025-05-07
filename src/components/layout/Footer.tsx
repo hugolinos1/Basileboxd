@@ -49,7 +49,7 @@ export function Footer() {
         title: "Communauté",
         links: [
             // "Directives" will be handled by AlertDialog
-            { name: "Événements", href: "#" },
+            // "Événements" will be a direct link
         ],
     },
      {
@@ -165,26 +165,33 @@ export function Footer() {
                    </>
                 )}
                  {section.title === "Communauté" && (
-                  <li>
-                    <AlertDialog open={isDirectivesDialogOpen} onOpenChange={setIsDirectivesDialogOpen}>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="link" className="p-0 h-auto text-muted-foreground hover:text-foreground transition-colors font-normal">
-                          Directives
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Directives</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Biiiin, partage et commente !
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogAction onClick={() => setIsDirectivesDialogOpen(false)}>Fermer</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </li>
+                  <>
+                    <li>
+                      <AlertDialog open={isDirectivesDialogOpen} onOpenChange={setIsDirectivesDialogOpen}>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="link" className="p-0 h-auto text-muted-foreground hover:text-foreground transition-colors font-normal">
+                            Directives
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Directives</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Biiiin, partage et commente !
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogAction onClick={() => setIsDirectivesDialogOpen(false)}>Fermer</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </li>
+                    <li>
+                      <Link href="/parties" className="text-muted-foreground hover:text-foreground transition-colors">
+                        Événements
+                      </Link>
+                    </li>
+                  </>
                 )}
                 {section.links.map((link) => (
                   <li key={link.name}>
