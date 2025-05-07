@@ -20,6 +20,7 @@ export function Footer() {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false);
   const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
+  const [isTermsDialogOpen, setIsTermsDialogOpen] = useState(false);
 
   const socialLinks = [
     { Icon: Facebook, href: '#' },
@@ -40,7 +41,7 @@ export function Footer() {
       links: [
         // "Centre d'aide" will be handled by AlertDialog
         // "Contactez-nous" will be handled by AlertDialog
-        { name: "Conditions d'utilisation", href: "#" },
+        // "Conditions d'utilisation" will be handled by AlertDialog
       ],
     },
     {
@@ -136,6 +137,26 @@ export function Footer() {
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogAction onClick={() => setIsContactDialogOpen(false)}>Fermer</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </li>
+                    <li>
+                      <AlertDialog open={isTermsDialogOpen} onOpenChange={setIsTermsDialogOpen}>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="link" className="p-0 h-auto text-muted-foreground hover:text-foreground transition-colors font-normal">
+                            Conditions d'utilisation
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Conditions d'utilisation</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Faut être membre, mec !
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogAction onClick={() => setIsTermsDialogOpen(false)}>Fermer</AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
