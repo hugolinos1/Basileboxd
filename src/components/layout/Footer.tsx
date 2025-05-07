@@ -34,7 +34,6 @@ export function Footer() {
      {
         title: "Légal",
         links: [
-            { name: "Politique de cookies", href: "#" },
             { name: "Mentions légales", href: "#" },
         ],
     }
