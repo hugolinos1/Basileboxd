@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -307,6 +308,9 @@ export default function CreateEventPage() {
         coverPhotoUrl: '',
         ratings: values.initialRating && user ? { [user.uid]: values.initialRating } : {},
         createdAt: serverTimestamp(),
+        // Future fields for geocoding (to be populated by a server-side process or Cloud Function later)
+        // latitude: null, 
+        // longitude: null,
       });
       const partyId = partyDocRef.id;
 
@@ -767,3 +771,4 @@ export default function CreateEventPage() {
   );
 }
 
+      
