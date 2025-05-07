@@ -71,7 +71,7 @@ export function Footer() {
 
         {/* Copyright */}
         <div className="text-center text-xs text-muted-foreground pt-8 border-t border-border/40">
-          &copy; {new Date().getFullYear()} PartyHub. Tous droits réservés.
+          &copy; {new Date().getFullYear()} Hugolinos. Tous droits réservés.
         </div>
       </div>
     </footer>
