@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -22,6 +21,7 @@ export function Footer() {
   const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
   const [isTermsDialogOpen, setIsTermsDialogOpen] = useState(false);
   const [isDirectivesDialogOpen, setIsDirectivesDialogOpen] = useState(false);
+  const [isLegalMentionsDialogOpen, setIsLegalMentionsDialogOpen] = useState(false);
 
   const socialLinks = [
     { Icon: Facebook, href: '#' },
@@ -55,7 +55,7 @@ export function Footer() {
      {
         title: "Légal",
         links: [
-            { name: "Mentions légales", href: "#" },
+            // "Mentions légales" will be handled by AlertDialog
         ],
     }
   ];
@@ -193,6 +193,28 @@ export function Footer() {
                     </li>
                   </>
                 )}
+                 {section.title === "Légal" && (
+                    <li>
+                      <AlertDialog open={isLegalMentionsDialogOpen} onOpenChange={setIsLegalMentionsDialogOpen}>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="link" className="p-0 h-auto text-muted-foreground hover:text-foreground transition-colors font-normal">
+                            Mentions légales
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Mentions Légales</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Faut pas consommer des produits illégaux sur ce site, maltraiter des animaux ou s'appeler Jean Kevin.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogAction onClick={() => setIsLegalMentionsDialogOpen(false)}>Fermer</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </li>
+                )}
                 {section.links.map((link) => (
                   <li key={link.name}>
                     <Link href={link.href} className="text-muted-foreground hover:text-foreground transition-colors">
@@ -213,4 +235,3 @@ export function Footer() {
     </footer>
   );
 }
-
