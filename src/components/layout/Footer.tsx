@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 export function Footer() {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false);
+  const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
 
   const socialLinks = [
     { Icon: Facebook, href: '#' },
@@ -38,7 +39,7 @@ export function Footer() {
       title: "Support",
       links: [
         // "Centre d'aide" will be handled by AlertDialog
-        { name: "Contactez-nous", href: "#" },
+        // "Contactez-nous" will be handled by AlertDialog
         { name: "Conditions d'utilisation", href: "#" },
       ],
     },
@@ -98,26 +99,48 @@ export function Footer() {
                   </li>
                 )}
                  {section.title === "Support" && (
-                  <li>
-                    <AlertDialog open={isHelpDialogOpen} onOpenChange={setIsHelpDialogOpen}>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="link" className="p-0 h-auto text-muted-foreground hover:text-foreground transition-colors font-normal">
-                          Centre d'aide
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Centre d'aide</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Oh ! T'as quel age ? Tu te démerdes
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogAction onClick={() => setIsHelpDialogOpen(false)}>Fermer</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </li>
+                   <>
+                    <li>
+                      <AlertDialog open={isHelpDialogOpen} onOpenChange={setIsHelpDialogOpen}>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="link" className="p-0 h-auto text-muted-foreground hover:text-foreground transition-colors font-normal">
+                            Centre d'aide
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Centre d'aide</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Oh ! T'as quel age ? Tu te démerdes
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogAction onClick={() => setIsHelpDialogOpen(false)}>Fermer</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </li>
+                     <li>
+                      <AlertDialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="link" className="p-0 h-auto text-muted-foreground hover:text-foreground transition-colors font-normal">
+                            Contactez-nous
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Contactez-nous</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Qu'est ce tu veux ???
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogAction onClick={() => setIsContactDialogOpen(false)}>Fermer</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </li>
+                   </>
                 )}
                 {section.links.map((link) => (
                   <li key={link.name}>
@@ -139,3 +162,4 @@ export function Footer() {
     </footer>
   );
 }
+
