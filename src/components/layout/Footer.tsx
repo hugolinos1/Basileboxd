@@ -27,7 +27,6 @@ export function Footer() {
     {
         title: "Communauté",
         links: [
-            { name: "Blog", href: "#" },
             { name: "Directives", href: "#" },
             { name: "Événements", href: "#" },
         ],
