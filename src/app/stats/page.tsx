@@ -13,7 +13,7 @@ import type { PartyData as SharedPartyData } from '@/lib/party-utils';
 // calculatePartyAverageRating is not used here, getDateFromTimestamp might be if displaying dates
 import { StatCard } from '@/components/stats/StatCard';
 import { GlobalRatingDistributionChart } from '@/components/stats/GlobalRatingDistributionChart';
-import dynamic from 'next/dynamic'; 
+import { EventMap } from '@/components/stats/EventMap'; // Import EventMap directly
 
 type PartyData = SharedPartyData & { id: string };
 
@@ -25,11 +25,6 @@ interface StatsData {
   allParties: PartyData[]; 
 }
 
-// Dynamically import the EventMap component to ensure it only runs on the client-side
-const EventMapWithNoSSR = dynamic(() => 
-  import('@/components/stats/EventMap').then(mod => mod.EventMap), 
-  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-muted-foreground"><MapPin className="h-12 w-12 mr-2 animate-pulse" />Chargement de la carte...</div> }
-);
 
 export default function StatisticsPage() {
   const { firebaseInitialized, loading: authLoading } = useFirebase();
@@ -182,8 +177,8 @@ export default function StatisticsPage() {
             <CardDescription>Visualisation géographique des événements.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] md:h-[350px] p-0 rounded-b-lg overflow-hidden flex items-center justify-center bg-muted"> 
-            {stats.allParties.length > 0 && stats.allParties.some(p => p.latitude && p.longitude) ? (
-                <EventMapWithNoSSR parties={stats.allParties} />
+            {stats.allParties.length > 0 ? (
+                <EventMap parties={stats.allParties} />
             ) : (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground bg-muted">
                     <MapPin className="h-16 w-16 mx-auto mb-4 opacity-50" />
@@ -197,4 +192,3 @@ export default function StatisticsPage() {
     </div>
   );
 }
-
