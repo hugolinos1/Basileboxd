@@ -49,6 +49,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Combobox } from '@/components/ui/combobox';
 import type { MediaItem as SharedMediaItem, PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
 import { Slider } from '@/components/ui/slider';
+import { normalizeCityName } from '@/lib/party-utils';
 
 
 // --- Interfaces ---
@@ -69,6 +70,34 @@ interface UserProfile {
 
 
 // --- Helper Functions ---
+// Geocoding Helper (moved from CreateEventPage, potentially to a shared utils file later)
+const geocodeCity = async (cityName: string): Promise<{ lat: number; lon: number } | null> => {
+  if (!cityName) return null;
+  const normalizedCity = normalizeCityName(cityName);
+  if (!normalizedCity) return null;
+
+  const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`;
+  try {
+    const response = await fetch(apiUrl, {
+      headers: {
+        'User-Agent': 'PartyHubApp/1.0 (contact@partagefestif.com)',
+        'Accept-Language': 'fr,en;q=0.9'
+      }
+    });
+    if (!response.ok) {
+      console.error(`Erreur API Nominatim: ${response.status} pour la ville: ${cityName}`);
+      return null;
+    }
+    const data = await response.json();
+    if (data && data.length > 0 && data[0].lat && data[0].lon) {
+      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    }
+    return null;
+  } catch (error) {
+    console.error("Erreur de géocodage:", error);
+    return null;
+  }
+};
 
 
 // --- Composants ---
@@ -177,10 +206,14 @@ export default function PartyDetailsPage() {
   const [showDeleteSouvenirDialog, setShowDeleteSouvenirDialog] = useState(false);
   const [souvenirToDelete, setSouvenirToDelete] = useState<MediaItem | null>(null);
   const [isDeletingSouvenir, setIsDeletingSouvenir] = useState(false);
+  const [showEditLocationDialog, setShowEditLocationDialog] = useState(false);
+  const [newPartyLocation, setNewPartyLocation] = useState('');
+  const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
 
 
   const isCreator = useMemo(() => user && party && user.uid === party.createdBy, [user, party]);
   const canManageParticipants = useMemo(() => user && party && (user.uid === party.createdBy || isAdmin), [user, party, isAdmin]);
+  const canEditPartyDetails = useMemo(() => user && party && (user.uid === party.createdBy || isAdmin), [user, party, isAdmin]);
 
 
   const participantColors = [ 'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', ];
@@ -232,6 +265,7 @@ export default function PartyDetailsPage() {
         const data = { id: docSnap.id, ...docSnap.data() } as PartyData;
         setParty(data);
         setNewPartyName(data.name); // Initialize newPartyName with current party name
+        setNewPartyLocation(data.location || ''); // Initialize newPartyLocation
         calculateAndSetAverageRating(data.ratings);
         if (user && data.ratings && data.ratings[user.uid]) {
             setUserRating(data.ratings[user.uid]);
@@ -395,18 +429,15 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      // Use Timestamp.now() for client-side timestamp generation, suitable for arrayUnion
-      const newCommentData: Omit<Comment, 'id'> & { timestamp: Timestamp } = { 
+      const newCommentData: Omit<Comment, 'id'> & { timestamp: FieldValue } = { 
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: Timestamp.now(), // Use client-side timestamp
+        timestamp: serverTimestamp(), 
         partyId: party.id, 
       };
 
-      // Firestore doesn't directly support adding a new document to a subcollection
-      // using arrayUnion on the parent. We need to add a new document to the subcollection.
       await addDoc(commentsCollectionRef, newCommentData);
 
 
@@ -418,7 +449,7 @@ export default function PartyDetailsPage() {
         if (commentError.code === 'invalid-argument') {
             if (commentError.message?.includes('Unsupported field value')) {
                 errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
-            } else if (commentError.message?.includes('serverTimestamp')) { // This specific check might be less relevant now
+            } else if (commentError.message?.includes('serverTimestamp')) { 
                 errorMessage = "Erreur de timestamp serveur. Réessayez.";
             }
         } else if (commentError.code === 'permission-denied') {
@@ -500,7 +531,7 @@ export default function PartyDetailsPage() {
                         type: getMediaFileType(file),
                         uploaderId: user.uid,
                         uploaderEmail: user.email || undefined,
-                        uploadedAt: Timestamp.now(), // Use client-side timestamp
+                        uploadedAt: serverTimestamp(), // Use serverTimestamp for FieldValue
                         fileName: file.name,
                       } as MediaItem; 
                 }
@@ -632,7 +663,7 @@ export default function PartyDetailsPage() {
         setIsAddingParticipant(true);
         console.log("[handleAddParticipant] Recherche de l'utilisateur dans `allUsers`. UID recherché:", selectedUserId);
 
-        const userToAdd = allUsers.find(u => u.uid.toLowerCase() === selectedUserId.toLowerCase()); // Case-insensitive comparison
+        const userToAdd = allUsers.find(u => u.uid.toLowerCase() === selectedUserId.toLowerCase());
         console.log("[handleAddParticipant] Utilisateur trouvé dans allUsers:", userToAdd ? {uid: userToAdd.uid, email: userToAdd.email, pseudo: userToAdd.pseudo} : "Non trouvé");
 
 
@@ -679,7 +710,7 @@ export default function PartyDetailsPage() {
     };
 
     const handleUpdatePartyName = async () => {
-        if (!user || !party || !isCreator || !db || !newPartyName.trim()) {
+        if (!user || !party || !canEditPartyDetails || !db || !newPartyName.trim()) {
             toast({ title: 'Erreur', description: 'Impossible de mettre à jour le nom pour le moment.', variant: 'destructive' });
             return;
         }
@@ -696,6 +727,42 @@ export default function PartyDetailsPage() {
             toast({ title: 'Échec de la mise à jour', description: "Impossible de mettre à jour le nom de l'événement.", variant: 'destructive' });
         } finally {
             setIsUpdatingPartyName(false);
+        }
+    };
+
+    const handleUpdatePartyLocation = async () => {
+        if (!user || !party || !canEditPartyDetails || !db || !newPartyLocation.trim()) {
+            toast({ title: 'Erreur', description: 'Impossible de mettre à jour le lieu pour le moment.', variant: 'destructive' });
+            return;
+        }
+        setIsUpdatingLocation(true);
+        let latitude: number | null = null;
+        let longitude: number | null = null;
+
+        try {
+            toast({ title: "Géocodage en cours...", description: `Recherche des coordonnées pour ${newPartyLocation}.` });
+            const coords = await geocodeCity(newPartyLocation.trim());
+            if (coords) {
+                latitude = coords.lat;
+                longitude = coords.lon;
+                toast({ title: "Géocodage réussi", description: `Coordonnées trouvées pour ${newPartyLocation}.` });
+            } else {
+                toast({ title: "Échec du géocodage", description: `Impossible de trouver les coordonnées pour ${newPartyLocation}. Le lieu sera mis à jour sans géolocalisation précise.`, variant: "warning" });
+            }
+
+            const partyDocRef = doc(db, 'parties', party.id);
+            await updateDoc(partyDocRef, {
+                location: newPartyLocation.trim(),
+                latitude: latitude,
+                longitude: longitude,
+            });
+            toast({ title: 'Lieu de l\'événement mis à jour !' });
+            setShowEditLocationDialog(false);
+        } catch (error: any) {
+            console.error("Erreur lors de la mise à jour du lieu de l'événement:", error);
+            toast({ title: 'Échec de la mise à jour', description: "Impossible de mettre à jour le lieu de l'événement.", variant: 'destructive' });
+        } finally {
+            setIsUpdatingLocation(false);
         }
     };
 
@@ -827,7 +894,7 @@ export default function PartyDetailsPage() {
                ) : (
                    <div className="absolute inset-0 bg-gradient-to-br from-secondary via-muted to-secondary flex items-center justify-center"> <ImageIcon className="h-16 w-16 text-muted-foreground/50" /> </div>
                )}
-                {(isCreator || isAdmin) && (
+                {(canEditPartyDetails) && (
                     <Dialog open={showEditCoverDialog} onOpenChange={setShowEditCoverDialog}>
                         <DialogTrigger asChild>
                              <Button variant="secondary" size="icon" className="absolute top-4 left-4 z-10 h-8 w-8 bg-black/50 hover:bg-black/70 border-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
@@ -866,7 +933,7 @@ export default function PartyDetailsPage() {
                 <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 text-white z-10">
                     <div className="flex items-center">
                         <CardTitle className="text-2xl md:text-4xl font-bold mb-1 text-shadow"> {party.name} </CardTitle>
-                        {isCreator && (
+                        {canEditPartyDetails && (
                             <Dialog open={showEditPartyNameDialog} onOpenChange={setShowEditPartyNameDialog}>
                                 <DialogTrigger asChild>
                                     <Button variant="ghost" size="icon" className="ml-2 text-white hover:text-gray-300 h-7 w-7 p-1">
@@ -899,7 +966,42 @@ export default function PartyDetailsPage() {
                     </div>
                     <CardDescription className="text-gray-300 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                        {partyDate && <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4"/> {format(partyDate, 'PPP', { locale: fr })} ({formatDistanceToNow(partyDate, { addSuffix: true, locale: fr })})</span>}
-                       {party.location && <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4"/> {party.location}</span>}
+                       {party.location && (
+                        <span className="flex items-center gap-1.5">
+                            <MapPin className="h-4 w-4"/> {party.location}
+                            {canEditPartyDetails && (
+                                <Dialog open={showEditLocationDialog} onOpenChange={setShowEditLocationDialog}>
+                                    <DialogTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="ml-1 text-white hover:text-gray-300 h-6 w-6 p-0.5">
+                                            <Edit2 className="h-3 w-3" />
+                                            <span className="sr-only">Modifier le lieu</span>
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="sm:max-w-[425px]">
+                                        <DialogHeader>
+                                            <DialogTitle>Modifier le Lieu de l'Événement</DialogTitle>
+                                        </DialogHeader>
+                                        <div className="grid gap-4 py-4">
+                                            <Input
+                                                id="new-party-location"
+                                                value={newPartyLocation}
+                                                onChange={(e) => setNewPartyLocation(e.target.value)}
+                                                placeholder="Nouvelle ville"
+                                                className="col-span-3"
+                                            />
+                                        </div>
+                                        <DialogFooter>
+                                            <DialogClose asChild><Button type="button" variant="outline">Annuler</Button></DialogClose>
+                                            <Button type="button" onClick={handleUpdatePartyLocation} disabled={!newPartyLocation.trim() || isUpdatingLocation}>
+                                                {isUpdatingLocation ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                                Sauvegarder
+                                            </Button>
+                                        </DialogFooter>
+                                    </DialogContent>
+                                </Dialog>
+                            )}
+                        </span>
+                        )}
                        <span className="flex items-center gap-1.5"><User className="h-4 w-4"/> Créé par {party.creatorEmail || 'Inconnu'}</span>
                     </CardDescription>
                      {party.description && ( <p className="mt-3 text-sm text-gray-200 line-clamp-2">{party.description}</p> )}
@@ -1135,4 +1237,5 @@ function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
 
+    
     

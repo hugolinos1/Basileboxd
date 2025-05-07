@@ -31,8 +31,8 @@ export interface PartyData {
     description?: string;
     date: FirestoreTimestamp | Timestamp | Date; // Allow Date
     location?: string; 
-    latitude?: number | null; // Added latitude
-    longitude?: number | null; // Added longitude
+    latitude?: number | null; // Make latitude optional
+    longitude?: number | null; // Make longitude optional
     createdBy: string;
     creatorEmail?: string;
     participants: string[]; // Array of UIDs
@@ -100,3 +100,6 @@ export const normalizeCityName = (cityName: string | undefined): string => {
     .replace(/[^a-z0-9\s-]/g, "") // Remove non-alphanumeric (except space/hyphen)
     .trim();
 };
+
+
+    
