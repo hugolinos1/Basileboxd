@@ -1,7 +1,24 @@
+
+'use client';
+
+import { useState } from 'react';
 import Link from 'next/link';
 import { Facebook, Twitter, Instagram, Linkedin } from 'lucide-react'; // Using Lucide icons
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from '@/components/ui/button';
 
 export function Footer() {
+  const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
+
   const socialLinks = [
     { Icon: Facebook, href: '#' },
     { Icon: Twitter, href: '#' },
@@ -13,7 +30,7 @@ export function Footer() {
     {
       title: "Entreprise",
       links: [
-        { name: "À propos", href: "#" },
+        // "À propos" will be handled by the AlertDialog
       ],
     },
     {
@@ -57,6 +74,28 @@ export function Footer() {
             <div key={section.title}>
               <h4 className="font-semibold text-foreground mb-3">{section.title}</h4>
               <ul className="space-y-2">
+                {section.title === "Entreprise" && (
+                  <li>
+                    <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="link" className="p-0 h-auto text-muted-foreground hover:text-foreground transition-colors font-normal">
+                          À propos
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>À Propos de Nous</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Tu parles d'une entreprise ! Juste une association de malfaiteurs.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogAction onClick={() => setIsAboutDialogOpen(false)}>Fermer</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </li>
+                )}
                 {section.links.map((link) => (
                   <li key={link.name}>
                     <Link href={link.href} className="text-muted-foreground hover:text-foreground transition-colors">
