@@ -30,18 +30,16 @@ export interface PartyData {
     name: string;
     description?: string;
     date: FirestoreTimestamp | Timestamp | Date; // Allow Date
-    location?: string;
+    location?: string; // Ensure location is part of the interface
     createdBy: string;
     creatorEmail?: string;
     participants: string[]; // Array of UIDs
     participantEmails?: string[]; // Array of emails
     mediaItems?: MediaItem[]; // Changed from mediaUrls to mediaItems
     coverPhotoUrl?: string;
-    ratings?: { [userId: string]: number };
-    // comments subcollection is now handled separately, not as a field in PartyData
+    ratings?: { [userId: string]: number }; // Ratings are 0-10
     createdAt?: FirestoreTimestamp | Timestamp | Date; // Allow Date
-    // Optional calculated field (not stored in Firestore directly)
-    averageRating?: number;
+    averageRating?: number; // Calculated average, scale 0-5 for display
 }
 
 // --- Helper Functions ---
@@ -61,11 +59,8 @@ export const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp |
             const date = new Date((timestamp as FirestoreTimestamp).seconds * 1000);
             return isNaN(date.getTime()) ? null : date;
         }
-        // FieldValue (like serverTimestamp()) cannot be converted to a Date on the client-side before it's written.
-        // If you need to display it immediately, you might need to handle it as "Pending" or similar.
         if (timestamp instanceof FieldValue) {
-            // console.warn("Cannot convert FieldValue (serverTimestamp) to Date on client. It will be populated by the server.");
-            return null; // Or return a specific indicator like new Date(0) if you need to differentiate
+            return null; 
         }
         console.warn("Unrecognized timestamp format:", timestamp);
         return null;
@@ -76,15 +71,17 @@ export const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp |
 }
 
 /**
- * Calculates the average rating for a party based on its ratings object.
+ * Calculates the average rating for a party based on its ratings object (0-10 scale).
+ * Then converts this average to a 0-5 scale for display.
  * Returns 0 if there are no ratings.
  * @param party The party data object.
- * @returns The average rating (float) or 0.
+ * @returns The average rating (float) on a 0-5 scale or 0.
  */
 export const calculatePartyAverageRating = (party: PartyData): number => {
     if (!party.ratings) return 0;
     const allRatings = Object.values(party.ratings);
     if (allRatings.length === 0) return 0;
-    const sum = allRatings.reduce((acc, rating) => acc + (rating || 0), 0); // Ensure rating is treated as number
-    return sum / allRatings.length;
+    const sum = allRatings.reduce((acc, rating) => acc + (Number(rating) || 0), 0); 
+    const averageOutOf10 = sum / allRatings.length;
+    return averageOutOf10 / 2; // Convert to 0-5 scale
 };

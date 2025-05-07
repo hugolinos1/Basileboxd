@@ -9,10 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Alert, AlertDescription, AlertTitle as AlertUITitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BarChart3, Users, Image as ImageIcon, CalendarCheck2, Star, MapPin, AlertTriangle, Loader2 } from 'lucide-react';
-import type { PartyData as SharedPartyData, MediaItem } from '@/lib/party-utils';
-import { calculatePartyAverageRating, getDateFromTimestamp } from '@/lib/party-utils';
+import type { PartyData as SharedPartyData } from '@/lib/party-utils';
+// calculatePartyAverageRating is not used here, getDateFromTimestamp might be if displaying dates
 import { StatCard } from '@/components/stats/StatCard';
 import { GlobalRatingDistributionChart } from '@/components/stats/GlobalRatingDistributionChart';
+import dynamic from 'next/dynamic'; // Import dynamic for client-side map rendering
 
 type PartyData = SharedPartyData & { id: string };
 
@@ -21,8 +22,14 @@ interface StatsData {
   numberOfUsers: number;
   numberOfSouvenirs: number;
   averageGlobalRating: number;
-  allParties: PartyData[]; // For the rating distribution chart
+  allParties: PartyData[]; 
 }
+
+// Dynamically import the EventMap component to ensure it only runs on the client-side
+const EventMapWithNoSSR = dynamic(() => 
+  import('@/components/stats/EventMap').then(mod => mod.EventMap), 
+  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-muted-foreground"><MapPin className="h-12 w-12 mr-2 animate-pulse" />Chargement de la carte...</div> }
+);
 
 export default function StatisticsPage() {
   const { firebaseInitialized, loading: authLoading } = useFirebase();
@@ -69,8 +76,10 @@ export default function StatisticsPage() {
             });
           }
         });
+        
+        // Ratings are on a 0-10 scale, average should be /10, then /2 for /5 display
+        const averageGlobalRating = totalRatingsCount > 0 ? (totalRatingSum / totalRatingsCount / 2) : 0;
 
-        const averageGlobalRating = totalRatingsCount > 0 ? totalRatingSum / totalRatingsCount : 0;
 
         setStats({
           numberOfEvents: fetchedParties.length,
@@ -156,7 +165,7 @@ export default function StatisticsPage() {
         <Card className="bg-card border-border shadow-lg">
           <CardHeader>
             <CardTitle>Répartition des Notes Globales</CardTitle>
-            <CardDescription>Distribution de toutes les notes attribuées aux événements.</CardDescription>
+            <CardDescription>Distribution de toutes les notes attribuées aux événements (échelle 0.5 - 5).</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] md:h-[350px]">
             {stats.allParties.length > 0 ? (
@@ -170,19 +179,21 @@ export default function StatisticsPage() {
         <Card className="bg-card border-border shadow-lg">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" /> Carte des Événements</CardTitle>
-            <CardDescription>Visualisation géographique des événements (fonctionnalité à venir).</CardDescription>
+            <CardDescription>Visualisation géographique des événements.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] md:h-[350px] flex items-center justify-center bg-muted rounded-b-lg">
-            <div className="text-center text-muted-foreground">
-              <MapPin className="h-16 w-16 mx-auto mb-4 opacity-50" />
-              <p className="text-lg font-medium">Carte Interactive Bientôt Disponible</p>
-              <p className="text-sm">Nous travaillons à l'intégration d'une carte pour localiser tous vos events !</p>
-              <p className="text-xs mt-2">(Cette fonctionnalité nécessite une intégration de bibliothèque de cartographie et potentiellement des services de géocodage.)</p>
-            </div>
+          <CardContent className="h-[300px] md:h-[350px] p-0 rounded-b-lg overflow-hidden"> {/* Adjusted padding and overflow */}
+            {stats.allParties.length > 0 ? (
+                <EventMapWithNoSSR parties={stats.allParties} />
+            ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground bg-muted">
+                    <MapPin className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium">Aucun événement avec localisation</p>
+                    <p className="text-sm">Ajoutez des lieux à vos événements pour les afficher ici.</p>
+                </div>
+            )}
           </CardContent>
         </Card>
       </div>
     </div>
   );
 }
-

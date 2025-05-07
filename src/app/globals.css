@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import Leaflet CSS */
+@import "leaflet/dist/leaflet.css";
+
 body {
   font-family: var(--font-montserrat), sans-serif;
 }
@@ -131,4 +134,11 @@ body {
 /* Input focus style */
 input:focus, textarea:focus, select:focus {
   @apply ring-2 ring-primary border-primary;
+}
+
+/* Ensure Leaflet map containers have a defined height */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  border-radius: var(--radius);
 }
