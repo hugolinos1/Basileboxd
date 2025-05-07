@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 
 export function Footer() {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
+  const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false);
 
   const socialLinks = [
     { Icon: Facebook, href: '#' },
@@ -36,7 +37,7 @@ export function Footer() {
     {
       title: "Support",
       links: [
-        { name: "Centre d'aide", href: "#" },
+        // "Centre d'aide" will be handled by AlertDialog
         { name: "Contactez-nous", href: "#" },
         { name: "Conditions d'utilisation", href: "#" },
       ],
@@ -91,6 +92,28 @@ export function Footer() {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogAction onClick={() => setIsAboutDialogOpen(false)}>Fermer</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </li>
+                )}
+                 {section.title === "Support" && (
+                  <li>
+                    <AlertDialog open={isHelpDialogOpen} onOpenChange={setIsHelpDialogOpen}>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="link" className="p-0 h-auto text-muted-foreground hover:text-foreground transition-colors font-normal">
+                          Centre d'aide
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Centre d'aide</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Oh ! T'as quel age ? Tu te démerdes
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogAction onClick={() => setIsHelpDialogOpen(false)}>Fermer</AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
