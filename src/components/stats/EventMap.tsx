@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef, memo } from 'react';
-import L, { LatLngExpression, LatLngTuple, Map as LeafletMapInstance } from 'leaflet';
+import L, { LatLngExpression, LatLngTuple } from 'leaflet';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { PartyData } from '@/lib/party-utils';
@@ -25,11 +25,15 @@ interface MappedParty extends PartyData {
   coordinates: LatLngTuple;
 }
 
-interface MapContentProps {
+interface EventMapProps {
+  parties: PartyData[];
+}
+
+interface LeafletMapContentProps {
   partiesWithCoords: MappedParty[];
 }
 
-const MapContent = memo(({ partiesWithCoords }: MapContentProps) => {
+const LeafletMapContent = memo(({ partiesWithCoords }: LeafletMapContentProps) => {
   const map = useMap();
 
   useEffect(() => {
@@ -42,11 +46,10 @@ const MapContent = memo(({ partiesWithCoords }: MapContentProps) => {
           map.setView(partiesWithCoords[0].coordinates, 10);
         }
       } catch (e) {
-        console.error("[MapContent] Error fitting bounds:", e);
+        console.error("[LeafletMapContent] Error fitting bounds:", e);
       }
     } else if (map && partiesWithCoords.length === 0) {
-      // If no markers, set to default view (e.g., center of France)
-      map.setView([46.2276, 2.2137], 5);
+      map.setView([46.2276, 2.2137], 5); // Default to France
     }
   }, [partiesWithCoords, map]);
 
@@ -70,14 +73,15 @@ const MapContent = memo(({ partiesWithCoords }: MapContentProps) => {
     </>
   );
 });
-MapContent.displayName = 'MapContent';
+LeafletMapContent.displayName = 'LeafletMapContent';
 
-export function EventMap({ parties }: { parties: PartyData[] }) {
+
+export function EventMap({ parties }: EventMapProps) {
   const [mappedParties, setMappedParties] = useState<MappedParty[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
-  const mapKey = "leaflet-map-unique-key"; // Fixed key for MapContainer
+  const mapKey = "event-map-stable-key"; // Stable key for MapContainer
 
   useEffect(() => {
     setIsClient(true);
@@ -95,7 +99,7 @@ export function EventMap({ parties }: { parties: PartyData[] }) {
       console.warn(`[getCoordinates] Le nom de ville normalisé est vide pour l'original : ${originalCityName}`);
       return null;
     }
-
+    
     const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`;
     
     try {
@@ -118,7 +122,7 @@ export function EventMap({ parties }: { parties: PartyData[] }) {
           return [lat, lon];
         }
       }
-      console.warn(`[getCoordinates] Aucune coordonnée trouvée pour la ville: ${originalCityName} (normalisé: ${normalizedCity}).`);
+      console.warn(`[getCoordinates] Aucune coordonnée trouvée pour la ville: ${originalCityName} (normalisé: ${normalizedCity}). API Response:`, data);
       return null;
     } catch (err) {
       console.error(`[getCoordinates] Erreur lors du géocodage pour la ville: ${originalCityName} (normalisé: ${normalizedCity}). URL: ${apiUrl}`, err);
@@ -158,7 +162,7 @@ export function EventMap({ parties }: { parties: PartyData[] }) {
     };
 
     processParties();
-  }, [isClient, parties]);
+  }, [isClient, parties]); // parties dependency is important here
 
 
   if (!isClient || isLoading) {
@@ -180,7 +184,7 @@ export function EventMap({ parties }: { parties: PartyData[] }) {
     );
   }
   
-  if (mappedParties.length === 0) {
+  if (mappedParties.length === 0 && !isLoading) { // Added !isLoading check
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-4 bg-muted/50 rounded-md">
         <MapPin className="h-12 w-12 mb-4 opacity-50" />
@@ -194,17 +198,19 @@ export function EventMap({ parties }: { parties: PartyData[] }) {
   const initialZoom = 5;
 
   return (
-    <div id="event-map-container-wrapper" style={{ height: '100%', width: '100%' }}>
+    <div className="h-full w-full">
+      {isClient && ( // Render MapContainer only on client
         <MapContainer
-          key={mapKey} // Use a stable key 
+          key={mapKey} // Use a stable key for MapContainer
           center={initialCenter}
           zoom={initialZoom}
           style={{ height: '100%', width: '100%' }}
           className="leaflet-container"
           scrollWheelZoom={true}
         >
-          <MapContent partiesWithCoords={mappedParties} />
+          <LeafletMapContent partiesWithCoords={mappedParties} />
         </MapContainer>
+      )}
     </div>
   );
 }
