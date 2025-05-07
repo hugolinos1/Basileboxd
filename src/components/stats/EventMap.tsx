@@ -5,8 +5,9 @@ import React, { useEffect, useState, useRef, memo } from 'react';
 import L, { LatLngExpression, LatLngTuple, Map as LeafletMapInstance } from 'leaflet';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { PartyData } from '@/lib/party-utils'; // Assuming PartyData includes latitude and longitude
+import type { PartyData } from '@/lib/party-utils';
 import { MapPin, Loader2 } from 'lucide-react';
+import { normalizeCityName } from '@/lib/party-utils';
 
 // Leaflet default icon fix
 if (typeof window !== 'undefined') {
@@ -20,32 +21,28 @@ if (typeof window !== 'undefined') {
   });
 }
 
-interface EventMapProps {
-  parties: PartyData[];
+interface MappedParty extends PartyData {
+  coordinates: LatLngTuple;
 }
 
-interface MapRendererAndMarkersProps {
-  partiesWithCoords: PartyData[];
-  initialCenter: LatLngExpression;
-  initialZoom: number;
+interface MapContentProps {
+  partiesWithCoords: MappedParty[];
 }
 
-// Memoized component to render the map and markers.
-// This will only re-render if its props change.
-const MapRendererAndMarkers = memo(({ partiesWithCoords, initialCenter, initialZoom }: MapRendererAndMarkersProps) => {
+const MapContent = memo(({ partiesWithCoords }: MapContentProps) => {
   const map = useMap();
 
   useEffect(() => {
     if (partiesWithCoords.length > 0 && map) {
       try {
-        const bounds = L.latLngBounds(partiesWithCoords.map(p => [p.latitude!, p.longitude!] as LatLngTuple));
+        const bounds = L.latLngBounds(partiesWithCoords.map(p => p.coordinates));
         if (bounds.isValid()) {
           map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
-        } else if (partiesWithCoords.length === 1 && partiesWithCoords[0].latitude != null && partiesWithCoords[0].longitude != null) {
-          map.setView([partiesWithCoords[0].latitude!, partiesWithCoords[0].longitude!], 10);
+        } else if (partiesWithCoords.length === 1) {
+          map.setView(partiesWithCoords[0].coordinates, 10);
         }
       } catch (e) {
-        console.error("[MapRendererAndMarkers] Error fitting bounds:", e);
+        console.error("[MapContent] Error fitting bounds:", e);
       }
     } else if (map && partiesWithCoords.length === 0) {
       // If no markers, set to default view (e.g., center of France)
@@ -60,7 +57,7 @@ const MapRendererAndMarkers = memo(({ partiesWithCoords, initialCenter, initialZ
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       {partiesWithCoords.map((party) => (
-        <Marker key={party.id} position={[party.latitude!, party.longitude!]}>
+        <Marker key={party.id} position={party.coordinates}>
           <Popup>
             <div className="font-semibold text-sm">{party.name}</div>
             <div className="text-xs">{party.location || 'Lieu non spécifié'}</div>
@@ -73,32 +70,117 @@ const MapRendererAndMarkers = memo(({ partiesWithCoords, initialCenter, initialZ
     </>
   );
 });
-MapRendererAndMarkers.displayName = 'MapRendererAndMarkers';
+MapContent.displayName = 'MapContent';
 
-
-export function EventMap({ parties }: EventMapProps) {
+export function EventMap({ parties }: { parties: PartyData[] }) {
+  const [mappedParties, setMappedParties] = useState<MappedParty[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
-  // This key will force a re-render of the MapContainer when isClient changes,
-  // effectively re-initializing the map only once on the client.
-  const mapKey = isClient ? "leaflet-map-client-ready" : "leaflet-map-server";
-
+  const mapKey = "leaflet-map-unique-key"; // Fixed key for MapContainer
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  const partiesWithCoords = parties.filter(p => p.latitude != null && p.longitude != null);
+  const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple | null> => {
+    if (!cityName || typeof cityName !== 'string' || cityName.trim() === '') {
+      console.warn(`[getCoordinates] Nom de ville invalide ou vide fourni: ${cityName}`);
+      return null;
+    }
+    const originalCityName = cityName.trim();
+    const normalizedCity = normalizeCityName(originalCityName);
 
-  if (!isClient) {
+    if (!normalizedCity) {
+      console.warn(`[getCoordinates] Le nom de ville normalisé est vide pour l'original : ${originalCityName}`);
+      return null;
+    }
+
+    const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`;
+    
+    try {
+      const response = await fetch(apiUrl, {
+        headers: {
+          'User-Agent': 'PartyHubApp/1.0 (contact@partagefestif.com)',
+          'Accept-Language': 'fr,en;q=0.9'
+        }
+      });
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "Impossible de lire le corps de l'erreur");
+        console.error(`[getCoordinates] Erreur API Nominatim: ${response.status} pour la ville: ${originalCityName} (normalisé: ${normalizedCity}). URL: ${apiUrl}. Détails: ${errorText}`);
+        return null;
+      }
+      const data = await response.json();
+      if (data && data.length > 0 && data[0].lat && data[0].lon) {
+        const lat = parseFloat(data[0].lat);
+        const lon = parseFloat(data[0].lon);
+        if (!isNaN(lat) && !isNaN(lon)) {
+          return [lat, lon];
+        }
+      }
+      console.warn(`[getCoordinates] Aucune coordonnée trouvée pour la ville: ${originalCityName} (normalisé: ${normalizedCity}).`);
+      return null;
+    } catch (err) {
+      console.error(`[getCoordinates] Erreur lors du géocodage pour la ville: ${originalCityName} (normalisé: ${normalizedCity}). URL: ${apiUrl}`, err);
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    if (!isClient || parties.length === 0) {
+      setIsLoading(false);
+      return;
+    }
+
+    const processParties = async () => {
+      setIsLoading(true);
+      setError(null);
+      const partiesWithCoords: MappedParty[] = [];
+      
+      for (const party of parties) {
+        if (party.latitude && party.longitude) {
+          partiesWithCoords.push({ ...party, coordinates: [party.latitude, party.longitude] });
+        } else if (party.location) {
+          const coords = await getCoordinates(party.location);
+          if (coords) {
+            partiesWithCoords.push({ ...party, coordinates: coords });
+          } else {
+            console.warn(`Impossible de géocoder la ville: ${party.location} pour l'événement ${party.name}`);
+          }
+        }
+      }
+      
+      setMappedParties(partiesWithCoords);
+      if (partiesWithCoords.length === 0 && parties.length > 0) {
+        setError("Aucune coordonnée n'a pu être déterminée pour les événements.");
+      }
+      setIsLoading(false);
+    };
+
+    processParties();
+  }, [isClient, parties]);
+
+
+  if (!isClient || isLoading) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
         <Loader2 className="h-8 w-8 mr-2 animate-spin" />
-        Chargement de la carte...
+        {isLoading ? "Géocodage des localisations..." : "Chargement de la carte..."}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center text-destructive p-4 bg-destructive/10 rounded-md">
+        <MapPin className="h-12 w-12 mb-4 opacity-50" />
+        <p className="text-lg font-medium">Erreur de carte</p>
+        <p className="text-sm">{error}</p>
       </div>
     );
   }
   
-  if (partiesWithCoords.length === 0) {
+  if (mappedParties.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-4 bg-muted/50 rounded-md">
         <MapPin className="h-12 w-12 mb-4 opacity-50" />
@@ -108,27 +190,20 @@ export function EventMap({ parties }: EventMapProps) {
     );
   }
 
-  let initialCenter: LatLngExpression = [46.2276, 2.2137]; // Default to France
-  let initialZoom = 5;
-
-  // No complex logic to set initialCenter/Zoom here, as DynamicMapUpdater/MapContent will handle it.
-  // It's okay to start with a generic center/zoom if fitBounds will be called.
+  const initialCenter: LatLngExpression = [46.2276, 2.2137]; // Default to France
+  const initialZoom = 5;
 
   return (
     <div id="event-map-container-wrapper" style={{ height: '100%', width: '100%' }}>
         <MapContainer
-          key={mapKey} // Use a stable key or one that changes only when necessary
+          key={mapKey} // Use a stable key 
           center={initialCenter}
           zoom={initialZoom}
           style={{ height: '100%', width: '100%' }}
-          className="leaflet-container" // Ensure this class is applied
+          className="leaflet-container"
           scrollWheelZoom={true}
         >
-          <MapRendererAndMarkers 
-            partiesWithCoords={partiesWithCoords} 
-            initialCenter={initialCenter} // Pass if needed, though useMap in child will override
-            initialZoom={initialZoom}   // Pass if needed
-          />
+          <MapContent partiesWithCoords={mappedParties} />
         </MapContainer>
     </div>
   );
