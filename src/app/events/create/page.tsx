@@ -39,7 +39,7 @@ import {
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
   ACCEPTED_COVER_PHOTO_TYPES
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
+import { coverPhotoSchema } from '@/services/validation-schemas'; 
 
 
 import { Progress } from '@/components/ui/progress';
@@ -51,7 +51,7 @@ import { Slider } from '@/components/ui/slider';
 
 import { Combobox } from '@/components/ui/combobox';
 import type { MediaItem } from '@/lib/party-utils';
-import { normalizeCityName } from '@/lib/party-utils'; // Importer la fonction de normalisation
+import { normalizeCityName, geocodeCity } from '@/lib/party-utils'; 
 
 interface UserData {
   id: string;
@@ -94,35 +94,6 @@ const getLocalFileType = (file: File): 'image' | 'video' | 'audio' | 'autre' => 
     if (file.type.startsWith('video/')) return 'video';
     if (file.type.startsWith('audio/')) return 'audio';
     return 'autre';
-};
-
-// --- Geocoding Helper ---
-const geocodeCity = async (cityName: string): Promise<{ lat: number; lon: number } | null> => {
-  if (!cityName) return null;
-  const normalizedCity = normalizeCityName(cityName);
-  if (!normalizedCity) return null;
-
-  const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`;
-  try {
-    const response = await fetch(apiUrl, {
-      headers: {
-        'User-Agent': 'PartyHubApp/1.0 (contact@partagefestif.com)',
-        'Accept-Language': 'fr,en;q=0.9'
-      }
-    });
-    if (!response.ok) {
-      console.error(`Erreur API Nominatim: ${response.status} pour la ville: ${cityName}`);
-      return null;
-    }
-    const data = await response.json();
-    if (data && data.length > 0 && data[0].lat && data[0].lon) {
-      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-    }
-    return null;
-  } catch (error) {
-    console.error("Erreur de géocodage:", error);
-    return null;
-  }
 };
 
 
@@ -313,10 +284,11 @@ export default function CreateEventPage() {
 
     let latitude: number | null = null;
     let longitude: number | null = null;
+    const normalizedLocation = normalizeCityName(values.location);
 
-    if (values.location) {
+    if (normalizedLocation) {
       toast({ title: "Géocodage en cours...", description: `Recherche des coordonnées pour ${values.location}.` });
-      const coords = await geocodeCity(values.location);
+      const coords = await geocodeCity(normalizedLocation); // Use normalized location for geocoding
       if (coords) {
         latitude = coords.lat;
         longitude = coords.lon;
@@ -328,15 +300,13 @@ export default function CreateEventPage() {
 
 
     try {
-      const normalizedLocation = normalizeCityName(values.location);
-
       const partyDocRef = await addDoc(collection(db, 'parties'), {
         name: values.name,
         description: values.description || '',
         date: values.date,
         location: normalizedLocation, 
-        latitude: latitude, // Store latitude
-        longitude: longitude, // Store longitude
+        latitude: latitude, 
+        longitude: longitude, 
         createdBy: user.uid,
         creatorEmail: user.email,
         participants: values.participants?.length ? values.participants : [user.uid], 
@@ -355,7 +325,7 @@ export default function CreateEventPage() {
           email: user.email,
           avatar: user.photoURL || null,
           text: values.initialComment,
-          timestamp: serverTimestamp(),
+          timestamp: serverTimestamp(), 
           partyId: partyId, 
         });
       }
@@ -544,7 +514,7 @@ export default function CreateEventPage() {
                             <FormItem>
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                   <FormControl>
-                                    <div> {/* Ensure a single child for FormControl */}
+                                    <React.Fragment> {/* Ensure a single child for FormControl */}
                                       {coverPhotoPreview ? (
                                           <>
                                               <div className="relative w-full h-full">
@@ -576,7 +546,7 @@ export default function CreateEventPage() {
                                           className="hidden"
                                           onChange={handleCoverPhotoChange}
                                       />
-                                    </div>
+                                    </React.Fragment>
                                   </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
@@ -670,7 +640,7 @@ export default function CreateEventPage() {
                       render={({ field }) => (
                         <FormItem>
                            <FormControl>
-                             <div> {/* Ensure a single child for FormControl */}
+                             <React.Fragment> {/* Ensure a single child for FormControl */}
                               <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
                                 <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
                               </Button>
@@ -682,7 +652,7 @@ export default function CreateEventPage() {
                                  onChange={handleMediaFileChange}
                                  className="hidden"
                                />
-                             </div>
+                             </React.Fragment>
                            </FormControl>
                           <FormDescription className="text-center">
                             Max {MEDIA_MAX_FILE_SIZE_CONFIG.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE_CONFIG.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE_CONFIG.audio / 1024 / 1024}Mo/Son.

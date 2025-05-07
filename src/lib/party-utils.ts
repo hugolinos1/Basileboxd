@@ -1,3 +1,4 @@
+
 // src/lib/party-utils.ts
 import { Timestamp, FieldValue } from 'firebase/firestore';
 
@@ -31,8 +32,8 @@ export interface PartyData {
     description?: string;
     date: FirestoreTimestamp | Timestamp | Date; // Allow Date
     location?: string; 
-    latitude?: number | null; // Make latitude optional
-    longitude?: number | null; // Make longitude optional
+    latitude?: number | null; 
+    longitude?: number | null; 
     createdBy: string;
     creatorEmail?: string;
     participants: string[]; // Array of UIDs
@@ -101,5 +102,35 @@ export const normalizeCityName = (cityName: string | undefined): string => {
     .trim();
 };
 
+
+// --- Geocoding Helper ---
+export const geocodeCity = async (cityName: string): Promise<{ lat: number; lon: number } | null> => {
+  if (!cityName) return null;
+  const normalizedCity = normalizeCityName(cityName); // Use the normalization function
+  if (!normalizedCity) return null;
+
+  const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`;
+  try {
+    const response = await fetch(apiUrl, {
+      headers: {
+        'User-Agent': 'PartyHubApp/1.0 (contact@partagefestif.com)', // Replace with your app's contact
+        'Accept-Language': 'fr,en;q=0.9'
+      }
+    });
+    if (!response.ok) {
+      console.error(`Erreur API Nominatim: ${response.status} pour la ville: ${cityName} (normalisé: ${normalizedCity})`);
+      return null;
+    }
+    const data = await response.json();
+    if (data && data.length > 0 && data[0].lat && data[0].lon) {
+      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    }
+    console.warn(`Aucune coordonnée trouvée pour: ${cityName} (normalisé: ${normalizedCity})`);
+    return null;
+  } catch (error) {
+    console.error("Erreur de géocodage:", error);
+    return null;
+  }
+};
 
     
