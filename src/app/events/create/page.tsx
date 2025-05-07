@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -33,7 +32,7 @@ import { useState, useEffect, useRef } from 'react';
 
 import {
   uploadFile,
-  getFileType as getMediaFileType,
+  getFileType as getMediaFileType, // Renamed to avoid conflict
   ACCEPTED_MEDIA_TYPES,
   MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
@@ -68,11 +67,23 @@ const fileSchema = z.custom<File>((val) => {
 
 const MAX_FILE_SIZE_COVER = 10 * 1024 * 1024; // 10MB for initial cover photo upload
 
+// --- Client-Side City Normalization Helper ---
+const normalizeCityNameClient = (cityName: string): string => {
+  if (!cityName || typeof cityName !== 'string') return '';
+  return cityName
+    .toLowerCase()
+    .normalize("NFD") // Decompose accented characters
+    .replace(/[\u0300-\u036f]/g, "") // Remove diacritics
+    .replace(/[^a-z0-9\s-]/g, "") // Remove non-alphanumeric (except space/hyphen)
+    .trim();
+};
+
+
 const formSchema = z.object({
   name: z.string().min(2, { message: 'Le nom de l\'Event doit contenir au moins 2 caractères.' }).max(100),
   description: z.string().max(500).optional(),
   date: z.date({ required_error: 'Une date pour l\'Event est requise.' }),
-  location: z.string().min(1, {message: 'La ville est requise.'}).max(100), // Adjusted for city name and made mandatory
+  location: z.string().min(2, {message: 'La ville est requise.'}).max(100),
   coverPhoto: fileSchema.refine(file => {
     if (typeof window === 'undefined' || !(file instanceof File)) return true; // Skip validation on server or if not a File
     return file.size <= MAX_FILE_SIZE_COVER;
@@ -141,7 +152,6 @@ export default function CreateEventPage() {
     defaultValues: {
       name: '',
       description: '',
-      // date: new Date(), // Set default date to today - removing as it is not required by zod
       location: '',
       coverPhoto: undefined,
       participants: user ? [user.uid] : [],
@@ -281,11 +291,14 @@ export default function CreateEventPage() {
     setIsUploadingMedia(false);
 
     try {
+      // Normalize city name before saving
+      const normalizedLocation = normalizeCityNameClient(values.location);
+
       const partyDocRef = await addDoc(collection(db, 'parties'), {
         name: values.name,
         description: values.description || '',
         date: values.date,
-        location: values.location, 
+        location: normalizedLocation, // Use normalized location
         createdBy: user.uid,
         creatorEmail: user.email,
         participants: values.participants?.length ? values.participants : [user.uid], 
@@ -493,7 +506,7 @@ export default function CreateEventPage() {
                             <FormItem>
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                   <FormControl>
-                                    <div> {/* Wrapper div for Slot */}
+                                    <React.Fragment> {/* Ensure a single child for FormControl */}
                                       {coverPhotoPreview ? (
                                           <>
                                               <div className="relative w-full h-full">
@@ -525,7 +538,7 @@ export default function CreateEventPage() {
                                           className="hidden"
                                           onChange={handleCoverPhotoChange}
                                       />
-                                    </div>
+                                    </React.Fragment>
                                   </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
@@ -619,7 +632,7 @@ export default function CreateEventPage() {
                       render={({ field }) => (
                         <FormItem>
                            <FormControl>
-                             <div> {/* Wrapper div for Slot */}
+                             <React.Fragment> {/* Ensure a single child for FormControl */}
                               <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
                                 <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
                               </Button>
@@ -631,7 +644,7 @@ export default function CreateEventPage() {
                                  onChange={handleMediaFileChange}
                                  className="hidden"
                                />
-                             </div>
+                             </React.Fragment>
                            </FormControl>
                           <FormDescription className="text-center">
                             Max {MEDIA_MAX_FILE_SIZE_CONFIG.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE_CONFIG.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE_CONFIG.audio / 1024 / 1024}Mo/Son.
@@ -753,5 +766,4 @@ export default function CreateEventPage() {
     </div>
   );
 }
-
 

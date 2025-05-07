@@ -28,9 +28,9 @@ interface MappedParty extends PartyData {
   coordinates: LatLngTuple | null;
 }
 
-const normalizeCityNameForAPI = (cityName: string): string => {
-  // Convert to lowercase, remove diacritics, and keep only alphanumeric, spaces, and hyphens.
-  // This helps with characters like "𝗟𝗮𝗻𝗱𝗲𝘃𝗲𝗻𝗻𝗲𝗰" which are not standard.
+// --- Server-Side City Normalization Helper ---
+const normalizeCityNameServer = (cityName: string): string => {
+  if (!cityName || typeof cityName !== 'string') return '';
   return cityName
     .toLowerCase()
     .normalize("NFD") // Decompose accented characters
@@ -47,7 +47,7 @@ const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple
   }
 
   const originalCityName = cityName.trim(); // Keep for logging
-  const normalizedQueryCity = normalizeCityNameForAPI(originalCityName); // Normalize for API query
+  const normalizedQueryCity = normalizeCityNameServer(originalCityName); // Normalize for API query
 
   if (!normalizedQueryCity) {
     console.warn(`[getCoordinates] Nom de ville normalisé est vide pour l'original: ${originalCityName}`);
@@ -61,7 +61,7 @@ const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple
   try {
     const response = await fetch(apiUrl, {
       headers: {
-        'User-Agent': 'PartyHubApp/1.0 (contact@example.com)', // Good practice
+        'User-Agent': 'PartyHubApp/1.0 (contact@partagefestif.com)', // Replace with your actual app info
         'Accept-Language': 'fr,en;q=0.9' // Prefer French results
       }
     });
@@ -121,48 +121,66 @@ const DynamicMapUpdater = ({ parties }: { parties: MappedParty[] }) => {
 export function EventMap({ parties }: EventMapProps) {
   const [mappedParties, setMappedParties] = useState<MappedParty[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [mapInstance, setMapInstance] = useState<LeafletMap | null>(null);
-  const mapRef = useRef<HTMLDivElement>(null);
+  const mapContainerRef = React.useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
+  const MAP_CONTAINER_ID = "event-map-leaflet-container";
+
+  // Effect to handle map initialization and cleanup
   useEffect(() => {
-    if (!isClient || !parties || !mapRef.current) {
+    if (!isClient || !mapContainerRef.current) return;
+
+    const container = mapContainerRef.current;
+    if (container && (container as any)._leaflet_id) {
+        console.log("[EventMap] Nettoyage de l'instance de carte Leaflet existante.");
+        (container as any)._leaflet_id = null;
+        // Optionally, more aggressive cleanup:
+        // while (container.firstChild) {
+        //   container.removeChild(container.firstChild);
+        // }
+    }
+  }, [isClient]); // Re-run if isClient changes, though it should only change once
+
+
+  useEffect(() => {
+    if (!isClient ) { // Removed mapContainerRef.current check as the div always exists
       setIsLoading(false);
       return;
     }
 
     const processParties = async () => {
       setIsLoading(true);
+      setError(null);
       console.log("[EventMap] Traitement des fêtes pour le géocodage:", parties.length);
-      const processedParties = await Promise.all(
-        parties
-          .filter(party => typeof party.location === 'string' && party.location.trim() !== '') // Filter out parties with no/invalid location
-          .map(async (party) => {
-            const locationString = party.location as string; // We've already checked it's a string
-            const coords = await getCoordinates(locationString);
-            return { ...party, coordinates: coords };
-          })
-      );
-      setMappedParties(processedParties);
-      setIsLoading(false);
-      console.log("[EventMap] Géocodage terminé. Fêtes mappées avec des emplacements valides:", processedParties.filter(p => p.coordinates).length);
+      try {
+          const processedParties = await Promise.all(
+            parties
+              .filter(party => typeof party.location === 'string' && party.location.trim() !== '') 
+              .map(async (party) => {
+                const locationString = party.location as string; 
+                const coords = await getCoordinates(locationString);
+                return { ...party, coordinates: coords };
+              })
+          );
+          setMappedParties(processedParties);
+          console.log("[EventMap] Géocodage terminé. Fêtes mappées avec des emplacements valides:", processedParties.filter(p => p.coordinates).length);
+      } catch (e: any) {
+         console.error("[EventMap] Erreur lors du traitement des fêtes pour la carte:", e);
+         setError("Impossible de charger les données de localisation des événements. " + e.message);
+      } finally {
+          setIsLoading(false);
+      }
     };
 
     processParties();
 
-    // Cleanup function for the map instance
-    return () => {
-      if (mapInstance) {
-        console.log("[EventMap] Nettoyage de l'instance de la carte.");
-        mapInstance.remove();
-        setMapInstance(null);
-      }
-    };
-  }, [parties, isClient, mapInstance]); // mapInstance added to dependencies
+  }, [parties, isClient]);
+
 
   if (!isClient) {
     return <div className="flex items-center justify-center h-full text-muted-foreground"><Loader2 className="h-8 w-8 mr-2 animate-spin" />Chargement de la carte...</div>;
@@ -172,9 +190,19 @@ export function EventMap({ parties }: EventMapProps) {
     return <div className="flex items-center justify-center h-full text-muted-foreground"><Loader2 className="h-8 w-8 mr-2 animate-spin" />Géocodage des localisations en cours...</div>;
   }
   
+  if (error) {
+    return (
+        <div className="flex flex-col items-center justify-center h-full text-center text-destructive p-4">
+            <MapPin className="h-12 w-12 mb-4 opacity-50" />
+            <p className="text-lg font-medium">Erreur de chargement de la carte</p>
+            <p className="text-sm">{error}</p>
+        </div>
+    );
+  }
+  
   const validMarkers = mappedParties.filter(p => p.coordinates !== null);
 
-  if (validMarkers.length === 0 && !isLoading) {
+  if (validMarkers.length === 0 && !isLoading) { // Check !isLoading here too
      return (
         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-4">
             <MapPin className="h-12 w-12 mb-4 opacity-50" />
@@ -187,38 +215,28 @@ export function EventMap({ parties }: EventMapProps) {
   let initialCenter: LatLngExpression = [46.2276, 2.2137]; 
   let initialZoom = 5;
 
-  // Calculate initial center and zoom based on valid markers if available
   if (validMarkers.length > 0) {
     if (validMarkers.length === 1 && validMarkers[0].coordinates) {
       initialCenter = validMarkers[0].coordinates;
       initialZoom = 10;
     } else {
-      // Create bounds from all valid markers
       const bounds = L.latLngBounds(validMarkers.map(p => p.coordinates as LatLngTuple));
       if (bounds.isValid()) {
         initialCenter = bounds.getCenter();
-        // initialZoom can be dynamically set by fitBounds in DynamicMapUpdater
-        // For MapContainer itself, we might set a broader default if fitBounds handles specifics
         initialZoom = 6; 
       }
     }
   }
   
-  // Key for MapContainer to help with re-initialization issues if absolutely necessary,
-  // but preferred approach is to manage map instance state.
-  const mapKey = `event-map-${parties.length}-${validMarkers.length}`;
-
   return (
-    <div ref={mapRef} className="h-full w-full">
+    <div ref={mapContainerRef} className="h-full w-full" key={isClient ? "map-client-container" : "map-server-container-placeholder"}>
       {isClient && ( 
         <MapContainer
-          key={mapKey} // Using a key that changes when the underlying data might significantly change
           center={initialCenter}
           zoom={initialZoom}
           scrollWheelZoom={true}
           className="leaflet-container" 
           style={{ height: '100%', width: '100%' }}
-          whenCreated={setMapInstance} // Store the map instance
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &amp; <a href="https://nominatim.org/">Nominatim</a>'
