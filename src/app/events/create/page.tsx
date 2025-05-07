@@ -74,7 +74,7 @@ const formSchema = z.object({
   name: z.string().min(2, { message: "Le nom de l'Event doit contenir au moins 2 caractères." }).max(100),
   description: z.string().max(500).optional(),
   date: z.date({ required_error: "Une date pour l'Event est requise." }),
-  location: z.string().min(2, {message: "La ville est requise."}).max(100), // Changé en obligatoire
+  location: z.string().min(2, {message: "La ville est requise."}).max(100),
   coverPhoto: fileSchema.refine(file => {
     if (typeof window === 'undefined' || !(file instanceof File)) return true; 
     return file.size <= MAX_FILE_SIZE_COVER;
@@ -335,8 +335,8 @@ export default function CreateEventPage() {
         description: values.description || '',
         date: values.date,
         location: normalizedLocation, 
-        latitude: latitude,
-        longitude: longitude,
+        latitude: latitude, // Store latitude
+        longitude: longitude, // Store longitude
         createdBy: user.uid,
         creatorEmail: user.email,
         participants: values.participants?.length ? values.participants : [user.uid], 

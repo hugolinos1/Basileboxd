@@ -62,12 +62,14 @@ export const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp |
             return isNaN(date.getTime()) ? null : date;
         }
         if (timestamp instanceof FieldValue) {
+            // serverTimestamp() is a FieldValue, can't be converted on client before write
+            // console.warn("Cannot convert serverTimestamp FieldValue to Date on client-side.");
             return null; 
         }
-        console.warn("Unrecognized timestamp format:", timestamp);
+        // console.warn("Unrecognized timestamp format:", timestamp);
         return null;
     } catch (e) {
-        console.error("Error converting timestamp:", timestamp, e);
+        // console.error("Error converting timestamp:", timestamp, e);
         return null;
     }
 }
@@ -83,7 +85,7 @@ export const calculatePartyAverageRating = (party: PartyData): number => {
     if (!party.ratings) return 0;
     const allRatings = Object.values(party.ratings);
     if (allRatings.length === 0) return 0;
-    const sum = allRatings.reduce((acc, rating) => acc + (Number(rating) || 0), 0); 
+    const sum = allRatings.reduce((acc, rating) => acc + (Number(rating) || 0), 0); // Ensure rating is a number
     const averageOutOf10 = sum / allRatings.length;
     return averageOutOf10 / 2; // Convert to 0-5 scale
 };

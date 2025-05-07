@@ -7,6 +7,8 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { PartyData } from '@/lib/party-utils';
 import { MapPin, Loader2 } from 'lucide-react';
+import { normalizeCityName } from '@/lib/party-utils';
+
 
 // Leaflet default icon fix
 if (typeof window !== 'undefined') {
@@ -21,7 +23,7 @@ if (typeof window !== 'undefined') {
 }
 
 interface EventMapProps {
-  parties: PartyData[]; // Parties already have latitude/longitude
+  parties: PartyData[]; 
 }
 
 const DynamicMapUpdater = ({ parties }: { parties: PartyData[] }) => {
@@ -46,51 +48,58 @@ const DynamicMapUpdater = ({ parties }: { parties: PartyData[] }) => {
   return null;
 };
 
-const MAP_CONTAINER_ID = "event-map-leaflet-container-unique";
 
 export function EventMap({ parties }: EventMapProps) {
-  const [isLoading, setIsLoading] = useState(true); // Initially true until client is ready
+  const [isLoading, setIsLoading] = useState(false); 
   const [error, setError] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   const mapRef = useRef<LeafletMapInstance | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const [mapReady, setMapReady] = useState(false);
+  
+  // Key to force remount MapContainer when necessary, e.g. after geocoding
+  const [mapContainerKey, setMapContainerKey] = useState("map-initial");
+
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
+  // This effect will run after isClient is true and parties prop potentially changes.
   useEffect(() => {
-    if (isClient) {
-      // Logic to handle map initialization or re-initialization
-      // This ensures that Leaflet attempts to initialize only after the client-side rendering is confirmed.
-      setIsLoading(false); // Map can now attempt to load
-      setMapReady(true); // Indicate that the map component can be rendered
+    if (!isClient) return; // Ensure this only runs on the client
+    
+    // If parties with coordinates are available, set loading to false
+    // or if geocoding is no longer needed because lat/lon are already present.
+    const hasCoordinates = parties.some(p => p.latitude != null && p.longitude != null);
+    if (hasCoordinates) {
+      setIsLoading(false);
+      setError(null);
+      setMapContainerKey("map-ready-" + Date.now()); // Force re-render if needed
+    } else {
+        // Handle case where no parties have coordinates - might show "no data" or keep loading
+        // For now, assuming if no coordinates, something is wrong or still processing elsewhere
+        setIsLoading(false); // Stop loading if no coordinates to process
+        setError("Aucune coordonnée d'événement disponible pour afficher sur la carte.");
     }
-  }, [isClient]);
 
-
-  useEffect(() => {
-    // Cleanup map instance on component unmount or if the map container is removed
+    // Cleanup function for the map instance
     return () => {
       if (mapRef.current) {
-        console.log("[EventMap Cleanup] Removing existing map instance from ref.");
         mapRef.current.remove();
         mapRef.current = null;
       }
-       // Also attempt to clean up if Leaflet attached an ID directly to the DOM element
+       // Explicitly clear Leaflet's internal ID from the DOM element
       if (mapContainerRef.current && (mapContainerRef.current as any)._leaflet_id) {
-         console.log("[EventMap Cleanup] Clearing _leaflet_id from container div.");
         (mapContainerRef.current as any)._leaflet_id = null;
       }
     };
-  }, []); // Empty dependency array ensures this runs once on mount and cleanup on unmount
-
+  }, [isClient, parties]); // Rerun if isClient changes or parties data changes
 
   if (!isClient || isLoading) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
-        <Loader2 className="h-8 w-8 mr-2 animate-spin" />Chargement de la carte...
+        <Loader2 className="h-8 w-8 mr-2 animate-spin" />
+        Chargement de la carte...
       </div>
     );
   }
@@ -111,8 +120,8 @@ export function EventMap({ parties }: EventMapProps) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-4 bg-muted/50 rounded-md">
         <MapPin className="h-12 w-12 mb-4 opacity-50" />
-        <p className="text-lg font-medium">Aucune localisation d'événement disponible.</p>
-        <p className="text-sm">Ajoutez des lieux à vos événements pour les voir sur la carte.</p>
+        <p className="text-lg font-medium">Aucune localisation d'événement valide trouvée.</p>
+        <p className="text-sm">Vérifiez les noms de ville ou ajoutez des localisations à vos événements.</p>
       </div>
     );
   }
@@ -120,25 +129,23 @@ export function EventMap({ parties }: EventMapProps) {
   let initialCenter: LatLngExpression = [46.2276, 2.2137]; 
   let initialZoom = 5;
 
-  if (validMarkers.length > 0) {
-    if (validMarkers.length === 1 && validMarkers[0].latitude != null && validMarkers[0].longitude != null) {
+  if (validMarkers.length > 0 && validMarkers[0].latitude != null && validMarkers[0].longitude != null) {
       initialCenter = [validMarkers[0].latitude!, validMarkers[0].longitude!];
       initialZoom = 10;
-    }
   }
   
   return (
-    <div ref={mapContainerRef} className="h-full w-full" key={isClient ? "map-client-container" : "map-server-container-placeholder"}>
+    <div className="h-full w-full" key={mapContainerKey}> 
       {isClient && ( 
         <MapContainer
-          whenCreated={instance => { mapRef.current = instance; }}
+          whenCreated={instance => { mapRef.current = instance; }} // Store map instance
           center={initialCenter}
           zoom={initialZoom}
           scrollWheelZoom={true}
           className="leaflet-container" 
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &amp; <a href="https://nominatim.org/">Nominatim</a>'
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           {validMarkers.map((party) =>
