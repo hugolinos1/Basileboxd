@@ -35,18 +35,32 @@ const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple
   }
 
   const normalizedCity = cityName.trim();
+  const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`;
+  console.log(`[getCoordinates] Tentative de géocodage pour : "${normalizedCity}". URL de l'API : ${apiUrl}`);
 
   try {
-    console.log(`[getCoordinates] Récupération des coordonnées pour la ville: ${normalizedCity}`);
-    // Use the general query parameter 'q' instead of 'city' for more flexibility
-    const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`);
+    const response = await fetch(apiUrl, {
+      headers: {
+        'User-Agent': 'PartyHubApp/1.0 (contact@example.com)' // It's good practice to set a User-Agent
+      }
+    });
     
     if (!response.ok) {
       const errorText = await response.text().catch(() => "Impossible de lire le corps de l'erreur");
-      console.error(`Erreur API Nominatim: ${response.status} pour la ville: ${cityName} (normalisé: ${normalizedCity}). Détails: ${errorText}`);
+      console.error(`[getCoordinates] Erreur API Nominatim: ${response.status} pour la ville: ${cityName} (normalisé: ${normalizedCity}). URL: ${apiUrl}. Détails: ${errorText}`);
       return null;
     }
-    const data = await response.json();
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (jsonError) {
+      console.error(`[getCoordinates] Erreur de parsing JSON pour la ville: ${cityName} (normalisé: ${normalizedCity}). URL: ${apiUrl}. Erreur:`, jsonError);
+      const rawResponse = await response.text().catch(() => "Impossible de lire la réponse brute après l'erreur JSON");
+      console.log(`[getCoordinates] Réponse brute de l'API pour ${normalizedCity}:`, rawResponse);
+      return null;
+    }
+
 
     if (data && data.length > 0 && data[0].lat && data[0].lon) {
       const lat = parseFloat(data[0].lat);
@@ -54,12 +68,14 @@ const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple
       if (!isNaN(lat) && !isNaN(lon)) {
         console.log(`[getCoordinates] Coordonnées trouvées pour ${normalizedCity}: [${lat}, ${lon}]`);
         return [lat, lon];
+      } else {
+        console.warn(`[getCoordinates] Coordonnées invalides (NaN) pour ${normalizedCity}. Lat: ${data[0].lat}, Lon: ${data[0].lon}.`);
       }
     }
-    console.warn(`[getCoordinates] Aucune coordonnée trouvée pour la ville: ${cityName} (normalisé: ${normalizedCity}). Réponse API:`, data);
+    console.warn(`[getCoordinates] Aucune coordonnée trouvée ou structure de réponse inattendue pour la ville: ${cityName} (normalisé: ${normalizedCity}). Réponse API:`, data);
     return null;
   } catch (error) {
-    console.error(`[getCoordinates] Erreur lors du géocodage pour la ville: ${cityName} (normalisé: ${normalizedCity})`, error);
+    console.error(`[getCoordinates] Erreur inattendue lors du géocodage pour la ville: ${cityName} (normalisé: ${normalizedCity}). URL: ${apiUrl}`, error);
     return null;
   }
 };
@@ -83,38 +99,22 @@ const DynamicMapUpdater = ({ parties }: { parties: MappedParty[] }) => {
   return null;
 };
 
-const MAP_CONTAINER_ID = "event-map-leaflet-container";
-
 export function EventMap({ parties }: EventMapProps) {
   const [mappedParties, setMappedParties] = useState<MappedParty[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const mapRef = useRef<L.Map | null>(null);
+  const mapContainerRef = React.useRef<HTMLDivElement>(null);
   const [isClient, setIsClient] = useState(false);
-  const mapContainerRef = useRef<HTMLDivElement>(null); // Ref for the map container div
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
   useEffect(() => {
-    if (!isClient || !parties || !mapContainerRef.current) {
+    if (!isClient || !parties) {
       setIsLoading(false);
       return;
     }
     
-    // Clean up previous map instance if it exists
-    if (mapRef.current) {
-      console.log("[EventMap] Suppression de l'instance de carte précédente.");
-      mapRef.current.remove();
-      mapRef.current = null;
-    }
-     // Ensure the container is clean for Leaflet
-    if (mapContainerRef.current && (mapContainerRef.current as any)._leaflet_id) {
-        console.log("[EventMap] Nettoyage de l'ID Leaflet du conteneur.");
-        (mapContainerRef.current as any)._leaflet_id = null;
-    }
-
-
     const processParties = async () => {
       setIsLoading(true);
       console.log("[EventMap] Traitement des fêtes pour le géocodage:", parties.length);
@@ -164,15 +164,14 @@ export function EventMap({ parties }: EventMapProps) {
   }
   
   return (
-    <div ref={mapContainerRef} className="h-full w-full" key={isClient ? "map-client-container" : "map-server-container-placeholder"}>
+    <div ref={mapContainerRef} className="h-full w-full" key={isClient ? "map-client-container-ready" : "map-server-container-placeholder"}>
       {isClient && ( 
         <MapContainer
           center={initialCenter}
           zoom={initialZoom}
           scrollWheelZoom={true}
-          className="leaflet-container" // Ensure this class is applied for styling
+          className="leaflet-container" 
           style={{ height: '100%', width: '100%' }}
-          whenCreated={mapInstance => { mapRef.current = mapInstance; }}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &amp; <a href="https://nominatim.org/" target="_blank" rel="noopener noreferrer">Nominatim</a>'
