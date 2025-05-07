@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -71,7 +72,7 @@ const formSchema = z.object({
   name: z.string().min(2, { message: 'Le nom de l\'Event doit contenir au moins 2 caractères.' }).max(100),
   description: z.string().max(500).optional(),
   date: z.date({ required_error: 'Une date pour l\'Event est requise.' }),
-  location: z.string().max(100).optional(), // Adjusted for city name
+  location: z.string().min(1, {message: 'La ville est requise.'}).max(100), // Adjusted for city name and made mandatory
   coverPhoto: fileSchema.refine(file => {
     if (typeof window === 'undefined' || !(file instanceof File)) return true; // Skip validation on server or if not a File
     return file.size <= MAX_FILE_SIZE_COVER;
@@ -284,10 +285,10 @@ export default function CreateEventPage() {
         name: values.name,
         description: values.description || '',
         date: values.date,
-        location: values.location || '', // Will now store city name
+        location: values.location, 
         createdBy: user.uid,
         creatorEmail: user.email,
-        participants: values.participants?.length ? values.participants : [user.uid], // Ensure creator is participant if none selected
+        participants: values.participants?.length ? values.participants : [user.uid], 
         participantEmails: selectedParticipants.length ? selectedParticipants.map(p => p.email) : (user.email ? [user.email] : []),
         mediaItems: [],
         coverPhotoUrl: '',
@@ -458,7 +459,7 @@ export default function CreateEventPage() {
                       name="location"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Ville (Optionnel)</FormLabel>
+                          <FormLabel>Ville *</FormLabel>
                           <FormControl>
                             <Input placeholder="Ex : Paris" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/>
                           </FormControl>
@@ -752,4 +753,5 @@ export default function CreateEventPage() {
     </div>
   );
 }
+
 
