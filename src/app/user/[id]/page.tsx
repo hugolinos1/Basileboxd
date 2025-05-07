@@ -162,9 +162,9 @@ export default function UserProfilePage() {
                 const userDocSnap = await getDoc(userDocRef);
 
                 if (!userDocSnap.exists()) {
-                    console.error(`[UserProfilePage fetchData] Utilisateur non trouvé pour l'ID: ${profileUserId}`);
-                    setError("Utilisateur non trouvé."); // Set error state instead of throwing
-                    setProfileUserData(null); // Ensure profile data is null
+                    // console.warn(`[UserProfilePage fetchData] Utilisateur non trouvé pour l'ID: ${profileUserId}`); // Changed to warn
+                    setError("Utilisateur non trouvé."); 
+                    setProfileUserData(null); 
                     setLoading(false);
                     return;
                 }
@@ -377,7 +377,7 @@ export default function UserProfilePage() {
         );
     }
 
-    if (!profileUserData) { // This check should now correctly show after error is set
+    if (!profileUserData) { 
         return <div className="container mx-auto px-4 py-12 text-center">Utilisateur non trouvé ou profil inaccessible.</div>;
     }
 
