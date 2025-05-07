@@ -21,6 +21,7 @@ export function Footer() {
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false);
   const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
   const [isTermsDialogOpen, setIsTermsDialogOpen] = useState(false);
+  const [isDirectivesDialogOpen, setIsDirectivesDialogOpen] = useState(false);
 
   const socialLinks = [
     { Icon: Facebook, href: '#' },
@@ -47,7 +48,7 @@ export function Footer() {
     {
         title: "Communauté",
         links: [
-            { name: "Directives", href: "#" },
+            // "Directives" will be handled by AlertDialog
             { name: "Événements", href: "#" },
         ],
     },
@@ -162,6 +163,28 @@ export function Footer() {
                       </AlertDialog>
                     </li>
                    </>
+                )}
+                 {section.title === "Communauté" && (
+                  <li>
+                    <AlertDialog open={isDirectivesDialogOpen} onOpenChange={setIsDirectivesDialogOpen}>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="link" className="p-0 h-auto text-muted-foreground hover:text-foreground transition-colors font-normal">
+                          Directives
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Directives</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Biiiin, partage et commente !
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogAction onClick={() => setIsDirectivesDialogOpen(false)}>Fermer</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </li>
                 )}
                 {section.links.map((link) => (
                   <li key={link.name}>
