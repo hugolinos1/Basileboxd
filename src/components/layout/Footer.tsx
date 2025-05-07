@@ -21,7 +21,6 @@ export function Footer() {
       links: [
         { name: "Centre d'aide", href: "#" },
         { name: "Contactez-nous", href: "#" },
-        { name: "Politique de confidentialité", href: "#" },
         { name: "Conditions d'utilisation", href: "#" },
       ],
     },
