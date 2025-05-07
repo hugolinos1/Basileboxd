@@ -1,8 +1,8 @@
 // src/components/stats/EventMap.tsx
 'use client';
 
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import L, { LatLngExpression, LatLngTuple, Map as LeafletMap } from 'leaflet';
+import React, { useEffect, useState, useRef } from 'react';
+import L, { LatLngExpression, LatLngTuple, Map as LeafletMapInstance } from 'leaflet';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { PartyData } from '@/lib/party-utils';
@@ -28,8 +28,8 @@ interface MappedParty extends PartyData {
   coordinates: LatLngTuple | null;
 }
 
-// --- Server-Side City Normalization Helper ---
-const normalizeCityNameServer = (cityName: string): string => {
+// --- City Normalization Helper (Client-side) ---
+const normalizeCityNameClient = (cityName: string): string => {
   if (!cityName || typeof cityName !== 'string') return '';
   return cityName
     .toLowerCase()
@@ -46,23 +46,22 @@ const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple
     return null;
   }
 
-  const originalCityName = cityName.trim(); // Keep for logging
-  const normalizedQueryCity = normalizeCityNameServer(originalCityName); // Normalize for API query
+  const originalCityName = cityName.trim(); 
+  const normalizedQueryCity = normalizeCityNameClient(originalCityName);
 
   if (!normalizedQueryCity) {
     console.warn(`[getCoordinates] Nom de ville normalisé est vide pour l'original: ${originalCityName}`);
     return null;
   }
 
-  // Use 'q' parameter for general queries, which can be more robust than 'city='
   const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedQueryCity)}&format=json&limit=1&addressdetails=1`;
   console.log(`[getCoordinates] Tentative de géocodage pour : "${originalCityName}" (normalisé pour API: "${normalizedQueryCity}"). URL de l'API : ${apiUrl}`);
 
   try {
     const response = await fetch(apiUrl, {
       headers: {
-        'User-Agent': 'PartyHubApp/1.0 (contact@partagefestif.com)', // Replace with your actual app info
-        'Accept-Language': 'fr,en;q=0.9' // Prefer French results
+        'User-Agent': 'PartyHubApp/1.0 (contact@partagefestif.com)', 
+        'Accept-Language': 'fr,en;q=0.9' 
       }
     });
     
@@ -100,10 +99,10 @@ const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple
   }
 };
 
-const DynamicMapUpdater = ({ parties }: { parties: MappedParty[] }) => {
+const DynamicMapUpdater = ({ partiesWithCoords }: { partiesWithCoords: MappedParty[] }) => {
   const map = useMap();
   useEffect(() => {
-    const validMarkers = parties.filter(p => p.coordinates !== null);
+    const validMarkers = partiesWithCoords.filter(p => p.coordinates !== null);
     if (validMarkers.length > 0 && map) {
       const bounds = L.latLngBounds(validMarkers.map(p => p.coordinates as LatLngTuple));
       if (bounds.isValid()) {
@@ -111,45 +110,26 @@ const DynamicMapUpdater = ({ parties }: { parties: MappedParty[] }) => {
       } else if (validMarkers.length === 1 && validMarkers[0].coordinates) {
         map.setView(validMarkers[0].coordinates, 10);
       }
-    } else if (map && validMarkers.length === 0) { // Only set default view if no markers
-      map.setView([46.2276, 2.2137], 5); // Vue par défaut (France)
+    } else if (map && validMarkers.length === 0) { 
+      map.setView([46.2276, 2.2137], 5); 
     }
-  }, [parties, map]);
+  }, [partiesWithCoords, map]);
   return null;
 };
 
 export function EventMap({ parties }: EventMapProps) {
   const [mappedParties, setMappedParties] = useState<MappedParty[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const mapContainerRef = React.useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
+  const mapRef = useRef<LeafletMapInstance | null>(null); // Ref to store the map instance
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  const MAP_CONTAINER_ID = "event-map-leaflet-container";
-
-  // Effect to handle map initialization and cleanup
   useEffect(() => {
-    if (!isClient || !mapContainerRef.current) return;
-
-    const container = mapContainerRef.current;
-    if (container && (container as any)._leaflet_id) {
-        console.log("[EventMap] Nettoyage de l'instance de carte Leaflet existante.");
-        (container as any)._leaflet_id = null;
-        // Optionally, more aggressive cleanup:
-        // while (container.firstChild) {
-        //   container.removeChild(container.firstChild);
-        // }
-    }
-  }, [isClient]); // Re-run if isClient changes, though it should only change once
-
-
-  useEffect(() => {
-    if (!isClient ) { // Removed mapContainerRef.current check as the div always exists
-      setIsLoading(false);
+    if (!isClient) {
       return;
     }
 
@@ -179,8 +159,15 @@ export function EventMap({ parties }: EventMapProps) {
 
     processParties();
 
-  }, [parties, isClient]);
-
+    // Cleanup function to remove map instance if component unmounts or dependencies change
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        console.log("[EventMap] Instance de carte Leaflet nettoyée.");
+      }
+    };
+  }, [parties, isClient]); // Re-run if parties or isClient changes
 
   if (!isClient) {
     return <div className="flex items-center justify-center h-full text-muted-foreground"><Loader2 className="h-8 w-8 mr-2 animate-spin" />Chargement de la carte...</div>;
@@ -202,7 +189,7 @@ export function EventMap({ parties }: EventMapProps) {
   
   const validMarkers = mappedParties.filter(p => p.coordinates !== null);
 
-  if (validMarkers.length === 0 && !isLoading) { // Check !isLoading here too
+  if (validMarkers.length === 0 && !isLoading) {
      return (
         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-4">
             <MapPin className="h-12 w-12 mb-4 opacity-50" />
@@ -229,9 +216,10 @@ export function EventMap({ parties }: EventMapProps) {
   }
   
   return (
-    <div ref={mapContainerRef} className="h-full w-full" key={isClient ? "map-client-container" : "map-server-container-placeholder"}>
+    <div className="h-full w-full" key={isClient ? "map-client-ready" : "map-placeholder"}> 
       {isClient && ( 
         <MapContainer
+          whenCreated={mapInstance => { mapRef.current = mapInstance; }} // Store map instance
           center={initialCenter}
           zoom={initialZoom}
           scrollWheelZoom={true}
@@ -255,7 +243,7 @@ export function EventMap({ parties }: EventMapProps) {
               </Marker>
             ) : null
           )}
-          <DynamicMapUpdater parties={mappedParties} />
+          <DynamicMapUpdater partiesWithCoords={mappedParties} />
         </MapContainer>
       )}
     </div>
