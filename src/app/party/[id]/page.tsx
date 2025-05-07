@@ -38,7 +38,7 @@ import { Progress } from '@/components/ui/progress';
 // Import centralized uploader and helpers
 import {
   uploadFile,
-  getFileType as getMediaFileType, // Renamed to avoid conflict
+  getFileType as getMediaFileType,
   ACCEPTED_MEDIA_TYPES,
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
@@ -331,22 +331,22 @@ export default function PartyDetailsPage() {
     if (!ratings) { setAverageRating(0); return; }
     const allRatings = Object.values(ratings);
     if (allRatings.length === 0) { setAverageRating(0); return; }
-    const sum = allRatings.reduce((acc, rating) => acc + (rating || 0), 0);
+    const sum = allRatings.reduce((acc, rating) => acc + (Number(rating) || 0), 0); 
     setAverageRating(sum / allRatings.length);
   };
 
-   const renderMedia = (item: MediaItem, index: number) => {
+   const renderMedia = (item: MediaItem) => {
      const onError = (e: any) => { console.error(`Erreur média ${item.url}:`, e); setPlayerError(`Erreur chargement média`); }
      const canDeleteSouvenir = user && (item.uploaderId === user.uid || isAdmin);
 
      let mediaElement: JSX.Element;
      if (item.type === 'video') { mediaElement = ( <div className="aspect-video bg-black rounded-lg overflow-hidden relative shadow-md"> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement vidéo</div>} <ReactPlayer url={item.url} controls width="100%" height="100%" onError={onError} className="absolute top-0 left-0" config={{ file: { attributes: { controlsList: 'nodownload' } } }} /> </div> ); }
      else if (item.type === 'audio') { mediaElement = ( <div className="w-full bg-card p-3 rounded-lg shadow"> <ReactPlayer url={item.url} controls width="100%" height="40px" onError={onError}/> {playerError && <p className="text-destructive text-xs mt-1">Erreur chargement audio</p>} </div> ); }
-     else if (item.type === 'image') { mediaElement = ( <div className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={item.url} alt={`Souvenir ${item.fileName || index + 1}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="souvenir fête photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
-     else { mediaElement = ( <div className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> {item.fileName || `Média ${index + 1}`} </a> </div> );}
+     else if (item.type === 'image') { mediaElement = ( <div className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={item.url} alt={`Souvenir ${item.fileName || item.id}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="souvenir fête photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
+     else { mediaElement = ( <div className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> {item.fileName || `Média ${item.id}`} </a> </div> );}
 
      return (
-         <div key={item.id || `media-item-${index}`} className="relative group">
+         <div key={item.id} className="relative group">
              {mediaElement}
              {canDeleteSouvenir && (
                  <Button
@@ -395,16 +395,20 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      const newCommentData: Omit<Comment, 'id' | 'timestamp'> & { timestamp: FieldValue } = { 
+      // Use Timestamp.now() for client-side timestamp generation, suitable for arrayUnion
+      const newCommentData: Omit<Comment, 'id'> & { timestamp: Timestamp } = { 
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: serverTimestamp(), // Use serverTimestamp() FieldValue for creation
+        timestamp: Timestamp.now(), // Use client-side timestamp
         partyId: party.id, 
       };
 
+      // Firestore doesn't directly support adding a new document to a subcollection
+      // using arrayUnion on the parent. We need to add a new document to the subcollection.
       await addDoc(commentsCollectionRef, newCommentData);
+
 
       setComment('');
       toast({ title: 'Commentaire ajouté' });
@@ -414,7 +418,7 @@ export default function PartyDetailsPage() {
         if (commentError.code === 'invalid-argument') {
             if (commentError.message?.includes('Unsupported field value')) {
                 errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
-            } else if (commentError.message?.includes('serverTimestamp')) {
+            } else if (commentError.message?.includes('serverTimestamp')) { // This specific check might be less relevant now
                 errorMessage = "Erreur de timestamp serveur. Réessayez.";
             }
         } else if (commentError.code === 'permission-denied') {
@@ -485,20 +489,20 @@ export default function PartyDetailsPage() {
             uploadFile(
                 file,
                 party.id,
-                false, // isCover is false for souvenirs
+                false, 
                 (progress) => setSouvenirUploadProgress(prev => ({ ...prev, [file.name]: progress })),
-                'souvenir' // Explicitly set uploadType to 'souvenir'
+                'souvenir' 
             ).then(url => {
                 if (url && user) {
                     return {
-                        id: `${party.id}-${file.name}-${Date.now()}`, // Generate a unique ID
+                        id: `${party.id}-${file.name}-${Date.now()}`, 
                         url,
                         type: getMediaFileType(file),
                         uploaderId: user.uid,
                         uploaderEmail: user.email || undefined,
-                        uploadedAt: serverTimestamp(), // Use serverTimestamp FieldValue for creation
+                        uploadedAt: Timestamp.now(), // Use client-side timestamp
                         fileName: file.name,
-                      } as MediaItem; // Cast to MediaItem
+                      } as MediaItem; 
                 }
                 return null;
             })
@@ -518,7 +522,7 @@ export default function PartyDetailsPage() {
             if (successfulUploadedMediaItems.length > 0) {
                 const partyDocRef = doc(db, 'parties', party.id);
                 await updateDoc(partyDocRef, {
-                    mediaItems: arrayUnion(...successfulUploadedMediaItems) // Use mediaItems field
+                    mediaItems: arrayUnion(...successfulUploadedMediaItems) 
                 });
                 toast({ title: 'Souvenirs ajoutés !', description: `${successfulUploadedMediaItems.length} fichier(s) ajouté(s) à l'événement.` });
             }
@@ -577,9 +581,9 @@ export default function PartyDetailsPage() {
             const newCoverUrl = await uploadFile(
                 newCoverFile,
                 party.id,
-                true, // isCover remains true for the cover photo upload logic
+                true, 
                 (progress) => { console.log(`Progression couverture : ${progress}%`); },
-                'coverPhoto' // Explicitly set uploadType
+                'coverPhoto'
             );
 
             const partyDocRef = doc(db, 'parties', party.id);
@@ -628,7 +632,7 @@ export default function PartyDetailsPage() {
         setIsAddingParticipant(true);
         console.log("[handleAddParticipant] Recherche de l'utilisateur dans `allUsers`. UID recherché:", selectedUserId);
 
-        const userToAdd = allUsers.find(u => u.uid.toLowerCase() === selectedUserId.toLowerCase());
+        const userToAdd = allUsers.find(u => u.uid.toLowerCase() === selectedUserId.toLowerCase()); // Case-insensitive comparison
         console.log("[handleAddParticipant] Utilisateur trouvé dans allUsers:", userToAdd ? {uid: userToAdd.uid, email: userToAdd.email, pseudo: userToAdd.pseudo} : "Non trouvé");
 
 
@@ -927,7 +931,9 @@ export default function PartyDetailsPage() {
                                          <DialogDescription> Téléversez des photos, vidéos ou sons pour cet événement. </DialogDescription>
                                     </DialogHeader>
                                     <div className="grid gap-4 py-4">
-                                        <Input id="souvenir-upload-input" type="file" multiple accept={ACCEPTED_MEDIA_TYPES.join(',')} onChange={handleSouvenirFileChange} className="col-span-3" />
+                                        <div> {/* Wrapper div for Slot */}
+                                            <Input id="souvenir-upload-input" type="file" multiple accept={ACCEPTED_MEDIA_TYPES.join(',')} onChange={handleSouvenirFileChange} className="col-span-3" />
+                                        </div>
                                          {souvenirFiles.length > 0 && (
                                              <div className="space-y-3 mt-4 max-h-60 overflow-y-auto border p-3 rounded-md">
                                                   <p className="text-sm font-medium">Fichiers à téléverser :</p>
@@ -971,7 +977,7 @@ export default function PartyDetailsPage() {
                          )}
                      </div>
                     {party.mediaItems && party.mediaItems.length > 0 ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4"> {party.mediaItems.map((item, index) => renderMedia(item, index))} </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4"> {party.mediaItems.map((item) => renderMedia(item))} </div>
                     ) : ( <p className="text-muted-foreground text-sm">Aucun souvenir importé.</p> )}
                 </CardContent>
 

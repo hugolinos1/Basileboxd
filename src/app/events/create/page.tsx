@@ -32,13 +32,14 @@ import { useState, useEffect, useRef } from 'react';
 
 import {
   uploadFile,
-  getFileType as getMediaFileType, // Renamed to avoid conflict
+  getFileType as getMediaFileType,
   ACCEPTED_MEDIA_TYPES,
-  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG, // Renamed to avoid conflict
+  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
   ACCEPTED_COVER_PHOTO_TYPES
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; 
+import { coverPhotoSchema } from '@/services/validation-schemas';
+
 
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
@@ -77,7 +78,7 @@ const formSchema = z.object({
   }, `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE_COVER / 1024 / 1024}Mo.`).optional(),
   participants: z.array(z.string()).optional(),
   media: z.array(fileSchema).optional(),
-  initialRating: z.number().min(0).max(5).optional(),
+  initialRating: z.number().min(0).max(5).step(0.5).optional(),
   initialComment: z.string().max(1000).optional(),
 });
 
@@ -139,7 +140,7 @@ export default function CreateEventPage() {
     defaultValues: {
       name: '',
       description: '',
-      date: new Date(), // Set default date to today
+      // date: new Date(), // Set default date to today - removing as it is not required by zod
       location: '',
       coverPhoto: undefined,
       participants: user ? [user.uid] : [],
@@ -286,9 +287,9 @@ export default function CreateEventPage() {
         location: values.location || '',
         createdBy: user.uid,
         creatorEmail: user.email,
-        participants: values.participants || [user.uid],
-        participantEmails: selectedParticipants.map(p => p.email),
-        mediaItems: [], // Initialize as empty array for structured media
+        participants: values.participants?.length ? values.participants : [user.uid], // Ensure creator is participant if none selected
+        participantEmails: selectedParticipants.length ? selectedParticipants.map(p => p.email) : (user.email ? [user.email] : []),
+        mediaItems: [],
         coverPhotoUrl: '',
         ratings: values.initialRating && user ? { [user.uid]: values.initialRating } : {},
         createdAt: serverTimestamp(),
@@ -303,6 +304,7 @@ export default function CreateEventPage() {
           avatar: user.photoURL || null,
           text: values.initialComment,
           timestamp: serverTimestamp(),
+          partyId: partyId, 
         });
       }
 
@@ -331,12 +333,12 @@ export default function CreateEventPage() {
           }, 'souvenir').then(url => {
             if (url && user) {
               return {
-                id: `${partyId}-${file.name}-${Date.now()}`, // Generate a unique ID
+                id: `${partyId}-${file.name}-${Date.now()}`,
                 url,
                 type: getLocalFileType(file),
                 uploaderId: user.uid,
                 uploaderEmail: user.email || undefined,
-                uploadedAt: serverTimestamp() as FieldValue, // Use FieldValue for serverTimestamp
+                uploadedAt: serverTimestamp() as FieldValue,
                 fileName: file.name,
               } as MediaItem;
             }
@@ -490,7 +492,7 @@ export default function CreateEventPage() {
                             <FormItem>
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                   <FormControl>
-                                    <React.Fragment> {/* Ensure a single child for FormControl */}
+                                    <div> {/* Wrapper div for Slot */}
                                       {coverPhotoPreview ? (
                                           <>
                                               <div className="relative w-full h-full">
@@ -522,7 +524,7 @@ export default function CreateEventPage() {
                                           className="hidden"
                                           onChange={handleCoverPhotoChange}
                                       />
-                                    </React.Fragment>
+                                    </div>
                                   </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
@@ -616,7 +618,7 @@ export default function CreateEventPage() {
                       render={({ field }) => (
                         <FormItem>
                            <FormControl>
-                            <React.Fragment> {/* Ensure a single child for FormControl */}
+                             <div> {/* Wrapper div for Slot */}
                               <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
                                 <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
                               </Button>
@@ -628,7 +630,7 @@ export default function CreateEventPage() {
                                  onChange={handleMediaFileChange}
                                  className="hidden"
                                />
-                            </React.Fragment>
+                             </div>
                            </FormControl>
                           <FormDescription className="text-center">
                             Max {MEDIA_MAX_FILE_SIZE_CONFIG.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE_CONFIG.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE_CONFIG.audio / 1024 / 1024}Mo/Son.
@@ -652,7 +654,7 @@ export default function CreateEventPage() {
                                 ) : (
                                   <div className="h-16 w-16 flex items-center justify-center bg-muted rounded-md mx-auto text-muted-foreground">
                                     {fileTypeDisplay === 'video' && <Video className="h-8 w-8" />}
-                                    {fileTypeDisplay === 'audio' && <MusicIcon className="h-8 w-8" />} {/* Renamed Music from lucide to MusicIcon */}
+                                    {fileTypeDisplay === 'audio' && <MusicIcon className="h-8 w-8" />}
                                     {fileTypeDisplay === 'autre' && <ImageIcon className="h-8 w-8" />}
                                   </div>
                                 )}
