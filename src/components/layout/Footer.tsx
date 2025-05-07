@@ -14,8 +14,6 @@ export function Footer() {
       title: "Entreprise",
       links: [
         { name: "À propos", href: "#" },
-        { name: "Carrières", href: "#" },
-        { name: "Presse", href: "#" },
       ],
     },
     {
