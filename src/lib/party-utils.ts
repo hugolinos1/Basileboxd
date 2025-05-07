@@ -30,12 +30,14 @@ export interface PartyData {
     name: string;
     description?: string;
     date: FirestoreTimestamp | Timestamp | Date; // Allow Date
-    location?: string; // Ensure location is part of the interface
+    location?: string; 
+    latitude?: number | null; // Added latitude
+    longitude?: number | null; // Added longitude
     createdBy: string;
     creatorEmail?: string;
     participants: string[]; // Array of UIDs
     participantEmails?: string[]; // Array of emails
-    mediaItems?: MediaItem[]; // Changed from mediaUrls to mediaItems
+    mediaItems?: MediaItem[]; 
     coverPhotoUrl?: string;
     ratings?: { [userId: string]: number }; // Ratings are 0-10
     createdAt?: FirestoreTimestamp | Timestamp | Date; // Allow Date
@@ -84,4 +86,15 @@ export const calculatePartyAverageRating = (party: PartyData): number => {
     const sum = allRatings.reduce((acc, rating) => acc + (Number(rating) || 0), 0); 
     const averageOutOf10 = sum / allRatings.length;
     return averageOutOf10 / 2; // Convert to 0-5 scale
+};
+
+// Helper to normalize city names (client-side and server-side if needed)
+export const normalizeCityName = (cityName: string | undefined): string => {
+  if (!cityName || typeof cityName !== 'string') return '';
+  return cityName
+    .toLowerCase()
+    .normalize("NFD") // Decompose accented characters
+    .replace(/[\u0300-\u036f]/g, "") // Remove diacritics
+    .replace(/[^a-z0-9\s-]/g, "") // Remove non-alphanumeric (except space/hyphen)
+    .trim();
 };
