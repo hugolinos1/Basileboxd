@@ -9,12 +9,17 @@ import { MapPin } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 // Fix for default Leaflet icon issue with Webpack
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
+if (typeof window !== 'undefined') { // Ensure this runs only on the client
+  // Check if _getIconUrl is already deleted to prevent errors on HMR
+  if ((L.Icon.Default.prototype as any)._getIconUrl) {
+    delete (L.Icon.Default.prototype as any)._getIconUrl;
+  }
+  L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  });
+}
 
 interface EventMapProps {
   parties: PartyData[];
@@ -34,14 +39,8 @@ const getCoordinates = async (location: string | undefined): Promise<LatLngTuple
   if (latLngMatch) {
     return [parseFloat(latLngMatch[1]), parseFloat(latLngMatch[2])];
   }
-
-  // Placeholder: Very basic "geocoding" for known locations (example only)
-  // For a real app, you'd call an API here.
-  // console.warn(`Geocoding needed for: "${location}". Using placeholder or default.`);
-  // Example: if (location.toLowerCase().includes('villefranche')) return [45.9833, 4.7167];
-
   // Fallback - consider a default or null if no match
-  return null; // Or a default like [46.2276, 2.2137] for France center
+  return null; 
 };
 
 const MapUpdater = ({ parties }: { parties: MappedParty[] }) => {
@@ -97,13 +96,12 @@ export function EventMap({ parties }: EventMapProps) {
     );
   }
 
-  // Determine a sensible initial center and zoom
-  let initialCenter: LatLngExpression = [46.2276, 2.2137]; // Default to France
+  let initialCenter: LatLngExpression = [46.2276, 2.2137]; 
   let initialZoom = 5;
 
   if (validMarkers.length > 0 && validMarkers[0].coordinates) {
     initialCenter = validMarkers[0].coordinates;
-    initialZoom = validMarkers.length === 1 ? 10 : 5; // Zoom in more if only one marker
+    initialZoom = validMarkers.length === 1 ? 10 : 5; 
   }
 
 
