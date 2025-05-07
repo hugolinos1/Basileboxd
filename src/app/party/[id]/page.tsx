@@ -44,10 +44,11 @@ import {
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
-import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
+import { coverPhotoSchema } from '@/services/validation-schemas'; 
+import { Skeleton } from '@/components/ui/skeleton'; 
 import { Combobox } from '@/components/ui/combobox';
 import type { MediaItem as SharedMediaItem, PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
+import { Slider } from '@/components/ui/slider';
 
 
 // --- Interfaces ---
@@ -72,19 +73,72 @@ interface UserProfile {
 
 // --- Composants ---
 
-// StarRating (inchangé)
-const StarRating = ({ totalStars = 5, rating, onRate, disabled = false, size = 'h-6 w-6' }: { totalStars?: number, rating: number, onRate: (rating: number) => void, disabled?: boolean, size?: string }) => {
-  const [hoverRating, setHoverRating] = useState(0);
-  return ( <div className={`flex space-x-1 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}> {[...Array(totalStars)].map((_, index) => { const starValue = index + 1; const isHalf = starValue - 0.5 === (hoverRating || rating); const filled = starValue <= (hoverRating || rating); return ( <Star key={index} className={cn( size, 'transition-colors duration-150', filled ? 'text-yellow-400 fill-current' : 'text-gray-600', !disabled && 'hover:text-yellow-300', isHalf && 'text-yellow-400' )} onClick={() => !disabled && onRate(starValue)} onMouseEnter={() => !disabled && setHoverRating(starValue)} onMouseLeave={() => !disabled && setHoverRating(0)} /> ); })} </div> );
-};
-
-// RatingDistributionChart (inchangé)
+// RatingDistributionChart
 const RatingDistributionChart = ({ ratings }: { ratings: { [userId: string]: number } }) => {
-  const ratingCounts = useMemo(() => { const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 10 }, (_, i) => ({ rating: (i + 1) * 0.5, votes: 0, fill: '' })); Object.values(ratings).forEach(rating => { const index = Math.round(rating * 2) - 1; if (index >= 0 && index < 10) { counts[index].votes++; } }); return counts.map(c => ({ ...c, fill: "hsl(var(--primary))" })); }, [ratings]);
+  const ratingCounts = useMemo(() => {
+    // Scale is 0-10, with 0.5 steps. This means 20 possible values (0.5, 1, ..., 10)
+    const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 20 }, (_, i) => ({
+      rating: (i + 1) * 0.5,
+      votes: 0,
+      fill: '',
+    }));
+    Object.values(ratings).forEach(rating => {
+      // Ensure rating is a number and within the 0-10 range
+      const numericRating = Number(rating);
+      if (!isNaN(numericRating) && numericRating >= 0.5 && numericRating <= 10) {
+        const index = Math.round(numericRating * 2) - 1; // Convert 0.5-10 to 0-19 index
+        if (index >= 0 && index < 20) {
+          counts[index].votes++;
+        }
+      }
+    });
+    return counts.map(c => ({ ...c, fill: "hsl(var(--primary))" }));
+  }, [ratings]);
+
   const totalVotes = useMemo(() => Object.keys(ratings).length, [ratings]);
-  const chartConfig = { votes: { label: "Votes", color: "hsl(var(--primary))", }, } satisfies ChartConfig
-  if (totalVotes === 0) { return <p className="text-sm text-muted-foreground text-center py-4">Pas encore de notes.</p>; }
-  return ( <div className="w-full"> <div className="flex justify-between items-center mb-2 px-1"> <p className="text-sm font-medium text-muted-foreground">Répartition</p> <p className="text-sm font-medium text-muted-foreground">{totalVotes} vote{totalVotes > 1 ? 's' : ''}</p> </div> <ChartContainer config={chartConfig} className="h-[100px] w-full"> <BarChart accessibilityLayer data={ratingCounts} margin={{ top: 5, right: 5, left: -30, bottom: -10 }} barCategoryGap={2} > <XAxis dataKey="rating" tickLine={false} axisLine={false} tickMargin={4} tickFormatter={(value) => value % 1 === 0 ? `${value}.0` : `${value}`} fontSize={10} interval={1} /> <YAxis hide={true} /> <RechartsTooltip cursor={false} content={<ChartTooltipContent hideLabel hideIndicator />} formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating} étoiles`]} /> <Bar dataKey="votes" radius={2} /> </BarChart> </ChartContainer> <div className="flex justify-between items-center mt-1 px-1"> <Star className="h-4 w-4 text-yellow-400 fill-current" /> <Star className="h-4 w-4 text-yellow-400 fill-current" /> <Star className="h-4 w-4 text-yellow-400 fill-current" /> <Star className="h-4 w-4 text-yellow-400 fill-current" /> <Star className="h-4 w-4 text-yellow-400 fill-current" /> </div> </div> );
+  const chartConfig = { votes: { label: "Votes", color: "hsl(var(--primary))" } } satisfies ChartConfig;
+
+  if (totalVotes === 0) {
+    return <p className="text-sm text-muted-foreground text-center py-4">Pas encore de notes.</p>;
+  }
+
+  return (
+    <div className="w-full">
+      <div className="flex justify-between items-center mb-2 px-1">
+        <p className="text-sm font-medium text-muted-foreground">Répartition</p>
+        <p className="text-sm font-medium text-muted-foreground">{totalVotes} vote{totalVotes > 1 ? 's' : ''}</p>
+      </div>
+      <ChartContainer config={chartConfig} className="h-[100px] w-full">
+        <BarChart
+          accessibilityLayer
+          data={ratingCounts}
+          margin={{ top: 5, right: 5, left: -30, bottom: -10 }}
+          barCategoryGap={2}
+        >
+          <XAxis
+            dataKey="rating"
+            tickLine={false}
+            axisLine={false}
+            tickMargin={4}
+            tickFormatter={(value) => (value % 1 === 0 ? `${value}.0` : `${value}`)}
+            fontSize={10}
+            interval={3} // Show every 4th tick (0.5, 2.5, 4.5, 6.5, 8.5, 10) to avoid clutter
+          />
+          <YAxis hide={true} />
+          <RechartsTooltip
+            cursor={false}
+            content={<ChartTooltipContent hideLabel hideIndicator />}
+            formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating} / 10 étoiles`]}
+          />
+          <Bar dataKey="votes" radius={2} />
+        </BarChart>
+      </ChartContainer>
+      <div className="flex justify-between items-center mt-1 px-1 text-xs text-muted-foreground">
+        <span>0.5 ★</span>
+        <span>10 ★</span>
+      </div>
+    </div>
+  );
 };
 
 // --- Composant Principal ---
@@ -103,8 +157,8 @@ export default function PartyDetailsPage() {
   const [comment, setComment] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [isRating, setIsRating] = useState(false);
-  const [userRating, setUserRating] = useState<number>(0);
-  const [averageRating, setAverageRating] = useState<number>(0);
+  const [userRating, setUserRating] = useState<number>(0); // User's rating for this party (0-10)
+  const [averageRating, setAverageRating] = useState<number>(0); // Party's average rating (0-10)
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [showAddSouvenirDialog, setShowAddSouvenirDialog] = useState(false);
   const [souvenirFiles, setSouvenirFiles] = useState<File[]>([]);
@@ -207,7 +261,7 @@ export default function PartyDetailsPage() {
 
     // Listener for comments subcollection
     const commentsRef = collection(db, 'parties', partyId, 'comments');
-    const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'desc')); // Use aliased import
+    const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'desc')); 
 
     const unsubscribeComments = onSnapshot(commentsQuery, (querySnapshot) => {
         console.log(`[PartyDetailsPage] Snapshot reçu pour les commentaires de ${partyId}. Nombre de commentaires: ${querySnapshot.size}`);
@@ -286,10 +340,10 @@ export default function PartyDetailsPage() {
      const canDeleteSouvenir = user && (item.uploaderId === user.uid || isAdmin);
 
      let mediaElement: JSX.Element;
-     if (item.type === 'video') { mediaElement = ( <div key={item.id || index} className="aspect-video bg-black rounded-lg overflow-hidden relative shadow-md"> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement vidéo</div>} <ReactPlayer url={item.url} controls width="100%" height="100%" onError={onError} className="absolute top-0 left-0" config={{ file: { attributes: { controlsList: 'nodownload' } } }} /> </div> ); }
-     else if (item.type === 'audio') { mediaElement = ( <div key={item.id || index} className="w-full bg-card p-3 rounded-lg shadow"> <ReactPlayer url={item.url} controls width="100%" height="40px" onError={onError}/> {playerError && <p className="text-destructive text-xs mt-1">Erreur chargement audio</p>} </div> ); }
-     else if (item.type === 'image') { mediaElement = ( <div key={item.id || index} className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={item.url} alt={`Souvenir ${item.fileName || index + 1}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="souvenir fête photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
-     else { mediaElement = ( <div key={item.id || index} className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> {item.fileName || `Média ${index + 1}`} </a> </div> );}
+     if (item.type === 'video') { mediaElement = ( <div className="aspect-video bg-black rounded-lg overflow-hidden relative shadow-md"> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement vidéo</div>} <ReactPlayer url={item.url} controls width="100%" height="100%" onError={onError} className="absolute top-0 left-0" config={{ file: { attributes: { controlsList: 'nodownload' } } }} /> </div> ); }
+     else if (item.type === 'audio') { mediaElement = ( <div className="w-full bg-card p-3 rounded-lg shadow"> <ReactPlayer url={item.url} controls width="100%" height="40px" onError={onError}/> {playerError && <p className="text-destructive text-xs mt-1">Erreur chargement audio</p>} </div> ); }
+     else if (item.type === 'image') { mediaElement = ( <div className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={item.url} alt={`Souvenir ${item.fileName || index + 1}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="souvenir fête photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
+     else { mediaElement = ( <div className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> {item.fileName || `Média ${index + 1}`} </a> </div> );}
 
      return (
          <div key={item.id || `media-item-${index}`} className="relative group">
@@ -320,7 +374,7 @@ export default function PartyDetailsPage() {
          await updateDoc(partyDocRef, {
              [`ratings.${user.uid}`]: newRating
          });
-         toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating} étoiles.` });
+         toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating}/10 étoiles.` });
      } catch (rateError: any) {
          console.error("Erreur note:", rateError);
          let description = rateError.message || 'Impossible d\'envoyer la note.';
@@ -341,12 +395,12 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      const newCommentData: Omit<Comment, 'id'> = { 
+      const newCommentData: Omit<Comment, 'id' | 'timestamp'> & { timestamp: FieldValue } = { 
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: Timestamp.now(), 
+        timestamp: serverTimestamp(), // Use serverTimestamp() FieldValue for creation
         partyId: party.id, 
       };
 
@@ -442,7 +496,7 @@ export default function PartyDetailsPage() {
                         type: getMediaFileType(file),
                         uploaderId: user.uid,
                         uploaderEmail: user.email || undefined,
-                        uploadedAt: Timestamp.now(), // Use Timestamp.now() for client-side timestamp
+                        uploadedAt: serverTimestamp(), // Use serverTimestamp FieldValue for creation
                         fileName: file.name,
                       } as MediaItem; // Cast to MediaItem
                 }
@@ -848,7 +902,7 @@ export default function PartyDetailsPage() {
                 </div>
                  <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
                      <Badge variant="secondary" className="backdrop-blur-sm bg-black/50 border-white/20 text-base px-3 py-1">
-                         <Star className="h-4 w-4 text-yellow-400 fill-current mr-1.5" /> {averageRating.toFixed(1)} <span className="text-xs text-muted-foreground ml-1">/ 5</span>
+                         <Star className="h-4 w-4 text-yellow-400 fill-current mr-1.5" /> {(averageRating / 2).toFixed(1)} <span className="text-xs text-muted-foreground ml-1">/ 5</span>
                      </Badge>
                  </div>
            </div>
@@ -962,9 +1016,34 @@ export default function PartyDetailsPage() {
              </div>
 
              {/* Right Column (Span 1): Rating & Participants */}
-             <div className="lg:col-span-1">
-                 <CardContent className="p-4 md:p-6"> <h3 className="text-xl font-semibold mb-4 text-foreground">Votre Note</h3> <div className="flex flex-col items-center gap-3 bg-secondary/30 border border-border/50 p-4 rounded-lg"> <StarRating rating={userRating} onRate={handleRateParty} disabled={!user || isRating} size="h-8 w-8" /> {isRating && <span className="text-xs text-muted-foreground">Envoi...</span>} {!user && <span className="text-xs text-muted-foreground mt-1">Connectez-vous pour noter</span>} {user && userRating > 0 && <span className="text-xs text-muted-foreground mt-1">Votre note : {userRating}/5</span>} {user && userRating === 0 && <span className="text-xs text-muted-foreground mt-1">Donnez une note !</span>} </div> </CardContent>
-                 <CardContent className="p-4 md:p-6 border-t border-border/50"> <RatingDistributionChart ratings={party.ratings || {}} /> </CardContent>
+            <div className="lg:col-span-1">
+                 <CardContent className="p-4 md:p-6">
+                    <h3 className="text-xl font-semibold mb-4 text-foreground">Votre Note</h3>
+                    <div className="flex flex-col items-center gap-3 bg-secondary/30 border border-border/50 p-4 rounded-lg">
+                         <div className="w-full">
+                            <Slider
+                                value={[userRating]}
+                                onValueChange={(value) => handleRateParty(value[0])}
+                                max={10} // Scale from 0 to 10
+                                step={0.5} // Allow 0.5 increments
+                                disabled={!user || isRating}
+                                className="w-full"
+                            />
+                             <div className="flex justify-between text-xs text-muted-foreground mt-1.5">
+                                <span>0</span>
+                                <span>{userRating.toFixed(1)} / 10 ★</span>
+                                <span>10</span>
+                            </div>
+                         </div>
+                        {isRating && <span className="text-xs text-muted-foreground">Envoi...</span>}
+                        {!user && <span className="text-xs text-muted-foreground mt-1">Connectez-vous pour noter</span>}
+                        {user && userRating > 0 && <span className="text-xs text-muted-foreground mt-1">Votre note : {userRating.toFixed(1)}/10</span>}
+                        {user && userRating === 0 && <span className="text-xs text-muted-foreground mt-1">Donnez une note !</span>}
+                    </div>
+                 </CardContent>
+                 <CardContent className="p-4 md:p-6 border-t border-border/50">
+                   <RatingDistributionChart ratings={party.ratings || {}} />
+                 </CardContent>
                  <CardContent className="p-4 md:p-6 border-t border-border/50">
                       <div className="flex justify-between items-center mb-4">
                            <h3 className="text-xl font-semibold text-foreground">Participants ({party.participants?.length || 0})</h3>
