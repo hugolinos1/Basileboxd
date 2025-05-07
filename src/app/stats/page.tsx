@@ -13,7 +13,7 @@ import type { PartyData as SharedPartyData } from '@/lib/party-utils';
 // calculatePartyAverageRating is not used here, getDateFromTimestamp might be if displaying dates
 import { StatCard } from '@/components/stats/StatCard';
 import { GlobalRatingDistributionChart } from '@/components/stats/GlobalRatingDistributionChart';
-import dynamic from 'next/dynamic'; // Import dynamic for client-side map rendering
+// import dynamic from 'next/dynamic'; // Import dynamic for client-side map rendering
 
 type PartyData = SharedPartyData & { id: string };
 
@@ -26,10 +26,10 @@ interface StatsData {
 }
 
 // Dynamically import the EventMap component to ensure it only runs on the client-side
-const EventMapWithNoSSR = dynamic(() => 
-  import('@/components/stats/EventMap').then(mod => mod.EventMap), 
-  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-muted-foreground"><MapPin className="h-12 w-12 mr-2 animate-pulse" />Chargement de la carte...</div> }
-);
+// const EventMapWithNoSSR = dynamic(() => 
+//   import('@/components/stats/EventMap').then(mod => mod.EventMap), 
+//   { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-muted-foreground"><MapPin className="h-12 w-12 mr-2 animate-pulse" />Chargement de la carte...</div> }
+// );
 
 export default function StatisticsPage() {
   const { firebaseInitialized, loading: authLoading } = useFirebase();
@@ -181,8 +181,8 @@ export default function StatisticsPage() {
             <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" /> Carte des Événements</CardTitle>
             <CardDescription>Visualisation géographique des événements.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] md:h-[350px] p-0 rounded-b-lg overflow-hidden"> {/* Adjusted padding and overflow */}
-            {stats.allParties.length > 0 ? (
+          <CardContent className="h-[300px] md:h-[350px] p-0 rounded-b-lg overflow-hidden flex items-center justify-center bg-muted"> {/* Adjusted padding and overflow */}
+            {/* {stats.allParties.length > 0 ? (
                 <EventMapWithNoSSR parties={stats.allParties} />
             ) : (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground bg-muted">
@@ -190,10 +190,16 @@ export default function StatisticsPage() {
                     <p className="text-lg font-medium">Aucun événement avec localisation</p>
                     <p className="text-sm">Ajoutez des lieux à vos événements pour les afficher ici.</p>
                 </div>
-            )}
+            )} */}
+            <div className="flex flex-col items-center justify-center text-center text-muted-foreground">
+                <MapPin className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">Carte des événements temporairement désactivée.</p>
+                <p className="text-sm">Nous travaillons à sa réintégration.</p>
+            </div>
           </CardContent>
         </Card>
       </div>
     </div>
   );
 }
+
