@@ -19,6 +19,7 @@ import { auth } from '@/config/firebase';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { ForgotPasswordDialog } from './ForgotPasswordDialog'; // Import the new component
 
 const formSchema = z.object({
   email: z.string().email({ message: 'Adresse email invalide.' }),
@@ -29,6 +30,7 @@ export function LoginForm() {
   const { toast } = useToast();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [isForgotPasswordDialogOpen, setIsForgotPasswordDialogOpen] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -66,49 +68,65 @@ export function LoginForm() {
   }
 
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-        <FormField
-          control={form.control}
-          name="email"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Email</FormLabel>
-              <FormControl>
-                <Input
-                  placeholder="vous@exemple.com"
-                  {...field}
-                  type="email"
-                  className="bg-input border-border focus:bg-background focus:border-primary"
-                 />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="password"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Mot de passe</FormLabel>
-              <FormControl>
-                <Input
-                    placeholder="••••••••"
+    <>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Email</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder="vous@exemple.com"
                     {...field}
-                    type="password"
+                    type="email"
                     className="bg-input border-border focus:bg-background focus:border-primary"
-                 />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
-           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-           Se connecter
-        </Button>
-      </form>
-    </Form>
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="password"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Mot de passe</FormLabel>
+                <FormControl>
+                  <Input
+                      placeholder="••••••••"
+                      {...field}
+                      type="password"
+                      className="bg-input border-border focus:bg-background focus:border-primary"
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <div className="flex justify-end text-sm">
+            <Button
+              type="button"
+              variant="link"
+              className="p-0 h-auto font-normal text-primary hover:text-primary/80"
+              onClick={() => setIsForgotPasswordDialogOpen(true)}
+            >
+              Mot de passe oublié ?
+            </Button>
+          </div>
+          <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
+            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Se connecter
+          </Button>
+        </form>
+      </Form>
+      <ForgotPasswordDialog
+        isOpen={isForgotPasswordDialogOpen}
+        onOpenChange={setIsForgotPasswordDialogOpen}
+      />
+    </>
   );
 }
