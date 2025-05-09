@@ -40,9 +40,9 @@ import {
   uploadFile,
   getFileType as getMediaFileType,
   ACCEPTED_MEDIA_TYPES,
-  ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  ACCEPTED_COVER_PHOTO_TYPES,
 } from '@/services/media-uploader';
 import { coverPhotoSchema } from '@/services/validation-schemas'; 
 import { Skeleton } from '@/components/ui/skeleton'; 
@@ -429,12 +429,13 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      const newCommentData: Omit<Comment, 'id'> & { timestamp: FieldValue } = { 
+      // For comments subcollection, timestamp needs to be Firebase Timestamp for ordering
+      const newCommentData: Omit<Comment, 'id' | 'timestamp'> & { timestamp: FieldValue } = { 
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: serverTimestamp(), 
+        timestamp: serverTimestamp(), // Use serverTimestamp() for reliable ordering
         partyId: party.id, 
       };
 
@@ -525,13 +526,14 @@ export default function PartyDetailsPage() {
                 'souvenir' 
             ).then(url => {
                 if (url && user) {
+                     // When adding to an array, ensure the timestamp is a client-generated Firebase Timestamp
                     return {
                         id: `${party.id}-${file.name}-${Date.now()}`, 
                         url,
                         type: getMediaFileType(file),
                         uploaderId: user.uid,
                         uploaderEmail: user.email || undefined,
-                        uploadedAt: serverTimestamp(), // Use serverTimestamp for FieldValue
+                        uploadedAt: Timestamp.now(), // Use Timestamp.now() for arrayUnion
                         fileName: file.name,
                       } as MediaItem; 
                 }
@@ -1025,7 +1027,7 @@ export default function PartyDetailsPage() {
                          {user && (
                             <Dialog open={showAddSouvenirDialog} onOpenChange={setShowAddSouvenirDialog}>
                                 <DialogTrigger asChild>
-                                     <Button variant="outline" size="sm"> <Upload className="mr-2 h-4 w-4" /> Ajouter des souvenirs </Button>
+                                     <Button variant="destructive" size="sm"> <Upload className="mr-2 h-4 w-4" /> Ajouter des souvenirs </Button>
                                 </DialogTrigger>
                                 <DialogContent className="sm:max-w-[600px]">
                                     <DialogHeader>
@@ -1045,7 +1047,7 @@ export default function PartyDetailsPage() {
                                                          const progress = souvenirUploadProgress[file.name];
                                                           const fileTypeDisplay = getMediaFileType(file);
                                                          return (
-                                                             <div key={index} className="relative group border rounded-md p-2 bg-secondary/50 text-center">
+                                                             <div key={file.name + index} className="relative group border rounded-md p-2 bg-secondary/50 text-center">
                                                                   {previewUrl && file.type.startsWith('image/') ? (
                                                                       <Image src={previewUrl} alt={`Aperçu ${file.name}`} width={60} height={60} className="rounded object-cover mx-auto h-14 w-14 mb-1" />
                                                                   ) : (
