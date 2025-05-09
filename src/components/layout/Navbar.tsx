@@ -5,7 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users, Menu, BarChart3 } from 'lucide-react'; // Added BarChart3
+import { Search, User as UserIcon, LogOut, LayoutDashboard, Settings, List, Users, Menu, BarChart3 } from 'lucide-react';
 import { useFirebase } from '@/context/FirebaseContext';
 import { auth } from '@/config/firebase';
 import { signOut } from 'firebase/auth';
@@ -22,7 +22,7 @@ import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
 
 export function Navbar() {
-  const { user, isAdmin } = useFirebase();
+  const { user, isAdmin, firebaseInitialized, loading: authLoading } = useFirebase();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -39,7 +39,7 @@ export function Navbar() {
     if (searchQuery.trim()) {
       router.push(`/parties?q=${encodeURIComponent(searchQuery.trim())}`);
     } else {
-      router.push('/parties'); // Navigate to all parties if search is empty
+      router.push('/parties');
     }
   };
 
@@ -48,6 +48,11 @@ export function Navbar() {
       handleSearch();
     }
   };
+
+  // Don't render navbar content until firebase is initialized and auth state is known
+  // This prevents a flash of "Connexion / Inscription" for logged-in users
+  const showNavbarContent = firebaseInitialized && !authLoading;
+
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -65,34 +70,38 @@ export function Navbar() {
             <span className="font-bold text-primary">BaliseBoxd</span>
           </Link>
 
-           <div className="hidden md:flex items-center space-x-4">
-                <Link href="/parties" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                   <List className="mr-1 h-4 w-4" /> Events
-                </Link>
-                <Link href="/users" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                    <Users className="mr-1 h-4 w-4" /> Les Membres
-                </Link>
-                 <Link href="/stats" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                    <BarChart3 className="mr-1 h-4 w-4" /> Statistiques
-                </Link>
-           </div>
+           {showNavbarContent && user && (
+             <div className="hidden md:flex items-center space-x-4">
+                  <Link href="/parties" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                     <List className="mr-1 h-4 w-4" /> Events
+                  </Link>
+                  <Link href="/users" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                      <Users className="mr-1 h-4 w-4" /> Les Membres
+                  </Link>
+                   <Link href="/stats" className="flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                      <BarChart3 className="mr-1 h-4 w-4" /> Statistiques
+                  </Link>
+             </div>
+           )}
         </div>
 
 
         <div className="flex flex-1 items-center justify-end space-x-4">
-          <div className="relative w-full max-w-sm hidden md:block">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Rechercher des Events..."
-              className="w-full pl-10 pr-4 py-2 h-9 bg-secondary border-border focus:bg-background focus:border-primary"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={handleSearchKeyDown}
-            />
-          </div>
+          {showNavbarContent && user && (
+            <div className="relative w-full max-w-sm hidden md:block">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Rechercher des Events..."
+                className="w-full pl-10 pr-4 py-2 h-9 bg-secondary border-border focus:bg-background focus:border-primary"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+              />
+            </div>
+          )}
 
-          {user ? (
+          {showNavbarContent && user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                  <Button variant="default" className="h-12 w-12 p-0 bg-primary hover:bg-primary/80">
@@ -163,15 +172,14 @@ export function Navbar() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : (
+          ) : showNavbarContent ? ( // Only show login button if firebase is init and user is null
             <Button onClick={() => router.push('/auth')} variant="default" size="sm">
               <UserIcon className="mr-2 h-4 w-4" />
               Connexion / Inscription
             </Button>
-          )}
+          ) : null /* Or a placeholder/skeleton while auth is loading */ }
         </div>
       </div>
     </nav>
   );
 }
-

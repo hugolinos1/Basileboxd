@@ -1,11 +1,17 @@
+// src/app/page.tsx
+'use client'; // Make this a client component to use useFirebase
+
 import { HeroSection } from '@/components/home/HeroSection';
 import { TopPartiesSection } from '@/components/home/TopPartiesSection';
 import { RecentPartiesSection } from '@/components/home/RecentPartiesSection';
 import { AddPartySection } from '@/components/home/AddPartySection';
 import { Separator } from '@/components/ui/separator';
-import { collection, getDocs, query, orderBy, limit, Timestamp, doc, getDoc as getFirestoreDoc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit, Timestamp, doc, getDoc as getFirestoreDoc, where } from 'firebase/firestore';
 import { db } from '@/config/firebase';
-import { calculatePartyAverageRating, PartyData as SharedPartyData, MediaItem as SharedMediaItem } from '@/lib/party-utils';
+import { calculatePartyAverageRating, PartyData as SharedPartyData } from '@/lib/party-utils';
+import { useFirebase } from '@/context/FirebaseContext';
+import { useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 
 // Extend PartyData to include id if not already present
 type PartyData = SharedPartyData & { id: string };
@@ -19,7 +25,6 @@ interface UserProfile {
     avatarUrl?: string;
 }
 
-// Define a structure for the data passed to components
 interface TopPartyDisplayData {
   id: string;
   name: string;
@@ -42,76 +47,61 @@ interface RecentPartyDisplayData {
   }[]; 
 }
 
-
-async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], recentParties: RecentPartyDisplayData[] }> {
+async function getPartyDataForUser(userId: string | null): Promise<{ topParties: TopPartyDisplayData[], recentParties: RecentPartyDisplayData[] }> {
   if (!db) {
-    console.error("Firestore instance is not available for getPartyData.");
+    console.error("Firestore instance is not available for getPartyDataForUser.");
+    return { topParties: [], recentParties: [] };
+  }
+   // If no user, we might want to show public data or nothing. For now, return empty.
+   // The prompt says "uniquement si on est connecté"
+  if (!userId) {
+    console.log("[getPartyDataForUser] No user ID provided, returning empty data as per requirement.");
     return { topParties: [], recentParties: [] };
   }
 
   try {
-    console.log("[getPartyData] Fetching party data from Firestore...");
+    console.log(`[getPartyDataForUser] Fetching party data from Firestore for user: ${userId}...`);
     const partiesCollectionRef = collection(db, 'parties');
-    // Ensure you have an index on 'createdAt' descending for these queries in Firestore
+    
+    // Query for recent parties (could be all recent, or filtered by user participation later)
     const recentQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(15));
+    
+    // Query for parties to rank (could be all parties or filtered)
     const allPartiesQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(50)); 
 
     const [recentSnapshot, allPartiesSnapshot] = await Promise.all([
         getDocs(recentQuery),
         getDocs(allPartiesQuery)
     ]);
-    console.log(`[getPartyData] Fetched ${allPartiesSnapshot.size} parties for ranking, ${recentSnapshot.size} for recent.`);
+    console.log(`[getPartyDataForUser] Fetched ${allPartiesSnapshot.size} parties for ranking, ${recentSnapshot.size} for recent.`);
 
-    if (allPartiesSnapshot.empty) {
-        console.log("[getPartyData] No parties found in 'parties' collection for ranking.");
+    if (allPartiesSnapshot.empty && recentSnapshot.empty) {
+        console.log("[getPartyDataForUser] No parties found in 'parties' collection.");
     }
 
     const allPartiesData: PartyData[] = allPartiesSnapshot.docs.map(doc => {
         const data = doc.data();
-        // Log each document's data for inspection
-        // console.log(`[getPartyData] Raw party doc (id: ${doc.id}):`, data);
         return { id: doc.id, ...data } as PartyData;
     });
-    console.log(`[getPartyData] Mapped allPartiesData count: ${allPartiesData.length}`);
-    if (allPartiesData.length > 0) {
-      // console.log("[getPartyData] Sample of allPartiesData (first 2):", allPartiesData.slice(0, 2).map(p => ({id: p.id, name: p.name, ratings: p.ratings, createdAt: p.createdAt })));
-    }
-
+    console.log(`[getPartyDataForUser] Mapped allPartiesData count: ${allPartiesData.length}`);
 
     const partiesWithAvgRating = allPartiesData
       .map(party => {
           const avgRating = calculatePartyAverageRating(party);
-          // console.log(`[getPartyData] Party: ${party.name}, Ratings: ${JSON.stringify(party.ratings)}, Calculated Avg Rating (0-5): ${avgRating}`);
-          return {
-            ...party,
-            averageRating: avgRating
-          };
+          return { ...party, averageRating: avgRating };
       })
-      .filter(party => {
-          const passesFilter = party.averageRating > 0;
-          // if (!passesFilter) {
-          //   console.log(`[getPartyData] Filtering out party: ${party.name} due to averageRating <= 0 (is ${party.averageRating})`);
-          // }
-          return passesFilter;
-      })
+      .filter(party => party.averageRating > 0)
       .sort((a, b) => b.averageRating - a.averageRating); 
     
-    console.log(`[getPartyData] Parties after rating calculation and filtering (count: ${partiesWithAvgRating.length}):`);
-    // if (partiesWithAvgRating.length > 0) {
-    //   console.log("[getPartyData] Sample of partiesWithAvgRating (first 2):", partiesWithAvgRating.slice(0, 2).map(p => ({name:p.name, avg: p.averageRating})));
-    // }
+    console.log(`[getPartyDataForUser] Parties after rating calculation and filtering (count: ${partiesWithAvgRating.length})`);
 
-
-    const topParties: TopPartyDisplayData[] = partiesWithAvgRating.slice(0, 10).map((party, index) => {
-        // console.log(`[getPartyData] Top Party ${index + 1}: ${party.name}, Cover URL: ${party.coverPhotoUrl}, Avg Rating (0-5): ${party.averageRating}`); 
-        return {
-          id: party.id,
-          name: party.name || 'Événement sans nom',
-          imageUrl: party.coverPhotoUrl || undefined, 
-          rating: party.averageRating,
-          rank: index + 1,
-        };
-    });
+    const topParties: TopPartyDisplayData[] = partiesWithAvgRating.slice(0, 10).map((party, index) => ({
+      id: party.id,
+      name: party.name || 'Événement sans nom',
+      imageUrl: party.coverPhotoUrl || undefined, 
+      rating: party.averageRating,
+      rank: index + 1,
+    }));
 
     const recentPartiesPromises = recentSnapshot.docs.map(async (partyDoc) => {
       const party = { id: partyDoc.id, ...partyDoc.data() } as PartyData;
@@ -120,16 +110,13 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
       const participantDetailsPromises = (party.participants || []).slice(0, 5).map(async (participantId) => {
         let userProfile: UserProfile | null = null;
         try {
-          // Ensure 'users' collection exists and participantId is a valid doc ID
           const userDocRef = doc(db, 'users', participantId); 
           const userDocSnap = await getFirestoreDoc(userDocRef);
           if (userDocSnap.exists()) {
             userProfile = { id: userDocSnap.id, ...userDocSnap.data() } as UserProfile;
-          } else {
-            // console.warn(`[getPartyData] User profile not found for participant ID: ${participantId} in party ${party.name}`);
           }
         } catch (e) {
-          console.warn(`[getPartyData] Could not fetch profile for participant ${participantId}:`, e);
+          console.warn(`[getPartyDataForUser] Could not fetch profile for participant ${participantId}:`, e);
         }
         return {
           id: participantId,
@@ -141,7 +128,6 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
       });
       const participants = await Promise.all(participantDetailsPromises);
 
-      // console.log(`[getPartyData] Recent Party: ${party.name}, Cover URL: ${party.coverPhotoUrl}`); 
       return {
         id: party.id,
         name: party.name || 'Événement sans nom',
@@ -153,34 +139,90 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
 
     const recentParties = await Promise.all(recentPartiesPromises);
 
-    console.log(`[getPartyData] Prepared ${topParties.length} top parties and ${recentParties.length} recent parties.`);
+    console.log(`[getPartyDataForUser] Prepared ${topParties.length} top parties and ${recentParties.length} recent parties.`);
     return { topParties, recentParties };
 
   } catch (error) {
-    console.error("[getPartyData] Erreur lors de la récupération des fêtes:", error);
+    console.error("[getPartyDataForUser] Erreur lors de la récupération des fêtes:", error);
      if (error instanceof Error && (error.message.includes('permission-denied') || error.message.includes('insufficient permissions'))) {
-         console.error("[getPartyData] FIREBASE PERMISSION ERROR: Check Firestore security rules for the 'parties' collection. Ensure reads are allowed. Also check if required indexes are built.");
+         console.error("[getPartyDataForUser] FIREBASE PERMISSION ERROR: Check Firestore security rules for the 'parties' collection. Ensure reads are allowed for authenticated users. Also check if required indexes are built.");
      } else if (error instanceof Error && error.message.includes('requires an index')) {
-         console.error("[getPartyData] FIREBASE INDEXING ERROR: The query requires an index. Check the Firebase console for a link to create it. Error:", error.message);
+         console.error("[getPartyDataForUser] FIREBASE INDEXING ERROR: The query requires an index. Check the Firebase console for a link to create it. Error:", error.message);
      }
     return { topParties: [], recentParties: [] }; 
   }
 }
 
+const AuthenticatedHomePageContent = ({ topParties, recentParties }: { topParties: TopPartyDisplayData[], recentParties: RecentPartyDisplayData[] }) => {
+  return (
+    <>
+      <TopPartiesSection parties={topParties} />
+      <Separator className="my-8 md:my-12 bg-border/50" />
+      <RecentPartiesSection parties={recentParties} />
+      <Separator className="my-8 md:my-12 bg-border/50" />
+      <AddPartySection />
+    </>
+  );
+};
 
-export default async function Home() {
-  const { topParties, recentParties } = await getPartyData();
+export default function Home() {
+  const { user, loading: authLoading, firebaseInitialized } = useFirebase();
+  const [partyData, setPartyData] = useState<{ topParties: TopPartyDisplayData[], recentParties: RecentPartyDisplayData[] } | null>(null);
+  const [dataLoading, setDataLoading] = useState(true); // For party data loading
+
+  useEffect(() => {
+    if (authLoading || !firebaseInitialized) {
+      // Still waiting for auth or Firebase init
+      return;
+    }
+
+    if (user) {
+      setDataLoading(true);
+      getPartyDataForUser(user.uid).then(data => {
+        setPartyData(data);
+        setDataLoading(false);
+      }).catch(err => {
+        console.error("Failed to load party data for authenticated user:", err);
+        setPartyData({ topParties: [], recentParties: [] }); // Set empty on error
+        setDataLoading(false);
+      });
+    } else {
+      // User is not authenticated, no need to fetch party data as per requirement
+      setPartyData(null); // Clear any existing data
+      setDataLoading(false); // Not loading data for unauthenticated user
+    }
+  }, [user, authLoading, firebaseInitialized]);
+
+  if (authLoading || (!firebaseInitialized && !authLoading) ) {
+    return (
+      <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Chargement...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col space-y-12 md:space-y-16 lg:space-y-20 pb-16">
       <HeroSection />
-      <TopPartiesSection parties={topParties} />
-      <Separator className="my-8 md:my-12 bg-border/50" />
-      {/* Pass fetched data to RecentPartiesSection */}
-      <RecentPartiesSection parties={recentParties} />
-      <Separator className="my-8 md:my-12 bg-border/50" />
-      <AddPartySection />
+      {user && firebaseInitialized && (
+        dataLoading ? (
+          <div className="flex justify-center items-center min-h-[20rem]">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="ml-2">Chargement des événements...</span>
+          </div>
+        ) : partyData ? (
+          <AuthenticatedHomePageContent topParties={partyData.topParties} recentParties={partyData.recentParties} />
+        ) : (
+          <p className="text-center text-muted-foreground">Erreur lors du chargement des données des événements.</p>
+        )
+      )}
+      {!user && firebaseInitialized && (
+        <div className="container mx-auto px-4 text-center py-10">
+          <p className="text-lg text-foreground">Bienvenue sur BaliseBoxd !</p>
+          <p className="text-muted-foreground">Connectez-vous pour découvrir, noter et partager les meilleurs Events.</p>
+        </div>
+      )}
     </div>
   );
 }
-
