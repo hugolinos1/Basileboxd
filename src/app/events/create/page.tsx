@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -23,7 +24,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs, query, where, FieldValue, Timestamp } from 'firebase/firestore'; // Import Timestamp
+import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs, query, where, FieldValue, Timestamp } from 'firebase/firestore';
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { useRouter } from 'next/navigation';
@@ -34,9 +35,9 @@ import {
   uploadFile,
   getFileType as getMediaFileType, 
   ACCEPTED_MEDIA_TYPES,
-  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG, // Renamed for clarity
+  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  ACCEPTED_COVER_PHOTO_TYPES, 
+  ACCEPTED_COVER_PHOTO_TYPES, // Import directly from media-uploader
 } from '@/services/media-uploader';
 import { coverPhotoSchema } from '@/services/validation-schemas'; 
 
@@ -50,10 +51,10 @@ import { Slider } from '@/components/ui/slider';
 
 import { Combobox } from '@/components/ui/combobox';
 import type { MediaItem } from '@/lib/party-utils';
-import { normalizeCityName, geocodeCity } from '@/lib/party-utils'; 
+import { normalizeCityName, geocodeCity, PartyData } from '@/lib/party-utils'; 
 import { Badge } from '@/components/ui/badge';
 
-interface UserData {
+interface UserData { // Keep this specific to the page's needs if different from global
   id: string;
   uid: string;
   email: string;
@@ -79,9 +80,9 @@ const formSchema = z.object({
     if (typeof window === 'undefined' || !(file instanceof File)) return true; 
     return file.size <= MAX_FILE_SIZE_COVER;
   }, `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE_COVER / 1024 / 1024}Mo.`).optional(),
-  participants: z.array(z.string()).optional(),
+  participants: z.array(z.string()).optional(), // Stores UIDs
   media: z.array(fileSchema).optional(),
-  initialRating: z.number().min(0).max(5).step(0.5).optional(),
+  initialRating: z.number().min(0).max(5).step(0.5).optional(), // Assuming 0-5 scale for form
   initialComment: z.string().max(1000).optional(),
 });
 
@@ -108,7 +109,7 @@ export default function CreateEventPage() {
   const [isUploadingCover, setIsUploadingCover] = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
-  const [selectedParticipants, setSelectedParticipants] = useState<UserData[]>([]);
+  const [selectedParticipants, setSelectedParticipants] = useState<UserData[]>([]); // Stores UserData objects
 
   const coverPhotoInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
@@ -128,6 +129,7 @@ export default function CreateEventPage() {
         const usersSnapshot = await getDocs(usersCollectionRef);
         const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserData));
         setAllUsers(fetchedUsers);
+        console.log("Fetched all users:", fetchedUsers);
       } catch (error) {
         console.error("Erreur lors de la récupération des utilisateurs:", error);
         toast({ title: "Erreur utilisateurs", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive" });
@@ -146,23 +148,23 @@ export default function CreateEventPage() {
       description: '',
       location: '',
       coverPhoto: undefined,
-      participants: [], // Initialize as empty, will be set by useEffect
+      participants: [],
       media: [],
       initialRating: 0,
       initialComment: '',
     },
   });
 
-  // Effect to add creator to participants list by default
   useEffect(() => {
-    if (user && allUsers.length > 0 && form.getValues('participants')?.length === 0) {
+    if (user && allUsers.length > 0 && selectedParticipants.length === 0) {
       const currentUserData = allUsers.find(u => u.uid === user.uid);
-      if (currentUserData) {
+      if (currentUserData && !form.getValues('participants')?.includes(user.uid)) {
+        console.log("Adding creator to participants:", currentUserData);
         form.setValue('participants', [user.uid]);
         setSelectedParticipants([currentUserData]);
       }
     }
-  }, [user, allUsers, form]);
+  }, [user, allUsers, form, selectedParticipants.length]);
 
 
   const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -241,12 +243,20 @@ export default function CreateEventPage() {
   };
 
   const handleAddParticipant = (userId: string) => {
-    const currentParticipantsUIDs = form.getValues('participants') || [];
-    if (!currentParticipantsUIDs.includes(userId)) {
-      form.setValue('participants', [...currentParticipantsUIDs, userId]);
+    const currentFormParticipantUIDs = form.getValues('participants') || [];
+    if (!currentFormParticipantUIDs.includes(userId)) {
+      form.setValue('participants', [...currentFormParticipantUIDs, userId]);
       const participantData = allUsers.find(u => u.uid === userId);
-      if (participantData && !selectedParticipants.find(p => p.uid === userId)) {
-        setSelectedParticipants(prev => [...prev, participantData]);
+      if (participantData) {
+        setSelectedParticipants(prev => {
+          if (!prev.find(p => p.uid === userId)) {
+            console.log("Adding to selectedParticipants:", participantData);
+            return [...prev, participantData];
+          }
+          return prev;
+        });
+      } else {
+        console.warn(`Participant data not found in allUsers for UID: ${userId} when trying to update selectedParticipants state.`);
       }
     }
   };
@@ -258,6 +268,7 @@ export default function CreateEventPage() {
     }
     form.setValue('participants', (form.getValues('participants') || []).filter(uid => uid !== userId));
     setSelectedParticipants(prev => prev.filter(p => p.uid !== userId));
+    console.log("Removed participant:", userId, "New selectedParticipants:", selectedParticipants.filter(p => p.uid !== userId));
   };
 
 
@@ -299,34 +310,40 @@ export default function CreateEventPage() {
       }
     }
 
+    // Ensure participant UIDs and emails are correctly derived from selectedParticipants for storage
+    const finalParticipantUIDs = selectedParticipants.map(p => p.uid);
+    const finalParticipantEmails = selectedParticipants.map(p => p.email);
+
 
     try {
-      const partyDocRef = await addDoc(collection(db, 'parties'), {
+      const partyDocData: Omit<PartyData, 'id' | 'createdAt' | 'averageRating' | 'mediaItems' | 'coverPhotoUrl' | 'ratings' > & { createdAt: FieldValue, ratings: { [key: string]: number }, mediaItems: MediaItem[], coverPhotoUrl: string } = {
         name: values.name,
         description: values.description || '',
-        date: values.date,
-        location: normalizedLocation, 
-        latitude: latitude, 
-        longitude: longitude, 
+        date: values.date, 
+        location: normalizedLocation,
+        latitude: latitude,
+        longitude: longitude,
         createdBy: user.uid,
-        creatorEmail: user.email,
-        participants: values.participants?.length ? values.participants : (user ? [user.uid] : []),
-        participantEmails: selectedParticipants.length ? selectedParticipants.map(p => p.email) : (user?.email ? [user.email] : []),
-        mediaItems: [],
-        coverPhotoUrl: '',
-        ratings: values.initialRating && user ? { [user.uid]: values.initialRating } : {},
+        creatorEmail: user.email || '',
+        participants: finalParticipantUIDs,
+        participantEmails: finalParticipantEmails,
+        ratings: values.initialRating && user ? { [user.uid]: values.initialRating * 2 } : {}, // Convert 0-5 to 0-10 for storage
         createdAt: serverTimestamp(),
-      });
+        mediaItems: [], // Initialize as empty, will be updated
+        coverPhotoUrl: '', // Initialize as empty, will be updated
+      };
+      
+      const partyDocRef = await addDoc(collection(db, 'parties'), partyDocData);
       const partyId = partyDocRef.id;
 
       if (values.initialComment && user) {
         const commentsCollectionRef = collection(db, 'parties', partyId, 'comments');
         await addDoc(commentsCollectionRef, {
           userId: user.uid,
-          email: user.email,
+          email: user.email || 'Inconnu',
           avatar: user.photoURL || null,
           text: values.initialComment,
-          timestamp: serverTimestamp(), 
+          timestamp: serverTimestamp(),
           partyId: partyId, 
         });
       }
@@ -612,7 +629,7 @@ export default function CreateEventPage() {
                                     {participant.avatarUrl ? (
                                         <Image src={participant.avatarUrl} alt={participant.pseudo || participant.displayName || participant.email || 'avatar'} width={16} height={16} className="rounded-full" data-ai-hint="utilisateur avatar" />
                                     ) : (
-                                        <UserPlus className="h-3 w-3" /> // Fallback icon
+                                        <UserPlus className="h-3 w-3" /> 
                                     )}
                                     <span>{participant.pseudo || participant.displayName || participant.email}</span>
                                     {user && participant.uid === user.uid ? 
@@ -738,7 +755,7 @@ export default function CreateEventPage() {
                                     <Slider
                                         defaultValue={[0]}
                                         value={[field.value || 0]}
-                                        max={5}
+                                        max={5} // Scale 0-5 for display
                                         step={0.5}
                                         onValueChange={(value) => field.onChange(value[0])}
                                         className="w-[calc(100%-5rem)]"
@@ -785,4 +802,3 @@ export default function CreateEventPage() {
   );
 }
 
-      
