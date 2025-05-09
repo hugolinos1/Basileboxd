@@ -1,12 +1,15 @@
 // src/services/validation-schemas.ts
 import * as z from 'zod';
-import { ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE, COMPRESSED_COVER_PHOTO_MAX_SIZE_MB } from './media-uploader';
+import { MAX_FILE_SIZE } from './media-uploader'; // Import only necessary constants
 
 const isBrowser = typeof window !== 'undefined';
 
 const fileSchemaClient = z.instanceof(isBrowser ? File : Object, { message: 'Veuillez télécharger un fichier' });
 const fileSchemaServer = z.any(); // Fallback for SSR
 const fileSchema = isBrowser ? fileSchemaClient : fileSchemaServer;
+
+// Define and Export ACCEPTED_COVER_PHOTO_TYPES locally
+export const ACCEPTED_COVER_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 export const coverPhotoSchema = fileSchema
     .refine(
@@ -23,6 +26,4 @@ export const coverPhotoSchema = fileSchema
         },
         `La photo de couverture initiale ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`
     )
-    // Additional refinement after compression could be added here if needed,
-    // but usually validation is done before compression.
     .optional(); // Make cover photo optional

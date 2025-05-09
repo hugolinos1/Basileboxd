@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -36,8 +37,9 @@ import {
   ACCEPTED_MEDIA_TYPES,
   MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  ACCEPTED_COVER_PHOTO_TYPES, 
 } from '@/services/media-uploader';
-import { coverPhotoSchema, ACCEPTED_COVER_PHOTO_TYPES } from '@/services/validation-schemas'; 
+import { coverPhotoSchema } from '@/services/validation-schemas'; 
 
 
 import { Progress } from '@/components/ui/progress';
@@ -424,7 +426,7 @@ export default function CreateEventPage() {
                       name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Nom de l'Event *</FormLabel>
+                          <FormLabel>Nom de l&apos;Event *</FormLabel>
                           <FormControl>
                             <Input placeholder="Ex : Soirée plage d'été" {...field} className="bg-input border-border focus:bg-background focus:border-primary"/>
                           </FormControl>
@@ -497,7 +499,7 @@ export default function CreateEventPage() {
                <AccordionTrigger className="text-lg font-semibold hover:no-underline">
                 <div className="flex items-center space-x-2">
                   <span className="bg-primary text-primary-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs">2</span>
-                  <span>Photo de l'Event</span>
+                  <span>Photo de l&apos;Event</span>
                 </div>
               </AccordionTrigger>
               <AccordionContent>
