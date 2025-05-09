@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -35,7 +34,7 @@ import {
   uploadFile,
   getFileType as getMediaFileType, 
   ACCEPTED_MEDIA_TYPES,
-  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG,
+  MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG, // Renamed for clarity
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
   ACCEPTED_COVER_PHOTO_TYPES, 
 } from '@/services/media-uploader';
@@ -147,22 +146,23 @@ export default function CreateEventPage() {
       description: '',
       location: '',
       coverPhoto: undefined,
-      participants: user ? [user.uid] : [],
+      participants: [], // Initialize as empty, will be set by useEffect
       media: [],
       initialRating: 0,
       initialComment: '',
     },
   });
 
+  // Effect to add creator to participants list by default
   useEffect(() => {
-    if (user && form.getValues('participants')?.length === 0) {
-      form.setValue('participants', [user.uid]);
+    if (user && allUsers.length > 0 && form.getValues('participants')?.length === 0) {
       const currentUserData = allUsers.find(u => u.uid === user.uid);
-      if (currentUserData && !selectedParticipants.find(p => p.uid === user.uid)) {
-        setSelectedParticipants(prev => [...prev, currentUserData]);
+      if (currentUserData) {
+        form.setValue('participants', [user.uid]);
+        setSelectedParticipants([currentUserData]);
       }
     }
-  }, [user, form, allUsers, selectedParticipants]);
+  }, [user, allUsers, form]);
 
 
   const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -241,9 +241,9 @@ export default function CreateEventPage() {
   };
 
   const handleAddParticipant = (userId: string) => {
-    const currentParticipants = form.getValues('participants') || [];
-    if (!currentParticipants.includes(userId)) {
-      form.setValue('participants', [...currentParticipants, userId]);
+    const currentParticipantsUIDs = form.getValues('participants') || [];
+    if (!currentParticipantsUIDs.includes(userId)) {
+      form.setValue('participants', [...currentParticipantsUIDs, userId]);
       const participantData = allUsers.find(u => u.uid === userId);
       if (participantData && !selectedParticipants.find(p => p.uid === userId)) {
         setSelectedParticipants(prev => [...prev, participantData]);
@@ -253,11 +253,11 @@ export default function CreateEventPage() {
 
   const handleRemoveParticipant = (userId: string) => {
     if (user && userId === user.uid) {
-      toast({ title: "Impossible de retirer", description: "Le créateur ne peut pas être retiré de l'événement.", variant: "warning" });
+      toast({ title: "Impossible de retirer", description: "Le créateur ne peut pas être retiré de l'événement.", variant: 'warning' });
       return;
     }
     form.setValue('participants', (form.getValues('participants') || []).filter(uid => uid !== userId));
-    setSelectedParticipants(prev => prev.filter(p => p.uid !== userId)); // Corrected to filter out based on uid
+    setSelectedParticipants(prev => prev.filter(p => p.uid !== userId));
   };
 
 
@@ -289,7 +289,7 @@ export default function CreateEventPage() {
 
     if (normalizedLocation) {
       toast({ title: "Géocodage en cours...", description: `Recherche des coordonnées pour ${values.location}.` });
-      const coords = await geocodeCity(normalizedLocation); // Use normalized location for geocoding
+      const coords = await geocodeCity(normalizedLocation); 
       if (coords) {
         latitude = coords.lat;
         longitude = coords.lon;
@@ -310,8 +310,8 @@ export default function CreateEventPage() {
         longitude: longitude, 
         createdBy: user.uid,
         creatorEmail: user.email,
-        participants: values.participants?.length ? values.participants : [user.uid], 
-        participantEmails: selectedParticipants.length ? selectedParticipants.map(p => p.email) : (user.email ? [user.email] : []),
+        participants: values.participants?.length ? values.participants : (user ? [user.uid] : []),
+        participantEmails: selectedParticipants.length ? selectedParticipants.map(p => p.email) : (user?.email ? [user.email] : []),
         mediaItems: [],
         coverPhotoUrl: '',
         ratings: values.initialRating && user ? { [user.uid]: values.initialRating } : {},
@@ -361,7 +361,7 @@ export default function CreateEventPage() {
                 type: getLocalFileType(file),
                 uploaderId: user.uid,
                 uploaderEmail: user.email || undefined,
-                uploadedAt: Timestamp.now(), // Use Timestamp.now() for arrays
+                uploadedAt: Timestamp.now(), 
                 fileName: file.name,
               } as MediaItem;
             }
@@ -603,17 +603,26 @@ export default function CreateEventPage() {
                         )}
                         />
                     {selectedParticipants.length > 0 && (
-                        <div className="space-y-2">
-                            <h4 className="text-sm font-medium">Participants sélectionnés :</h4>
-                            <div className="flex flex-wrap gap-2">
+                        <div className="space-y-2 mt-4">
+                            <h4 className="text-sm font-medium text-foreground">Participants sélectionnés :</h4>
+                            <div className="flex flex-wrap gap-2 p-3 bg-secondary/30 border border-border/50 rounded-md">
                             {selectedParticipants.map((participant) => (
-                                <Badge key={participant.uid} variant="secondary" className="py-1 px-2 text-xs">
-                                    {participant.pseudo || participant.displayName || participant.email}
-                                    {user && participant.uid === user.uid ? " (Créateur)" : (
-                                    <button type="button" onClick={() => handleRemoveParticipant(participant.uid)} className="ml-1.5 text-muted-foreground hover:text-destructive">
-                                        <X className="h-3 w-3" />
-                                    </button>
+                                <Badge key={participant.uid} variant="secondary" className="py-1.5 px-2.5 text-xs shadow-sm">
+                                    <div className="flex items-center gap-1.5">
+                                    {participant.avatarUrl ? (
+                                        <Image src={participant.avatarUrl} alt={participant.pseudo || participant.displayName || participant.email || 'avatar'} width={16} height={16} className="rounded-full" data-ai-hint="utilisateur avatar" />
+                                    ) : (
+                                        <UserPlus className="h-3 w-3" /> // Fallback icon
                                     )}
+                                    <span>{participant.pseudo || participant.displayName || participant.email}</span>
+                                    {user && participant.uid === user.uid ? 
+                                        <span className="text-xs text-muted-foreground/80">(Créateur)</span> 
+                                        : (
+                                        <button type="button" onClick={() => handleRemoveParticipant(participant.uid)} className="ml-1 text-muted-foreground hover:text-destructive transition-colors" title="Retirer ce participant">
+                                            <X className="h-3 w-3" />
+                                        </button>
+                                    )}
+                                    </div>
                                 </Badge>
                             ))}
                             </div>
@@ -777,4 +786,3 @@ export default function CreateEventPage() {
 }
 
       
-
