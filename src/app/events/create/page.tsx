@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -24,7 +23,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs, query, where, FieldValue } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, getDocs, query, where, FieldValue, Timestamp } from 'firebase/firestore'; // Import Timestamp
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { useRouter } from 'next/navigation';
@@ -37,9 +36,8 @@ import {
   ACCEPTED_MEDIA_TYPES,
   MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  ACCEPTED_COVER_PHOTO_TYPES
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; 
+import { coverPhotoSchema, ACCEPTED_COVER_PHOTO_TYPES } from '@/services/validation-schemas'; 
 
 
 import { Progress } from '@/components/ui/progress';
@@ -256,7 +254,7 @@ export default function CreateEventPage() {
       return;
     }
     form.setValue('participants', (form.getValues('participants') || []).filter(uid => uid !== userId));
-    setSelectedParticipants(prev => prev.filter(p => p.uid !== userId));
+    setSelectedParticipants(prev => prev.filter(p => p.uid === userId));
   };
 
 
@@ -360,7 +358,7 @@ export default function CreateEventPage() {
                 type: getLocalFileType(file),
                 uploaderId: user.uid,
                 uploaderEmail: user.email || undefined,
-                uploadedAt: serverTimestamp() as FieldValue,
+                uploadedAt: Timestamp.now(), // Use Timestamp.now() for arrays
                 fileName: file.name,
               } as MediaItem;
             }
