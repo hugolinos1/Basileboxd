@@ -24,8 +24,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { uploadFile, ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas';
+import { uploadFile, ACCEPTED_AVATAR_TYPES, MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE } from '@/services/media-uploader';
+import { avatarSchema } from '@/services/validation-schemas';
 import type { PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
 
 
@@ -158,66 +158,76 @@ export default function UserProfilePage() {
             setLoading(true);
             setError(null);
             try {
+                console.log(`[UserProfilePage fetchData] Attempting to fetch user document: users/${profileUserId}`);
                 const userDocRef = doc(db, 'users', profileUserId);
                 const userDocSnap = await getDoc(userDocRef);
 
                 if (!userDocSnap.exists()) {
-                    // console.warn(`[UserProfilePage fetchData] Utilisateur non trouvé pour l'ID: ${profileUserId}`); // Changed to warn
+                    console.error(`[UserProfilePage fetchData] Utilisateur non trouvé pour l'ID: ${profileUserId}`);
                     setError("Utilisateur non trouvé."); 
                     setProfileUserData(null); 
                     setLoading(false);
                     return;
                 }
+                 console.log(`[UserProfilePage fetchData] User document found for ID: ${profileUserId}`);
                 const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as Omit<UserData, 'eventCount' | 'commentCount' | 'averageRatingGiven'>;
 
-                const partiesRef = collection(db, 'parties');
-                const createdPartiesQuery = query(partiesRef, where('createdBy', '==', profileUserId));
-                const participatedPartiesQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
+                // TEMPORARILY COMMENT OUT PARTY AND COMMENT FETCHING FOR DEBUGGING
+                // const partiesRef = collection(db, 'parties');
+                // const createdPartiesQuery = query(partiesRef, where('createdBy', '==', profileUserId));
+                // const participatedPartiesQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
 
-                const [createdPartiesSnapshot, participatedPartiesSnapshot] = await Promise.all([
-                    getDocs(createdPartiesQuery),
-                    getDocs(participatedPartiesQuery)
-                ]);
+                // const [createdPartiesSnapshot, participatedPartiesSnapshot] = await Promise.all([
+                //     getDocs(createdPartiesQuery),
+                //     getDocs(participatedPartiesQuery)
+                // ]);
+                //  console.log(`[UserProfilePage fetchData] Fetched ${createdPartiesSnapshot.size} created parties and ${participatedPartiesSnapshot.size} participated parties.`);
 
-                const createdParties = createdPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
-                const participatedParties = participatedPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
+
+                // const createdParties = createdPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
+                // const participatedParties = participatedPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
                 
-                const allUserPartiesMap = new Map<string, PartyData>();
-                createdParties.forEach(party => allUserPartiesMap.set(party.id, party));
-                participatedParties.forEach(party => allUserPartiesMap.set(party.id, party));
-                const partiesData = Array.from(allUserPartiesMap.values());
+                // const allUserPartiesMap = new Map<string, PartyData>();
+                // createdParties.forEach(party => allUserPartiesMap.set(party.id, party));
+                // participatedParties.forEach(party => allUserPartiesMap.set(party.id, party));
+                // const partiesData = Array.from(allUserPartiesMap.values());
+                // console.log(`[UserProfilePage fetchData] Combined unique parties count: ${partiesData.length}`);
+                // setUserParties(partiesData);
 
 
-                const commentsCollectionRef = collectionGroup(db, 'comments');
-                const commentsQuery = query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'));
-                const commentsSnapshot = await getDocs(commentsQuery);
-                const commentsDataPromises = commentsSnapshot.docs.map(async (commentDoc) => {
-                    const commentData = commentDoc.data() as Omit<CommentData, 'partyName'>;
-                    const partyDocRef = commentDoc.ref.parent.parent; 
-                    if (partyDocRef) {
-                        const partySnap = await getDoc(partyDocRef);
-                        if (partySnap.exists()) {
-                            return { ...commentData, id: commentDoc.id, partyId: partySnap.id, partyName: partySnap.data()?.name || 'Événement inconnu' } as CommentData;
-                        }
-                    }
-                    return { ...commentData, id: commentDoc.id, partyId: 'unknown', partyName: 'Événement inconnu' } as CommentData;
-                });
-                const resolvedCommentsData = await Promise.all(commentsDataPromises);
+                // const commentsCollectionRef = collectionGroup(db, 'comments');
+                // const commentsQuery = query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'));
+                // const commentsSnapshot = await getDocs(commentsQuery);
+                // console.log(`[UserProfilePage fetchData] Fetched ${commentsSnapshot.size} comments.`);
+                // const commentsDataPromises = commentsSnapshot.docs.map(async (commentDoc) => {
+                //     const commentData = commentDoc.data() as Omit<CommentData, 'partyName'>;
+                //     const partyDocRef = commentDoc.ref.parent.parent; 
+                //     if (partyDocRef) {
+                //         const partySnap = await getDoc(partyDocRef);
+                //         if (partySnap.exists()) {
+                //             return { ...commentData, id: commentDoc.id, partyId: partySnap.id, partyName: partySnap.data()?.name || 'Événement inconnu' } as CommentData;
+                //         }
+                //     }
+                //     return { ...commentData, id: commentDoc.id, partyId: 'unknown', partyName: 'Événement inconnu' } as CommentData;
+                // });
+                // const resolvedCommentsData = await Promise.all(commentsDataPromises);
+                // setUserComments(resolvedCommentsData);
 
+                // Set dummy stats for now
                 setProfileUserData({
                     ...fetchedUser,
-                    eventCount: partiesData.length,
-                    commentCount: resolvedCommentsData.length,
-                    averageRatingGiven: calculateAverageRatingGiven(partiesData, profileUserId),
+                    eventCount: 0, // partiesData.length,
+                    commentCount: 0, // resolvedCommentsData.length,
+                    averageRatingGiven: 0, // calculateAverageRatingGiven(partiesData, profileUserId),
                 });
-                setUserParties(partiesData);
-                setUserComments(resolvedCommentsData);
+
 
             } catch (err: any) {
                 console.error("Erreur lors de la récupération des données utilisateur:", err);
                  let userFriendlyError = err.message || "Impossible de charger le profil.";
-                  if (err.code === 'permission-denied') {
+                  if (err.code === 'permission-denied' || err.message?.includes('permission-denied') || err.message?.includes('insufficient permissions')) {
                      userFriendlyError = "Permission refusée. Vérifiez les règles Firestore.";
+                      console.error("FIREBASE PERMISSION ERROR: Details -", err);
                  } else if (err.message?.includes('collectionGroup') && err.message?.includes('index')) {
                      userFriendlyError = "Index Firestore manquant pour la requête collectionGroup sur 'comments'. Veuillez créer cet index dans votre console Firebase.";
                      console.error("INDEX REQUIRED for collectionGroup query on 'comments': The query requires an index. You can create it here: ... (Firebase should provide a link in the detailed error in browser console or Firebase console)");
@@ -225,6 +235,7 @@ export default function UserProfilePage() {
                 setError(userFriendlyError);
             } finally {
                 setLoading(false);
+                 console.log("[UserProfilePage fetchData] Fetch attempt finished.");
             }
         };
         fetchData();
@@ -234,7 +245,7 @@ export default function UserProfilePage() {
         const isBrowser = typeof window !== 'undefined';
         const file = event.target.files?.[0];
         if (file) {
-            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; 
+            const validationResult = isBrowser && file instanceof File ? avatarSchema.safeParse(file) : { success: true }; 
             if (validationResult.success) {
                 setNewAvatarFile(file);
                 if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
@@ -293,9 +304,11 @@ export default function UserProfilePage() {
             console.error("Erreur lors de la mise à jour de l'avatar:", error);
             let userFriendlyError = "Impossible de mettre à jour l'avatar.";
             if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied') {
-                userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité.";
+                userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité Storage.";
             } else if (error.message?.includes('Firebase Storage: User does not have permission to access')) {
                 userFriendlyError = `Permission refusée par Firebase Storage. Vérifiez les règles de Storage. Détails: ${error.message}`;
+            } else {
+                 userFriendlyError = error.message || userFriendlyError;
             }
             toast({ title: 'Échec de la mise à jour', description: userFriendlyError, variant: 'destructive' });
         } finally {
@@ -404,7 +417,7 @@ export default function UserProfilePage() {
                                     <DialogDescription>Choisissez une nouvelle image de profil. Max {MEDIA_MAX_FILE_SIZE.userAvatar / (1024*1024)}Mo, sera compressée si besoin.</DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
-                                    <Input id="new-avatar-input" type="file" accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')} onChange={handleNewAvatarFileChange} className="col-span-3" />
+                                    <Input id="new-avatar-input" type="file" accept={ACCEPTED_AVATAR_TYPES.join(',')} onChange={handleNewAvatarFileChange} className="col-span-3" />
                                     {newAvatarPreview && (
                                         <div className="relative aspect-square w-32 h-32 mx-auto border rounded-full mt-2 bg-muted overflow-hidden">
                                             <Image src={newAvatarPreview} alt="Aperçu nouvel avatar" layout="fill" objectFit="cover" />
@@ -591,3 +604,4 @@ export default function UserProfilePage() {
         </div>
     );
 }
+
