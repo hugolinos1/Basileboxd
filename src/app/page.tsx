@@ -1,4 +1,3 @@
-
 import { HeroSection } from '@/components/home/HeroSection';
 import { TopPartiesSection } from '@/components/home/TopPartiesSection';
 import { RecentPartiesSection } from '@/components/home/RecentPartiesSection';
@@ -46,34 +45,65 @@ interface RecentPartyDisplayData {
 
 async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], recentParties: RecentPartyDisplayData[] }> {
   if (!db) {
-    console.error("Firestore instance is not available.");
+    console.error("Firestore instance is not available for getPartyData.");
     return { topParties: [], recentParties: [] };
   }
 
   try {
-    console.log("Fetching party data from Firestore...");
+    console.log("[getPartyData] Fetching party data from Firestore...");
     const partiesCollectionRef = collection(db, 'parties');
+    // Ensure you have an index on 'createdAt' descending for these queries in Firestore
     const recentQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(15));
-    const allPartiesQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(50)); // For ranking
+    const allPartiesQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(50)); 
 
     const [recentSnapshot, allPartiesSnapshot] = await Promise.all([
         getDocs(recentQuery),
         getDocs(allPartiesQuery)
     ]);
-    console.log(`Fetched ${allPartiesSnapshot.size} parties for ranking, ${recentSnapshot.size} for recent.`);
+    console.log(`[getPartyData] Fetched ${allPartiesSnapshot.size} parties for ranking, ${recentSnapshot.size} for recent.`);
 
-    const allPartiesData: PartyData[] = allPartiesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PartyData));
+    if (allPartiesSnapshot.empty) {
+        console.log("[getPartyData] No parties found in 'parties' collection for ranking.");
+    }
+
+    const allPartiesData: PartyData[] = allPartiesSnapshot.docs.map(doc => {
+        const data = doc.data();
+        // Log each document's data for inspection
+        // console.log(`[getPartyData] Raw party doc (id: ${doc.id}):`, data);
+        return { id: doc.id, ...data } as PartyData;
+    });
+    console.log(`[getPartyData] Mapped allPartiesData count: ${allPartiesData.length}`);
+    if (allPartiesData.length > 0) {
+      // console.log("[getPartyData] Sample of allPartiesData (first 2):", allPartiesData.slice(0, 2).map(p => ({id: p.id, name: p.name, ratings: p.ratings, createdAt: p.createdAt })));
+    }
+
 
     const partiesWithAvgRating = allPartiesData
-      .map(party => ({
-          ...party,
-          averageRating: calculatePartyAverageRating(party)
-      }))
-      .filter(party => party.averageRating > 0) 
+      .map(party => {
+          const avgRating = calculatePartyAverageRating(party);
+          // console.log(`[getPartyData] Party: ${party.name}, Ratings: ${JSON.stringify(party.ratings)}, Calculated Avg Rating (0-5): ${avgRating}`);
+          return {
+            ...party,
+            averageRating: avgRating
+          };
+      })
+      .filter(party => {
+          const passesFilter = party.averageRating > 0;
+          // if (!passesFilter) {
+          //   console.log(`[getPartyData] Filtering out party: ${party.name} due to averageRating <= 0 (is ${party.averageRating})`);
+          // }
+          return passesFilter;
+      })
       .sort((a, b) => b.averageRating - a.averageRating); 
+    
+    console.log(`[getPartyData] Parties after rating calculation and filtering (count: ${partiesWithAvgRating.length}):`);
+    // if (partiesWithAvgRating.length > 0) {
+    //   console.log("[getPartyData] Sample of partiesWithAvgRating (first 2):", partiesWithAvgRating.slice(0, 2).map(p => ({name:p.name, avg: p.averageRating})));
+    // }
+
 
     const topParties: TopPartyDisplayData[] = partiesWithAvgRating.slice(0, 10).map((party, index) => {
-        console.log(`Top Party ${index + 1}: ${party.name}, Cover URL: ${party.coverPhotoUrl}`); 
+        // console.log(`[getPartyData] Top Party ${index + 1}: ${party.name}, Cover URL: ${party.coverPhotoUrl}, Avg Rating (0-5): ${party.averageRating}`); 
         return {
           id: party.id,
           name: party.name || 'Événement sans nom',
@@ -90,13 +120,16 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
       const participantDetailsPromises = (party.participants || []).slice(0, 5).map(async (participantId) => {
         let userProfile: UserProfile | null = null;
         try {
-          const userDocRef = doc(db, 'users', participantId);
+          // Ensure 'users' collection exists and participantId is a valid doc ID
+          const userDocRef = doc(db, 'users', participantId); 
           const userDocSnap = await getFirestoreDoc(userDocRef);
           if (userDocSnap.exists()) {
             userProfile = { id: userDocSnap.id, ...userDocSnap.data() } as UserProfile;
+          } else {
+            // console.warn(`[getPartyData] User profile not found for participant ID: ${participantId} in party ${party.name}`);
           }
         } catch (e) {
-          console.warn(`Could not fetch profile for participant ${participantId}:`, e);
+          console.warn(`[getPartyData] Could not fetch profile for participant ${participantId}:`, e);
         }
         return {
           id: participantId,
@@ -108,7 +141,7 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
       });
       const participants = await Promise.all(participantDetailsPromises);
 
-      console.log(`Recent Party: ${party.name}, Cover URL: ${party.coverPhotoUrl}`); 
+      // console.log(`[getPartyData] Recent Party: ${party.name}, Cover URL: ${party.coverPhotoUrl}`); 
       return {
         id: party.id,
         name: party.name || 'Événement sans nom',
@@ -120,13 +153,15 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
 
     const recentParties = await Promise.all(recentPartiesPromises);
 
-    console.log(`Prepared ${topParties.length} top parties and ${recentParties.length} recent parties.`);
+    console.log(`[getPartyData] Prepared ${topParties.length} top parties and ${recentParties.length} recent parties.`);
     return { topParties, recentParties };
 
   } catch (error) {
-    console.error("Erreur lors de la récupération des fêtes:", error);
+    console.error("[getPartyData] Erreur lors de la récupération des fêtes:", error);
      if (error instanceof Error && (error.message.includes('permission-denied') || error.message.includes('insufficient permissions'))) {
-         console.error("FIREBASE PERMISSION ERROR: Check Firestore security rules for the 'parties' collection. Ensure reads are allowed.");
+         console.error("[getPartyData] FIREBASE PERMISSION ERROR: Check Firestore security rules for the 'parties' collection. Ensure reads are allowed. Also check if required indexes are built.");
+     } else if (error instanceof Error && error.message.includes('requires an index')) {
+         console.error("[getPartyData] FIREBASE INDEXING ERROR: The query requires an index. Check the Firebase console for a link to create it. Error:", error.message);
      }
     return { topParties: [], recentParties: [] }; 
   }
@@ -141,9 +176,11 @@ export default async function Home() {
       <HeroSection />
       <TopPartiesSection parties={topParties} />
       <Separator className="my-8 md:my-12 bg-border/50" />
+      {/* Pass fetched data to RecentPartiesSection */}
       <RecentPartiesSection parties={recentParties} />
       <Separator className="my-8 md:my-12 bg-border/50" />
       <AddPartySection />
     </div>
   );
 }
+
