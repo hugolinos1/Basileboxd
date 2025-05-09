@@ -172,53 +172,57 @@ export default function UserProfilePage() {
                  console.log(`[UserProfilePage fetchData] User document found for ID: ${profileUserId}`);
                 const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as Omit<UserData, 'eventCount' | 'commentCount' | 'averageRatingGiven'>;
 
-                // TEMPORARILY COMMENT OUT PARTY AND COMMENT FETCHING FOR DEBUGGING
-                // const partiesRef = collection(db, 'parties');
-                // const createdPartiesQuery = query(partiesRef, where('createdBy', '==', profileUserId));
-                // const participatedPartiesQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
+                const partiesRef = collection(db, 'parties');
+                // Query for parties created by the user
+                const createdPartiesQuery = query(partiesRef, where('createdBy', '==', profileUserId));
+                // Query for parties the user participated in (might include created ones if creator is also a participant)
+                const participatedPartiesQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
 
-                // const [createdPartiesSnapshot, participatedPartiesSnapshot] = await Promise.all([
-                //     getDocs(createdPartiesQuery),
-                //     getDocs(participatedPartiesQuery)
-                // ]);
-                //  console.log(`[UserProfilePage fetchData] Fetched ${createdPartiesSnapshot.size} created parties and ${participatedPartiesSnapshot.size} participated parties.`);
+                const [createdPartiesSnapshot, participatedPartiesSnapshot] = await Promise.all([
+                    getDocs(createdPartiesQuery),
+                    getDocs(participatedPartiesQuery)
+                ]);
+                 console.log(`[UserProfilePage fetchData] Fetched ${createdPartiesSnapshot.size} created parties and ${participatedPartiesSnapshot.size} participated parties.`);
 
 
-                // const createdParties = createdPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
-                // const participatedParties = participatedPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
+                const createdParties = createdPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
+                const participatedParties = participatedPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
                 
-                // const allUserPartiesMap = new Map<string, PartyData>();
-                // createdParties.forEach(party => allUserPartiesMap.set(party.id, party));
-                // participatedParties.forEach(party => allUserPartiesMap.set(party.id, party));
-                // const partiesData = Array.from(allUserPartiesMap.values());
-                // console.log(`[UserProfilePage fetchData] Combined unique parties count: ${partiesData.length}`);
-                // setUserParties(partiesData);
+                // Combine and deduplicate parties
+                const allUserPartiesMap = new Map<string, PartyData>();
+                createdParties.forEach(party => allUserPartiesMap.set(party.id, party));
+                participatedParties.forEach(party => allUserPartiesMap.set(party.id, party)); // Overwrites if already present (which is fine)
+                const partiesData = Array.from(allUserPartiesMap.values());
+                console.log(`[UserProfilePage fetchData] Combined unique parties count: ${partiesData.length}`);
+                setUserParties(partiesData);
 
 
-                // const commentsCollectionRef = collectionGroup(db, 'comments');
-                // const commentsQuery = query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'));
-                // const commentsSnapshot = await getDocs(commentsQuery);
-                // console.log(`[UserProfilePage fetchData] Fetched ${commentsSnapshot.size} comments.`);
-                // const commentsDataPromises = commentsSnapshot.docs.map(async (commentDoc) => {
-                //     const commentData = commentDoc.data() as Omit<CommentData, 'partyName'>;
-                //     const partyDocRef = commentDoc.ref.parent.parent; 
-                //     if (partyDocRef) {
-                //         const partySnap = await getDoc(partyDocRef);
-                //         if (partySnap.exists()) {
-                //             return { ...commentData, id: commentDoc.id, partyId: partySnap.id, partyName: partySnap.data()?.name || 'Événement inconnu' } as CommentData;
-                //         }
-                //     }
-                //     return { ...commentData, id: commentDoc.id, partyId: 'unknown', partyName: 'Événement inconnu' } as CommentData;
-                // });
-                // const resolvedCommentsData = await Promise.all(commentsDataPromises);
-                // setUserComments(resolvedCommentsData);
+                // Fetch comments using collectionGroup query
+                const commentsCollectionRef = collectionGroup(db, 'comments');
+                const commentsQuery = query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'));
+                const commentsSnapshot = await getDocs(commentsQuery);
+                console.log(`[UserProfilePage fetchData] Fetched ${commentsSnapshot.size} comments.`);
+                const commentsDataPromises = commentsSnapshot.docs.map(async (commentDoc) => {
+                    const commentData = commentDoc.data() as Omit<CommentData, 'partyName'>;
+                    // Get the parent party document to extract its name
+                    const partyDocRef = commentDoc.ref.parent.parent; // This should be the party document
+                    if (partyDocRef) {
+                        const partySnap = await getDoc(partyDocRef);
+                        if (partySnap.exists()) {
+                            return { ...commentData, id: commentDoc.id, partyId: partySnap.id, partyName: partySnap.data()?.name || 'Événement inconnu' } as CommentData;
+                        }
+                    }
+                    // Fallback if party document is not found
+                    return { ...commentData, id: commentDoc.id, partyId: 'unknown', partyName: 'Événement inconnu' } as CommentData;
+                });
+                const resolvedCommentsData = await Promise.all(commentsDataPromises);
+                setUserComments(resolvedCommentsData);
 
-                // Set dummy stats for now
                 setProfileUserData({
                     ...fetchedUser,
-                    eventCount: 0, // partiesData.length,
-                    commentCount: 0, // resolvedCommentsData.length,
-                    averageRatingGiven: 0, // calculateAverageRatingGiven(partiesData, profileUserId),
+                    eventCount: partiesData.length, // Use the count of unique parties
+                    commentCount: resolvedCommentsData.length,
+                    averageRatingGiven: calculateAverageRatingGiven(partiesData, profileUserId),
                 });
 
 
@@ -304,7 +308,7 @@ export default function UserProfilePage() {
             console.error("Erreur lors de la mise à jour de l'avatar:", error);
             let userFriendlyError = "Impossible de mettre à jour l'avatar.";
             if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied') {
-                userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité Storage.";
+                userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité.";
             } else if (error.message?.includes('Firebase Storage: User does not have permission to access')) {
                 userFriendlyError = `Permission refusée par Firebase Storage. Vérifiez les règles de Storage. Détails: ${error.message}`;
             } else {
@@ -532,7 +536,7 @@ export default function UserProfilePage() {
                                                           {overallAvg > 0 && (
                                                               <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white text-xs font-semibold px-2 py-1 rounded-full flex items-center space-x-1">
                                                                  <Star className="h-3 w-3 text-yellow-400 fill-current" />
-                                                                 <span>{overallAvg.toFixed(1)}</span>
+                                                                 <span>{(overallAvg / 2).toFixed(1)}</span> {/* Convert 0-10 to 0-5 */}
                                                              </div>
                                                           )}
                                                      </div>
@@ -582,15 +586,15 @@ export default function UserProfilePage() {
                      <Card className="bg-card border-border">
                          <CardHeader>
                             <CardTitle>Répartition des Notes Données</CardTitle>
-                             <CardDescription>Distribution des notes attribuées par {displayUsername}.</CardDescription>
+                             <CardDescription>Distribution des notes attribuées par {displayUsername} (échelle 0.5 - 5).</CardDescription>
                          </CardHeader>
                          <CardContent className="pl-2">
                               {stats.averageRatingGiven > 0 ? (
                                   <ChartContainer config={chartConfig} className="h-[150px] w-full">
-                                     <BarChart accessibilityLayer data={ratingDistributionGiven} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
-                                          <XAxis dataKey="rating" tickLine={false} tickMargin={10} axisLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12} interval={1} tickFormatter={(value) => `${value}`} />
+                                     <BarChart accessibilityLayer data={ratingDistributionGiven.map(r => ({...r, rating: r.rating / 2}))} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
+                                          <XAxis dataKey="rating" type="number" domain={[0, 5]} tickLine={false} tickMargin={10} axisLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12} interval={0} tickFormatter={(value) => `${value.toFixed(1)}`} />
                                          <YAxis tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12} width={30} />
-                                         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel hideIndicator />} formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating} étoiles`]} />
+                                         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel hideIndicator />} formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating.toFixed(1)} étoiles`]} />
                                          <Bar dataKey="votes" fill="var(--color-votes)" radius={4} />
                                      </BarChart>
                                  </ChartContainer>
@@ -604,4 +608,6 @@ export default function UserProfilePage() {
         </div>
     );
 }
+
+
 
