@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { useFirebase } from '@/context/FirebaseContext';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ShieldAlert, ImageIcon, Video, Music, Trash2, Loader2, User, Users, MessageSquare, Image as LucideImage, FileText } from 'lucide-react';
+import { ShieldAlert, ImageIcon, Video, Music, Trash2, Loader2, User, Users, MessageSquare, Image as LucideImage, FileText, CalendarDays } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -19,11 +19,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
-import { collection, getDocs, doc, deleteDoc, Timestamp, query, orderBy, updateDoc, arrayRemove, getDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, Timestamp, query, orderBy, updateDoc, arrayRemove, writeBatch } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { Alert, AlertDescription, AlertTitle as AlertUITitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
-import { PartyData as SharedPartyData, CommentData as SharedCommentData, getDateFromTimestamp as sharedGetDateFromTimestamp } from '@/lib/party-utils';
+import { PartyData as SharedPartyData, CommentData as SharedCommentData, getDateFromTimestamp as sharedGetDateFromTimestamp, MediaItem as SharedMediaItem } from '@/lib/party-utils';
 
 // --- Interfaces for Firestore Data ---
 interface UserData {
@@ -40,15 +40,9 @@ interface UserData {
 type PartyData = SharedPartyData & { id: string }; // Ensure id is present
 type CommentData = SharedCommentData & { id: string, partyName?: string }; // Ensure id and partyName are present
 
-interface MediaData {
-  id: string; // Can be the URL itself if unique, or a generated ID
-  partyId: string;
-  partyName?: string;
-  url: string;
-  type: 'image' | 'video' | 'audio' | 'autre';
-  uploadedAt: Timestamp | Date; // Or use party's createdAt as fallback
-  fileName?: string;
-}
+// Extend MediaItem to include partyName for display
+type MediaData = SharedMediaItem & { partyName?: string };
+
 
 // Use shared date conversion utility
 const getDateFromTimestamp = sharedGetDateFromTimestamp;
@@ -119,13 +113,12 @@ export default function AdminPage() {
             const fetchedParties: PartyData[] = [];
             const allComments: CommentData[] = [];
             const allMedia: MediaData[] = [];
-            let mediaIdCounter = 0;
 
             for (const partyDoc of partiesSnapshot.docs) {
                 const partyData = { id: partyDoc.id, ...partyDoc.data() } as PartyData;
                 fetchedParties.push(partyData);
 
-                // Fetch comments for this party (assuming subcollection)
+                // Fetch comments for this party (subcollection)
                 const commentsRef = collection(db, 'parties', partyDoc.id, 'comments');
                 const commentsSnapshot = await getDocs(query(commentsRef, orderBy('timestamp', 'desc')));
                 commentsSnapshot.forEach(commentDoc => {
@@ -137,24 +130,13 @@ export default function AdminPage() {
                     });
                 });
 
-                // Process media for this party (from mediaUrls array)
-                if (partyData.mediaUrls && Array.isArray(partyData.mediaUrls)) {
-                    partyData.mediaUrls.forEach(url => {
-                        const fileExtension = url.substring(url.lastIndexOf('.') + 1).toLowerCase();
-                        let type: MediaData['type'] = 'autre';
-                        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExtension)) type = 'image';
-                        else if (['mp4', 'mov', 'avi', 'webm'].includes(fileExtension)) type = 'video';
-                        else if (['mp3', 'wav', 'ogg', 'aac'].includes(fileExtension)) type = 'audio';
-                        
-                        const fileName = url.substring(url.lastIndexOf('/') + 1).split('?')[0];
+                // Process mediaItems for this party
+                if (partyData.mediaItems && Array.isArray(partyData.mediaItems)) {
+                    partyData.mediaItems.forEach(mediaItem => {
                         allMedia.push({
-                            id: `media-${partyDoc.id}-${fileName}-${mediaIdCounter++}`, // More unique ID
-                            partyId: partyDoc.id,
-                            partyName: partyData.name,
-                            url: url,
-                            type: type,
-                            uploadedAt: partyData.createdAt || new Date(), // Fallback
-                            fileName: fileName,
+                            ...mediaItem, // Spread the existing media item
+                            partyId: partyDoc.id, // Ensure partyId is correctly associated
+                            partyName: partyData.name, // Add partyName for display
                         });
                     });
                 }
@@ -191,15 +173,13 @@ export default function AdminPage() {
     setIsDeleting(true);
 
     try {
-        const { type, id, partyId, name } = itemToDelete;
-        let docRef;
-
+        const { type, id, partyId } = itemToDelete;
+        let name = itemToDelete.name; // Use let for name as it might be modified for MediaItem
+        
         if (type === 'Utilisateur') {
-            docRef = doc(db, 'users', id);
-            await deleteDoc(docRef);
+            await deleteDoc(doc(db, 'users', id));
             setUsersData(prev => prev.filter(u => u.id !== id));
         } else if (type === 'Fête') {
-            // Delete party and its comments subcollection
             const partyDocRef = doc(db, 'parties', id);
             const commentsRef = collection(db, 'parties', id, 'comments');
             const commentsSnapshot = await getDocs(commentsRef);
@@ -208,35 +188,33 @@ export default function AdminPage() {
             commentsSnapshot.forEach(commentDoc => {
                 batch.delete(doc(commentsRef, commentDoc.id));
             });
-            batch.delete(partyDocRef); // Delete the party document itself
+            batch.delete(partyDocRef);
             await batch.commit();
 
             setPartiesData(prev => prev.filter(p => p.id !== id));
             setCommentsData(prev => prev.filter(c => c.partyId !== id));
-            setMediaData(prev => prev.filter(m => m.partyId !== id)); // Media is array on party, so it's gone with party
+            setMediaData(prev => prev.filter(m => m.partyId !== id));
         } else if (type === 'Commentaire' && partyId) {
-            docRef = doc(db, 'parties', partyId, 'comments', id);
-            await deleteDoc(docRef);
+            await deleteDoc(doc(db, 'parties', partyId, 'comments', id));
             setCommentsData(prev => prev.filter(c => c.id !== id));
         } else if (type === 'Média' && partyId) {
-            // Media is stored as an array `mediaUrls` on the party document.
-            // We need to remove the specific URL from this array.
             const partyDocRef = doc(db, 'parties', partyId);
-            const mediaUrlToRemove = mediaData.find(m => m.id === id)?.url;
-            if (mediaUrlToRemove) {
+            const mediaItemToRemove = mediaData.find(m => m.id === id);
+            name = mediaItemToRemove?.fileName || mediaItemToRemove?.id || name;
+
+            if (mediaItemToRemove) {
                 await updateDoc(partyDocRef, {
-                    mediaUrls: arrayRemove(mediaUrlToRemove)
+                    mediaItems: arrayRemove(mediaItemToRemove) // Pass the whole object to arrayRemove
                 });
                 setMediaData(prev => prev.filter(m => m.id !== id));
-                 // Also update the party in partiesData to reflect the change locally
                  setPartiesData(prev => prev.map(p => {
                      if (p.id === partyId) {
-                         return { ...p, mediaUrls: (p.mediaUrls || []).filter(url => url !== mediaUrlToRemove) };
+                         return { ...p, mediaItems: (p.mediaItems || []).filter(item => item.id !== id) };
                      }
                      return p;
                  }));
             } else {
-                throw new Error("URL du média non trouvée pour la suppression.");
+                throw new Error("Média non trouvé pour la suppression.");
             }
         } else {
              throw new Error("Type de suppression ou informations d'identification non valides.");
@@ -268,12 +246,12 @@ export default function AdminPage() {
       </CardHeader>
       <CardContent className="space-y-3 max-h-96 overflow-y-auto">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="flex justify-between items-center p-2 bg-secondary rounded-md">
-            <div className="space-y-1 flex-1">
-              <Skeleton className="h-4 w-2/3" />
+          <div key={i} className="flex justify-between items-center p-3 bg-secondary rounded-lg border border-border/30">
+            <div className="space-y-1.5 flex-1">
+              <Skeleton className="h-5 w-2/3" />
               <Skeleton className="h-3 w-1/2" />
             </div>
-            <Skeleton className="h-8 w-20" />
+            <Skeleton className="h-9 w-24" />
           </div>
         ))}
       </CardContent>
@@ -311,13 +289,16 @@ export default function AdminPage() {
                 <CardContent className="space-y-3 max-h-96 overflow-y-auto">
                  {usersData.length === 0 && <p className="text-sm text-muted-foreground">Aucun utilisateur trouvé.</p>}
                  {usersData.map((u) => (
-                    <div key={u.id} className="flex justify-between items-center p-2 bg-secondary rounded-md">
-                        <div>
-                            <p className="text-sm font-medium">{u.displayName || u.pseudo || u.email}</p>
-                            <p className="text-xs text-muted-foreground">Email: {u.email} | Inscrit le: {u.createdAt ? getDateFromTimestamp(u.createdAt)?.toLocaleDateString() : 'N/A'}</p>
+                    <div key={u.id} className="flex flex-col sm:flex-row justify-between sm:items-center p-3 bg-secondary rounded-lg border border-border/30 hover:border-primary/50 transition-colors duration-200 space-y-2 sm:space-y-0">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate" title={u.displayName || u.pseudo || u.email}>{u.displayName || u.pseudo || u.email}</p>
+                            <p className="text-xs text-muted-foreground">Email: {u.email}</p>
+                             <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                <CalendarDays className="w-3 h-3"/> Inscrit le: {u.createdAt ? getDateFromTimestamp(u.createdAt)?.toLocaleDateString() : 'N/A'}
+                             </p>
                         </div>
-                        <Button variant="destructive" size="sm" onClick={() => openDeleteDialog('Utilisateur', u.id, u.displayName || u.email)}>
-                            <Trash2 className="w-3 h-3 mr-1" /> Supprimer
+                        <Button variant="destructive" size="sm" className="mt-2 sm:mt-0 sm:ml-4 flex-shrink-0" onClick={() => openDeleteDialog('Utilisateur', u.id, u.displayName || u.email)}>
+                            <Trash2 className="w-4 h-4 mr-1.5" /> Supprimer
                         </Button>
                     </div>
                  ))}
@@ -334,13 +315,13 @@ export default function AdminPage() {
                 <CardContent className="space-y-3 max-h-96 overflow-y-auto">
                  {partiesData.length === 0 && <p className="text-sm text-muted-foreground">Aucune fête trouvée.</p>}
                  {partiesData.map((p) => (
-                    <div key={p.id} className="flex justify-between items-center p-2 bg-secondary rounded-md">
-                        <div>
-                            <p className="text-sm font-medium">{p.name}</p>
+                    <div key={p.id} className="flex flex-col sm:flex-row justify-between sm:items-center p-3 bg-secondary rounded-lg border border-border/30 hover:border-primary/50 transition-colors duration-200 space-y-2 sm:space-y-0">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate" title={p.name}>{p.name}</p>
                             <p className="text-xs text-muted-foreground">Date : {getDateFromTimestamp(p.date)?.toLocaleDateString()} | Par : {p.creatorEmail || p.createdBy}</p>
                         </div>
-                         <Button variant="destructive" size="sm" onClick={() => openDeleteDialog('Fête', p.id, p.name)}>
-                            <Trash2 className="w-3 h-3 mr-1" /> Supprimer
+                         <Button variant="destructive" size="sm" className="mt-2 sm:mt-0 sm:ml-4 flex-shrink-0" onClick={() => openDeleteDialog('Fête', p.id, p.name)}>
+                            <Trash2 className="w-4 h-4 mr-1.5" /> Supprimer
                          </Button>
                     </div>
                  ))}
@@ -357,15 +338,18 @@ export default function AdminPage() {
                 <CardContent className="space-y-3 max-h-96 overflow-y-auto">
                 {commentsData.length === 0 && <p className="text-sm text-muted-foreground">Aucun commentaire trouvé.</p>}
                  {commentsData.map((c) => (
-                     <div key={c.id} className="flex justify-between items-start p-2 bg-secondary rounded-md">
-                         <div className="flex-1 mr-4">
-                            <p className="text-sm italic">"{c.text}"</p>
-                            <p className="text-xs text-muted-foreground">
-                                Sur : {c.partyName || c.partyId} | Par : {c.email || c.userId} | Le : {getDateFromTimestamp(c.timestamp)?.toLocaleString()}
+                     <div key={c.id} className="flex flex-col sm:flex-row justify-between sm:items-start p-3 bg-secondary rounded-lg border border-border/30 hover:border-primary/50 transition-colors duration-200 space-y-2 sm:space-y-0">
+                         <div className="flex-1 mr-4 min-w-0">
+                            <p className="text-sm italic text-foreground">"{c.text}"</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                                Sur : {c.partyName || c.partyId} | Par : {c.email || c.userId}
                             </p>
+                             <p className="text-xs text-muted-foreground">
+                                Le : {getDateFromTimestamp(c.timestamp)?.toLocaleString() || 'N/A'}
+                             </p>
                         </div>
-                         <Button variant="destructive" size="sm" onClick={() => openDeleteDialog('Commentaire', c.id, `Commentaire de ${c.email}`, c.partyId )}>
-                            <Trash2 className="w-3 h-3 mr-1" /> Supprimer
+                         <Button variant="destructive" size="sm" className="mt-2 sm:mt-0 sm:ml-4 flex-shrink-0" onClick={() => openDeleteDialog('Commentaire', c.id, `Commentaire de ${c.email}`, c.partyId )}>
+                            <Trash2 className="w-4 h-4 mr-1.5" /> Supprimer
                          </Button>
                      </div>
                  ))}
@@ -382,17 +366,34 @@ export default function AdminPage() {
                 <CardContent className="space-y-3 max-h-96 overflow-y-auto">
                 {mediaData.length === 0 && <p className="text-sm text-muted-foreground">Aucun média trouvé.</p>}
                  {mediaData.map((m) => (
-                     <div key={m.id} className="flex justify-between items-center p-2 bg-secondary rounded-md">
-                         <div className="flex items-center gap-2 overflow-hidden">
-                             {m.type === 'image' && <ImageIcon className="w-4 h-4 text-muted-foreground flex-shrink-0"/>}
-                             {m.type === 'video' && <Video className="w-4 h-4 text-muted-foreground flex-shrink-0"/>}
-                             {m.type === 'audio' && <Music className="w-4 h-4 text-muted-foreground flex-shrink-0"/>}
-                             {m.type === 'autre' && <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0"/>}
-                             <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-sm truncate hover:underline max-w-xs">{m.fileName || m.url.substring(m.url.lastIndexOf('/')+1)}</a>
-                             <p className="text-xs text-muted-foreground truncate">(Fête : {m.partyName || m.partyId})</p>
+                     <div key={m.id} className="flex flex-col sm:flex-row justify-between sm:items-center p-3 bg-secondary rounded-lg border border-border/30 hover:border-primary/50 transition-colors duration-200 space-y-2 sm:space-y-0">
+                         <div className="flex items-center gap-3 overflow-hidden">
+                             {m.type === 'image' && <ImageIcon className="w-6 h-6 text-primary flex-shrink-0"/>}
+                             {m.type === 'video' && <Video className="w-6 h-6 text-primary flex-shrink-0"/>}
+                             {m.type === 'audio' && <Music className="w-6 h-6 text-primary flex-shrink-0"/>}
+                             {m.type === 'autre' && <FileText className="w-6 h-6 text-primary flex-shrink-0"/>}
+                             <div className="flex flex-col min-w-0">
+                                 <a 
+                                   href={m.url} 
+                                   target="_blank" 
+                                   rel="noopener noreferrer" 
+                                   className="text-sm font-medium text-foreground hover:text-primary hover:underline truncate"
+                                   title={m.fileName || m.id}
+                                 >
+                                   {m.fileName || m.id}
+                                 </a>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                     Fête : {m.partyName || m.partyId} | Téléversé : {getDateFromTimestamp(m.uploadedAt)?.toLocaleDateString() || 'N/A'}
+                                 </p>
+                             </div>
                          </div>
-                         <Button variant="destructive" size="sm" onClick={() => openDeleteDialog('Média', m.id, m.fileName || m.url.substring(m.url.lastIndexOf('/')+1), m.partyId )}>
-                            <Trash2 className="w-3 h-3 mr-1" /> Supprimer
+                         <Button 
+                            variant="destructive" 
+                            size="sm" 
+                            className="mt-2 sm:mt-0 sm:ml-4 flex-shrink-0"
+                            onClick={() => openDeleteDialog('Média', m.id, m.fileName || m.id, m.partyId )}
+                          >
+                            <Trash2 className="w-4 h-4 mr-1.5" /> Supprimer
                          </Button>
                      </div>
                  ))}
