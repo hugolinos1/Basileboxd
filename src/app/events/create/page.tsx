@@ -52,6 +52,7 @@ import { Slider } from '@/components/ui/slider';
 import { Combobox } from '@/components/ui/combobox';
 import type { MediaItem } from '@/lib/party-utils';
 import { normalizeCityName, geocodeCity } from '@/lib/party-utils'; 
+import { Badge } from '@/components/ui/badge';
 
 interface UserData {
   id: string;
@@ -256,7 +257,7 @@ export default function CreateEventPage() {
       return;
     }
     form.setValue('participants', (form.getValues('participants') || []).filter(uid => uid !== userId));
-    setSelectedParticipants(prev => prev.filter(p => p.uid === userId));
+    setSelectedParticipants(prev => prev.filter(p => p.uid !== userId)); // Corrected to filter out based on uid
   };
 
 
@@ -776,3 +777,4 @@ export default function CreateEventPage() {
 }
 
       
+
