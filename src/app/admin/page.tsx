@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { collection, getDocs, Timestamp, query, orderBy } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { Loader2 } from 'lucide-react';
-import AdminUserManagement from '@/components/admin/AdminUserManagement';
+import { AdminUserManagement } from '@/components/admin/AdminUserManagement';
 import { AdminEventManagement } from '@/components/admin/AdminEventManagement';
 import { AdminCommentManagement } from '@/components/admin/AdminCommentManagement';
 import { AdminMediaManagement } from '@/components/admin/AdminMediaManagement';
