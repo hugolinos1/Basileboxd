@@ -40,9 +40,8 @@ import {
   ACCEPTED_MEDIA_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  ACCEPTED_COVER_PHOTO_TYPES,
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; 
+import { coverPhotoSchema, avatarSchema } from '@/services/validation-schemas'; 
 import { Skeleton } from '@/components/ui/skeleton'; 
 import { Combobox } from '@/components/ui/combobox';
 import type { MediaItem as SharedMediaItem, PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
@@ -66,7 +65,7 @@ interface UserProfile {
 
 interface CommentWithReplies extends Comment {
   replies: CommentWithReplies[];
-  parentAuthorEmail?: string; // Nouveau champ
+  parentAuthorEmail?: string;
 }
 
 
@@ -182,14 +181,11 @@ export default function PartyDetailsPage() {
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  const [comment, setComment] = useState(''); // For top-level comments
+  const [comment, setComment] = useState(''); 
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
-
-  // NOUVEAUX ÉTATS pour gérer la réponse
   const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
-  const [replyText, setReplyText] = useState(''); // Texte pour la réponse en cours
+  const [replyText, setReplyText] = useState(''); 
   
-  const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const [isRating, setIsRating] = useState(false);
   const [userRating, setUserRating] = useState<number>(0); 
   const [averageRating, setAverageRating] = useState<number>(0); 
@@ -214,19 +210,72 @@ export default function PartyDetailsPage() {
   const [showEditLocationDialog, setShowEditLocationDialog] = useState(false);
   const [newPartyLocation, setNewPartyLocation] = useState('');
   const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
+  
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
+  const participantColors = useMemo(() => [ 'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', ], []);
+  
+  const getInitials = useMemo(() => (nameOrEmail: string | null | undefined, fallbackEmail?: string ): string => { 
+    if (nameOrEmail && nameOrEmail.length > 0) return nameOrEmail.charAt(0).toUpperCase();
+    if (fallbackEmail && fallbackEmail.length > 0) return fallbackEmail.charAt(0).toUpperCase();
+    return '?'; 
+  }, []);
 
   const isCreator = useMemo(() => user && party && user.uid === party.createdBy, [user, party]);
   const canManageParticipants = useMemo(() => user && party && (user.uid === party.createdBy || isAdmin), [user, party, isAdmin]);
   const canEditPartyDetails = useMemo(() => user && party && (user.uid === party.createdBy || isAdmin), [user, party, isAdmin]);
 
+  const organizedComments = useMemo(() => {
+    if (!commentsData) return [];
+    const commentsMap = new Map<string, CommentWithReplies>();
+    const topLevelComments: CommentWithReplies[] = [];
 
-  const participantColors = [ 'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', ];
-  const getInitials = (nameOrEmail: string | null | undefined, fallbackEmail?: string ): string => { 
-    if (nameOrEmail && nameOrEmail.length > 0) return nameOrEmail.charAt(0).toUpperCase();
-    if (fallbackEmail && fallbackEmail.length > 0) return fallbackEmail.charAt(0).toUpperCase();
-    return '?'; 
-  };
+    const sortedForProcessing = [...commentsData].sort((a, b) => {
+        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
+        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
+        return timeA - timeB; 
+    });
+
+    sortedForProcessing.forEach(comment => {
+      if (!comment.id) {
+          console.warn("Commentaire sans ID rencontré lors de l'organisation:", comment);
+          return; 
+      }
+      const commentWithReplies: CommentWithReplies = { ...comment, replies: [] };
+      commentsMap.set(comment.id, commentWithReplies);
+
+      if (comment.parentId && commentsMap.has(comment.parentId)) {
+        const parentComment = commentsMap.get(comment.parentId)!;
+        commentWithReplies.parentAuthorEmail = parentComment.email; 
+        parentComment.replies.push(commentWithReplies);
+      } else {
+        topLevelComments.push(commentWithReplies);
+      }
+    });
+    
+    const sortRepliesDesc = (replies: CommentWithReplies[]) => {
+        replies.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
+        replies.forEach(reply => { if(reply.replies.length > 0) sortRepliesDesc(reply.replies)});
+    }
+    topLevelComments.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
+    topLevelComments.forEach(commentItem => { 
+      if(commentItem.replies.length > 0) sortRepliesDesc(commentItem.replies);
+    });
+
+    return topLevelComments;
+  }, [commentsData]);
+
+  const comboboxOptions = useMemo(() => {
+    if (!allUsers || !party || !party.participants) {
+        return [];
+    }
+    return allUsers
+        .filter(u => !party.participants.map(pUid => pUid.toLowerCase()).includes(u.uid.toLowerCase()))
+        .map(u => ({
+            value: u.uid,
+            label: u.pseudo || u.displayName || u.email || u.uid,
+        }));
+  }, [allUsers, party]);
 
 
   // --- Effects ---
@@ -285,9 +334,10 @@ export default function PartyDetailsPage() {
         setPageLoading(false);
     });
 
+    // Listener for comments subcollection
     const commentsRef = collection(db, 'parties', partyId, 'comments');
-    const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'asc')); // Fetch in asc to build tree, then sort display
-
+    const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'desc')); // Fetch in desc for direct display
+    
     const unsubscribeComments = onSnapshot(commentsQuery, (querySnapshot) => {
         console.log(`[PartyDetailsPage] Snapshot reçu pour les commentaires de ${partyId}. Nombre de commentaires: ${querySnapshot.size}`);
         const fetchedComments: Comment[] = [];
@@ -295,17 +345,19 @@ export default function PartyDetailsPage() {
             fetchedComments.push({ id: doc.id, ...doc.data() } as Comment);
         });
         setCommentsData(fetchedComments);
-        // Page loading is handled by party snapshot
     }, (snapshotError: any) => {
          console.error('[PartyDetailsPage] Erreur listener snapshot commentaires:', snapshotError);
          let userFriendlyError = 'Impossible de charger les commentaires en temps réel.';
          if (snapshotError.code === 'permission-denied') {
-             userFriendlyError = 'Permission refusée. Vérifiez les règles de sécurité Firestore pour la sous-collection "comments".';
-              console.error("Firestore Permission Denied: Check your security rules for the 'comments' subcollection.");
+             userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité Firestore ET assurez-vous que l'index Firestore nécessaire pour la requête 'collectionGroup' sur 'comments' (trié par 'timestamp') existe et est activé.";
+              console.error("Firestore Permission Denied: Check your security rules for the 'comments' subcollection AND ensure the composite index for collectionGroup 'comments' ordered by 'timestamp' exists.");
          } else if (snapshotError.code === 'unauthenticated') {
              userFriendlyError = 'Non authentifié. Veuillez vous connecter pour voir les commentaires.';
+         } else if (snapshotError.code === 'failed-precondition' && snapshotError.message.includes('index')) {
+            userFriendlyError = "Index Firestore manquant. La requête pour les commentaires nécessite un index sur 'timestamp'. Vérifiez la console Firebase pour le créer.";
+            console.error("Firestore Index Missing for comments query: ", snapshotError.message);
          }
-         setError(prevError => prevError || userFriendlyError); // Don't overwrite party error
+         setError(prevError => prevError || userFriendlyError); 
     });
 
 
@@ -391,21 +443,28 @@ export default function PartyDetailsPage() {
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: Timestamp.now(), // Changed to Timestamp.now() for client-side consistency
+        timestamp: Timestamp.now(), 
         partyId: party.id,
+        ...(replyingToCommentInfo && { parentId: replyingToCommentInfo.id }),
       };
 
       await addDoc(commentsCollectionRef, newCommentData);
 
       setComment('');
-      toast({ title: 'Commentaire ajouté' });
+      setReplyingToCommentInfo(null);
+      toast({ title: replyingToCommentInfo ? 'Réponse ajoutée' : 'Commentaire ajouté' });
+
     } catch (commentError: any) {
-        console.error('Erreur commentaire:', commentError);
-        let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
-        if (commentError.code === 'invalid-argument' && commentError.message?.includes('Unsupported field value: a custom MessageData object')) {
-            errorMessage = "Une valeur invalide a été envoyée (MessageData). Veuillez réessayer.";
+        console.error('Erreur commentaire/réponse:', commentError);
+        let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire/réponse.';
+        if (commentError.code === 'invalid-argument') {
+            if (commentError.message?.includes('Unsupported field value')) {
+                errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
+            } else if (commentError.message?.includes('serverTimestamp')) { 
+                errorMessage = "Erreur de timestamp serveur. Réessayez.";
+            }
         } else if (commentError.code === 'permission-denied') {
-            errorMessage = "Permission refusée. Vous ne pouvez peut-être pas commenter.";
+            errorMessage = "Permission refusée. Vous ne pouvez peut-être pas commenter/répondre.";
         }
         toast({ title: 'Erreur', description: errorMessage, variant: 'destructive' });
     } finally {
@@ -418,7 +477,7 @@ export default function PartyDetailsPage() {
       toast({ title: 'Erreur', description: 'Impossible d\'ajouter une réponse.', variant: 'destructive' });
       return;
     }
-    setIsSubmittingComment(true); // Use the same state for now, can be split if needed
+    setIsSubmittingComment(true); 
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
       const newReplyData: Omit<Comment, 'id'> & { timestamp: FieldValue; parentId: string } = {
@@ -426,7 +485,7 @@ export default function PartyDetailsPage() {
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: replyText.trim(),
-        timestamp: Timestamp.now(), // Use client-side timestamp for consistency
+        timestamp: Timestamp.now(), 
         partyId: party.id,
         parentId: parentCommentId,
       };
@@ -443,12 +502,16 @@ export default function PartyDetailsPage() {
   };
 
   const handleStartReply = (commentId: string, userEmail: string) => {
-    setReplyingToCommentId(commentId);
-    setReplyText(''); // Clear previous reply text
-    // Focus logic might need to be adjusted if the input isn't immediately visible
-    // setTimeout(() => commentInputRef.current?.focus(), 0); 
+    setReplyingToCommentInfo({ id: commentId, userEmail });
+    setReplyText(''); 
+    commentInputRef.current?.focus();
+    commentInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
+  const handleCancelReply = () => {
+    setReplyingToCommentInfo(null);
+    setReplyText('');
+  };
 
     const handleSouvenirFileChange = (event: ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
@@ -631,14 +694,13 @@ export default function PartyDetailsPage() {
     };
 
     const handleAddParticipant = async (selectedUserId: string | null) => {
-        console.log("[handleAddParticipant] Début. Utilisateur sélectionné:", selectedUserId);
         if (!user || !party || !canManageParticipants || !db || !selectedUserId) {
             toast({ title: 'Erreur', description: 'Permissions insuffisantes ou utilisateur non sélectionné.', variant: 'destructive' });
-             console.error("[handleAddParticipant] Préconditions non remplies:", {user:!!user, party:!!party, canManageParticipants, db:!!db, selectedUserId});
             return;
         }
         setIsAddingParticipant(true);
         const userToAdd = allUsers.find(u => u.uid.toLowerCase() === selectedUserId.toLowerCase());
+
         if (!userToAdd) {
             toast({ title: 'Utilisateur non trouvé', description: 'Impossible de trouver les détails de l\'utilisateur sélectionné.', variant: 'destructive' });
             console.error("[handleAddParticipant] Utilisateur non trouvé dans la liste allUsers. UID recherché:", selectedUserId, "Liste complète des UIDs dans allUsers:", allUsers.map(u => u.uid));
@@ -743,8 +805,16 @@ export default function PartyDetailsPage() {
         setIsDeletingSouvenir(true);
         try {
             const partyDocRef = doc(db, 'parties', party.id);
+            // To remove an item from an array, we need to provide the exact object to remove.
+            // Firestore's arrayRemove operator requires the full object.
+            const mediaItemToRemove = party.mediaItems?.find(item => item.id === souvenirToDelete.id);
+            if (!mediaItemToRemove) {
+                 toast({ title: "Erreur", description: "Le souvenir à supprimer n'a pas été trouvé dans la liste actuelle.", variant: "destructive" });
+                 setIsDeletingSouvenir(false);
+                 return;
+            }
             await updateDoc(partyDocRef, {
-                mediaItems: arrayRemove(souvenirToDelete) 
+                mediaItems: arrayRemove(mediaItemToRemove) 
             });
             toast({ title: "Souvenir supprimé", description: `Le souvenir "${souvenirToDelete.fileName || souvenirToDelete.id}" a été supprimé.` });
             setSouvenirToDelete(null);
@@ -756,13 +826,6 @@ export default function PartyDetailsPage() {
             setIsDeletingSouvenir(false);
         }
     };
-
-    const comboboxOptions = allUsers
-    .filter(u => !party?.participants.includes(u.uid)) 
-    .map(u => ({
-        value: u.uid,
-        label: u.pseudo || u.displayName || u.email || u.uid,
-    }));
 
 
   const showSkeleton = pageLoading || userLoading;
@@ -837,47 +900,6 @@ export default function PartyDetailsPage() {
 
   const partyDate = getDateFromTimestamp(party.date);
 
-  const organizedComments = useMemo(() => {
-    if (!commentsData) return [];
-    const commentsMap = new Map<string, CommentWithReplies>();
-    const topLevelComments: CommentWithReplies[] = [];
-
-    const sortedForProcessing = [...commentsData].sort((a, b) => {
-        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
-        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
-        return timeA - timeB; 
-    });
-
-    sortedForProcessing.forEach(comment => {
-      if (!comment.id) {
-          console.warn("Commentaire sans ID rencontré lors de l'organisation:", comment);
-          return; 
-      }
-      const commentWithReplies: CommentWithReplies = { ...comment, replies: [] };
-      commentsMap.set(comment.id, commentWithReplies);
-
-      if (comment.parentId && commentsMap.has(comment.parentId)) {
-        const parentComment = commentsMap.get(comment.parentId)!;
-        commentWithReplies.parentAuthorEmail = parentComment.email; 
-        parentComment.replies.push(commentWithReplies);
-      } else {
-        topLevelComments.push(commentWithReplies);
-      }
-    });
-    
-    const sortRepliesDesc = (replies: CommentWithReplies[]) => {
-        replies.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
-        replies.forEach(reply => { if(reply.replies.length > 0) sortRepliesDesc(reply.replies)});
-    }
-    topLevelComments.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
-    topLevelComments.forEach(commentItem => { 
-      if(commentItem.replies.length > 0) sortRepliesDesc(commentItem.replies);
-    });
-
-    return topLevelComments;
-  }, [commentsData]);
-
-
   const renderComment = (cmt: CommentWithReplies, level = 0) => {
     const commentDate = getDateFromTimestamp(cmt.timestamp);
     const showReplyForm = replyingToCommentId === cmt.id;
@@ -916,7 +938,7 @@ export default function PartyDetailsPage() {
                                     setReplyText('');
                                 } else {
                                     setReplyingToCommentId(cmt.id!);
-                                    setReplyText(''); // Clear text when focusing on a new reply
+                                    setReplyText(''); 
                                 }
                             }}
                         >
@@ -940,7 +962,7 @@ export default function PartyDetailsPage() {
                             onChange={(e) => setReplyText(e.target.value)}
                             className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary"
                             rows={2}
-                            ref={commentInputRef} // Re-assign ref here if needed for focus, though it's on the main comment input now
+                            ref={commentInputRef} 
                         />
                         <Button
                             onClick={() => handleAddReply(cmt.id!)}
@@ -970,7 +992,7 @@ export default function PartyDetailsPage() {
      let mediaElement: JSX.Element;
      if (item.type === 'video') { mediaElement = ( <div className="aspect-video bg-black rounded-lg overflow-hidden relative shadow-md"> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement vidéo</div>} <ReactPlayer url={item.url} controls width="100%" height="100%" onError={onError} className="absolute top-0 left-0" config={{ file: { attributes: { controlsList: 'nodownload' } } }} /> </div> ); }
      else if (item.type === 'audio') { mediaElement = ( <div className="w-full bg-card p-3 rounded-lg shadow"> <ReactPlayer url={item.url} controls width="100%" height="40px" onError={onError}/> {playerError && <p className="text-destructive text-xs mt-1">Erreur chargement audio</p>} </div> ); }
-     else if (item.type === 'image') { mediaElement = ( <div className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={item.url} alt={`Souvenir ${item.fileName || item.id}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="souvenir fête photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
+     else if (item.type === 'image') { mediaElement = ( <div className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={item.url} alt={`Souvenir ${item.fileName || item.id}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="fête souvenir photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
      else { mediaElement = ( <div className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> {item.fileName || `Média ${item.id}`} </a> </div> );}
 
      return (
@@ -1151,7 +1173,7 @@ export default function PartyDetailsPage() {
                                                          return (
                                                              <div key={file.name + index} className="relative group border rounded-md p-2 bg-secondary/50 text-center">
                                                                   {previewUrl && file.type.startsWith('image/') ? (
-                                                                      <Image src={previewUrl} alt={`Aperçu ${file.name}`} width={60} height={60} className="rounded object-cover mx-auto h-14 w-14 mb-1" />
+                                                                      <Image src={previewUrl} alt={`Aperçu ${file.name}`} width={60} height={60} className="rounded object-cover mx-auto h-14 w-14 mb-1" data-ai-hint="fête souvenir"/>
                                                                   ) : (
                                                                       <div className="h-14 w-14 flex items-center justify-center bg-muted rounded mx-auto text-muted-foreground mb-1">
                                                                           {fileTypeDisplay === 'video' && <Video className="h-6 w-6" />}
@@ -1188,24 +1210,32 @@ export default function PartyDetailsPage() {
                 </CardContent>
 
                  <CardContent className="p-4 md:p-6 border-t border-border/50">
-                    <h3 className="text-xl font-semibold mb-5 text-foreground">Commentaires ({commentsData.length})</h3> {/* Update to total comments count */}
+                    <h3 className="text-xl font-semibold mb-5 text-foreground">Commentaires ({commentsData.length})</h3>
                     <div className="space-y-6">
                        {user && (
                         <div className="flex items-start space-x-3">
                             <Avatar className="h-9 w-9 border mt-1"> <AvatarImage src={user.photoURL || undefined} alt={user.email || ''}/> <AvatarFallback>{getInitials(user.displayName, user.email)}</AvatarFallback> </Avatar>
                             <div className="flex-1">
+                                {replyingToCommentId && replyingToCommentInfo && (
+                                  <div className="mb-2 text-xs text-muted-foreground">
+                                    Répondre à <span className="font-semibold text-primary">{replyingToCommentInfo.userEmail}</span>
+                                    <Button variant="ghost" size="sm" onClick={handleCancelReply} className="ml-2 text-xs p-0 h-auto text-destructive hover:text-destructive/80">
+                                        Annuler
+                                    </Button>
+                                  </div>
+                                )}
                                 <Textarea
                                     ref={commentInputRef} 
-                                    placeholder={"Votre commentaire..."} 
-                                    value={comment} // This is for top-level comment
-                                    onChange={(e) => setComment(e.target.value)}
+                                    placeholder={replyingToCommentId ? `Votre réponse à ${replyingToCommentInfo?.userEmail}...` : "Votre commentaire..."} 
+                                    value={replyingToCommentId ? replyText : comment}
+                                    onChange={(e) => replyingToCommentId ? setReplyText(e.target.value) : setComment(e.target.value)}
                                     className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary"
                                     rows={3}
                                 />
                                 <div className="flex gap-2">
-                                    <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90">
-                                        {isSubmittingComment && !replyingToCommentId ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                                        Commenter
+                                    <Button onClick={() => replyingToCommentId ? handleAddReply(replyingToCommentId) : handleAddComment()} disabled={replyingToCommentId ? !replyText.trim() : !comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90">
+                                        {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                                        {replyingToCommentId ? "Répondre" : "Commenter"}
                                     </Button>
                                 </div>
                             </div>
@@ -1329,4 +1359,5 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
 
