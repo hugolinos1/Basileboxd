@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -540,7 +541,7 @@ export default function CreateEventPage() {
                             <FormItem>
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                   <FormControl>
-                                    <React.Fragment> {/* Ensure a single child for FormControl */}
+                                    <div className="contents"> {/* Using div with 'contents' to act like React.Fragment but accept props */}
                                       {coverPhotoPreview ? (
                                           <>
                                               <div className="relative w-full h-full">
@@ -572,7 +573,7 @@ export default function CreateEventPage() {
                                           className="hidden"
                                           onChange={handleCoverPhotoChange}
                                       />
-                                    </React.Fragment>
+                                    </div>
                                   </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
@@ -611,16 +612,18 @@ export default function CreateEventPage() {
                             <FormItem>
                             <FormLabel>Ajouter des participants</FormLabel>
                             <FormControl>
-                              <Combobox
-                                  options={comboboxOptions}
-                                  onSelect={(userId) => {
-                                      if (userId) handleAddParticipant(userId);
-                                  }}
-                                  placeholder="Rechercher un utilisateur..."
-                                  searchPlaceholder="Tapez un nom ou email..."
-                                  emptyPlaceholder="Aucun utilisateur trouvé."
-                                  triggerIcon={<UserPlus className="mr-2 h-4 w-4" />}
-                              />
+                              <div className="contents"> {/* Using div with 'contents' for single child requirement */}
+                                <Combobox
+                                    options={comboboxOptions}
+                                    onSelect={(userId) => {
+                                        if (userId) handleAddParticipant(userId);
+                                    }}
+                                    placeholder="Rechercher un utilisateur..."
+                                    searchPlaceholder="Tapez un nom ou email..."
+                                    emptyPlaceholder="Aucun utilisateur trouvé."
+                                    triggerIcon={<UserPlus className="mr-2 h-4 w-4" />}
+                                />
+                              </div>
                             </FormControl>
                             <FormDescription>Les participants doivent avoir un compte.</FormDescription>
                             <FormMessage />
@@ -675,7 +678,7 @@ export default function CreateEventPage() {
                       render={({ field }) => (
                         <FormItem>
                            <FormControl>
-                             <React.Fragment> {/* Ensure a single child for FormControl */}
+                             <div className="contents"> {/* Using div with 'contents' for single child requirement */}
                               <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
                                 <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
                               </Button>
@@ -687,7 +690,7 @@ export default function CreateEventPage() {
                                  onChange={handleMediaFileChange}
                                  className="hidden"
                                />
-                             </React.Fragment>
+                             </div>
                            </FormControl>
                           <FormDescription className="text-center">
                             Max {MEDIA_MAX_FILE_SIZE_CONFIG.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE_CONFIG.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE_CONFIG.audio / 1024 / 1024}Mo/Son.
@@ -809,3 +812,4 @@ export default function CreateEventPage() {
     </div>
   );
 }
+
