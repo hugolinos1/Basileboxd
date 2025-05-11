@@ -25,19 +25,27 @@ export default function AdminPage() {
 
   const [counts, setCounts] = useState({ users: 0, events: 0, comments: 0, media: 0 });
   const [loadingCounts, setLoadingCounts] = useState(true);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+
 
   useEffect(() => {
-    if (!authLoading && firebaseInitialized && !isAdmin) {
-      toast({ title: 'Accès Refusé', description: "Vous n'êtes pas autorisé à accéder à cette page.", variant: 'destructive' });
-      router.push('/');
+    // Attendre que l'état d'authentification et l'initialisation de Firebase soient terminés
+    if (!authLoading && firebaseInitialized) {
+      setInitialLoadComplete(true); // Marquage que la vérification initiale est terminée
+      if (!isAdmin) {
+        toast({ title: 'Accès Refusé', description: "Vous n'êtes pas autorisé à accéder à cette page.", variant: 'destructive' });
+        router.push('/');
+      }
     }
   }, [user, isAdmin, authLoading, router, toast, firebaseInitialized]);
+
 
   const updateCounts = (newCounts: Partial<typeof counts>) => {
     setCounts(prev => ({ ...prev, ...newCounts }));
   };
 
   useEffect(() => {
+    // Charger les comptes initiaux seulement si l'utilisateur est admin et que firebase est prêt
     if(isAdmin && firebaseInitialized && db) {
         const fetchInitialCounts = async () => {
             setLoadingCounts(true);
@@ -67,22 +75,26 @@ export default function AdminPage() {
             }
         };
         fetchInitialCounts();
-    } else if (!authLoading && !isAdmin && firebaseInitialized) {
-        // If not admin but firebase is initialized, stop loading counts
-        setLoadingCounts(false);
+    } else if (initialLoadComplete && !isAdmin) {
+        // Si la vérification initiale est terminée et l'utilisateur n'est PAS admin
+        setLoadingCounts(false); // Arrêter le chargement des compteurs, car il n'y a rien à charger
     } else if (!firebaseInitialized && !authLoading) {
-        // If firebase is not initialized and auth is not loading, stop loading counts
+        // Si Firebase n'est pas initialisé et que l'auth n'est pas en cours de chargement (ex: erreur Firebase)
         setLoadingCounts(false);
     }
-  }, [isAdmin, firebaseInitialized, toast, authLoading]);
+  }, [isAdmin, firebaseInitialized, toast, authLoading, initialLoadComplete]);
 
 
-  if (authLoading || !firebaseInitialized || (isAdmin && loadingCounts)) {
-    return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]"><Loader2 className="h-8 w-8 animate-spin text-primary" /> Chargement...</div>;
+  // Afficher le loader tant que l'état d'auth/firebase n'est pas résolu OU si l'admin charge les compteurs
+  if (authLoading || !firebaseInitialized || (isAdmin && loadingCounts && !initialLoadComplete) || (!initialLoadComplete && !isAdmin) ) {
+    return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]"><Loader2 className="h-8 w-8 animate-spin text-primary" /> Chargement de la page Admin...</div>;
   }
+
+  // Si après le chargement initial, l'utilisateur n'est pas admin, afficher l'accès refusé.
   if (!isAdmin) {
     return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">Accès refusé. Redirection...</div>;
   }
+
 
   return (
     <div className="container mx-auto px-4 py-12">
@@ -136,7 +148,7 @@ export default function AdminPage() {
         <AdminEventManagement onUpdateCounts={updateCounts} />
         <AdminCommentManagement onUpdateCounts={updateCounts} />
         <AdminMediaManagement onUpdateCounts={updateCounts} />
-        <div className="lg:col-span-2"> {/* Permet au composant de prendre toute la largeur sur grand écran */}
+        <div className="lg:col-span-2">
           <AdminHeroImageManagement />
         </div>
       </div>
