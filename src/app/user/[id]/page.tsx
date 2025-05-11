@@ -1,3 +1,4 @@
+
 // src/app/user/[id]/page.tsx
 'use client';
 
@@ -80,7 +81,7 @@ const calculateRatingDistribution = (parties: PartyData[], userId: string): { ra
     parties.forEach(party => {
         const userRating = party.ratings?.[userId];
         if (userRating !== undefined) {
-             const index = Math.round(userRating * 2) - 1;
+             const index = Math.round(userRating * 2) - 1; // Convert 0-10 to 0-9 index for 0.5 steps
              if (index >= 0 && index < 10) {
                 counts[index].votes++;
             }
@@ -163,72 +164,67 @@ export default function UserProfilePage() {
                 const userDocSnap = await getDoc(userDocRef);
 
                 if (!userDocSnap.exists()) {
-                    const specificErrorMsg = `Utilisateur non trouvé dans Firestore pour l'ID : ${profileUserId}. Veuillez vérifier que ce document existe dans la collection 'users'.`;
-                    console.error(`[UserProfilePage fetchData] ${specificErrorMsg}`);
-                    setError(specificErrorMsg); 
+                    console.error(`[UserProfilePage fetchData] Utilisateur non trouvé pour l'ID: ${profileUserId}`);
+                    setError("Utilisateur non trouvé."); 
                     setProfileUserData(null); 
                     setLoading(false);
                     return;
                 }
-                 console.log(`[UserProfilePage fetchData] User document found for ID: ${profileUserId}`);
+                 console.log(`[UserProfilePage fetchData] User document found for ID: ${profileUserId}`, userDocSnap.data());
                 const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as Omit<UserData, 'eventCount' | 'commentCount' | 'averageRatingGiven'>;
 
-                const partiesRef = collection(db, 'parties');
-                // Query for parties created by the user
-                const createdPartiesQuery = query(partiesRef, where('createdBy', '==', profileUserId));
-                // Query for parties the user participated in (might include created ones if creator is also a participant)
-                const participatedPartiesQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
+                // Initialize stats, they will be updated if subsequent queries succeed
+                let fetchedPartiesData: PartyData[] = [];
+                let fetchedCommentsData: CommentData[] = [];
 
-                const [createdPartiesSnapshot, participatedPartiesSnapshot] = await Promise.all([
-                    getDocs(createdPartiesQuery),
-                    getDocs(participatedPartiesQuery)
-                ]);
-                 console.log(`[UserProfilePage fetchData] Fetched ${createdPartiesSnapshot.size} created parties and ${participatedPartiesSnapshot.size} participated parties.`);
+                try {
+                    const partiesRef = collection(db, 'parties');
+                    const participatedPartiesQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
+                    const participatedPartiesSnapshot = await getDocs(participatedPartiesQuery);
+                    console.log(`[UserProfilePage fetchData] Fetched ${participatedPartiesSnapshot.size} participated parties.`);
+                    fetchedPartiesData = participatedPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
+                    setUserParties(fetchedPartiesData);
+                } catch (partiesError: any) {
+                    console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des fêtes participées: ${partiesError.message}`);
+                    // Ne pas bloquer l'affichage du profil si cette requête échoue, afficher un message partiel.
+                    // setError(prev => prev ? `${prev}\nImpossible de charger les événements.` : "Impossible de charger les événements.");
+                }
 
-
-                const createdParties = createdPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
-                const participatedParties = participatedPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
-                
-                // Combine and deduplicate parties
-                const allUserPartiesMap = new Map<string, PartyData>();
-                createdParties.forEach(party => allUserPartiesMap.set(party.id, party));
-                participatedParties.forEach(party => allUserPartiesMap.set(party.id, party)); // Overwrites if already present (which is fine)
-                const partiesData = Array.from(allUserPartiesMap.values());
-                console.log(`[UserProfilePage fetchData] Combined unique parties count: ${partiesData.length}`);
-                setUserParties(partiesData);
-
-
-                // Fetch comments using collectionGroup query
-                const commentsCollectionRef = collectionGroup(db, 'comments');
-                const commentsQuery = query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'));
-                const commentsSnapshot = await getDocs(commentsQuery);
-                console.log(`[UserProfilePage fetchData] Fetched ${commentsSnapshot.size} comments.`);
-                const commentsDataPromises = commentsSnapshot.docs.map(async (commentDoc) => {
-                    const commentData = commentDoc.data() as Omit<CommentData, 'partyName'>;
-                    // Get the parent party document to extract its name
-                    const partyDocRef = commentDoc.ref.parent.parent; // This should be the party document
-                    if (partyDocRef) {
-                        const partySnap = await getDoc(partyDocRef);
-                        if (partySnap.exists()) {
-                            return { ...commentData, id: commentDoc.id, partyId: partySnap.id, partyName: partySnap.data()?.name || 'Événement inconnu' } as CommentData;
+                try {
+                    const commentsCollectionRef = collectionGroup(db, 'comments');
+                    const commentsQuery = query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'));
+                    const commentsSnapshot = await getDocs(commentsQuery);
+                    console.log(`[UserProfilePage fetchData] Fetched ${commentsSnapshot.size} comments.`);
+                    const commentsDataPromises = commentsSnapshot.docs.map(async (commentDoc) => {
+                        const commentData = commentDoc.data() as Omit<CommentData, 'partyName'>;
+                        const partyDocRef = commentDoc.ref.parent.parent; 
+                        if (partyDocRef) {
+                            const partySnap = await getDoc(partyDocRef);
+                            if (partySnap.exists()) {
+                                return { ...commentData, id: commentDoc.id, partyId: partySnap.id, partyName: partySnap.data()?.name || 'Événement inconnu' } as CommentData;
+                            }
                         }
-                    }
-                    // Fallback if party document is not found
-                    return { ...commentData, id: commentDoc.id, partyId: 'unknown', partyName: 'Événement inconnu' } as CommentData;
-                });
-                const resolvedCommentsData = await Promise.all(commentsDataPromises);
-                setUserComments(resolvedCommentsData);
-
+                        return { ...commentData, id: commentDoc.id, partyId: 'unknown', partyName: 'Événement inconnu' } as CommentData;
+                    });
+                    fetchedCommentsData = await Promise.all(commentsDataPromises);
+                    setUserComments(fetchedCommentsData);
+                } catch (commentsError: any)
+                 {
+                    console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des commentaires: ${commentsError.message}`);
+                    // Ne pas bloquer l'affichage du profil si cette requête échoue.
+                    // setError(prev => prev ? `${prev}\nImpossible de charger les commentaires.` : "Impossible de charger les commentaires.");
+                }
+                
                 setProfileUserData({
                     ...fetchedUser,
-                    eventCount: partiesData.length, // Use the count of unique parties
-                    commentCount: resolvedCommentsData.length,
-                    averageRatingGiven: calculateAverageRatingGiven(partiesData, profileUserId),
+                    eventCount: fetchedPartiesData.length,
+                    commentCount: fetchedCommentsData.length,
+                    averageRatingGiven: calculateAverageRatingGiven(fetchedPartiesData, profileUserId),
                 });
 
 
             } catch (err: any) {
-                console.error("Erreur lors de la récupération des données utilisateur:", err);
+                console.error("[UserProfilePage fetchData] Erreur majeure lors de la récupération des données utilisateur:", err);
                  let userFriendlyError = err.message || "Impossible de charger le profil.";
                   if (err.code === 'permission-denied' || err.message?.includes('permission-denied') || err.message?.includes('insufficient permissions')) {
                      userFriendlyError = "Permission refusée. Vérifiez les règles Firestore.";
@@ -267,6 +263,7 @@ export default function UserProfilePage() {
              if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
              setNewAvatarPreview(null);
         }
+        // Réinitialiser la valeur de l'input pour permettre de sélectionner à nouveau le même fichier
         if (event.target) event.target.value = '';
     };
 
@@ -330,12 +327,14 @@ export default function UserProfilePage() {
 
     const stats = useMemo(() => {
         if (!profileUserData) return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
+        // Utiliser les données de userParties et userComments pour les compteurs,
+        // car profileUserData.eventCount et .commentCount pourraient ne pas être à jour si les requêtes partielles échouent.
         return {
-            eventCount: profileUserData.eventCount,
-            commentCount: profileUserData.commentCount,
-            averageRatingGiven: profileUserData.averageRatingGiven,
+            eventCount: userParties.length,
+            commentCount: userComments.length,
+            averageRatingGiven: profileUserData.averageRatingGiven, // Celle-ci est calculée à partir de userParties donc OK
         };
-    }, [profileUserData]);
+    }, [profileUserData, userParties, userComments]);
 
      const ratingDistributionGiven = useMemo(() => {
         if (!userParties || !profileUserId) return [];
@@ -383,7 +382,7 @@ export default function UserProfilePage() {
         );
     }
 
-    if (error) {
+    if (error && !profileUserData) { // Afficher l'erreur seulement si profileUserData n'a pas pu être chargé du tout
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
@@ -396,7 +395,10 @@ export default function UserProfilePage() {
     }
 
     if (!profileUserData) { 
-        return <div className="container mx-auto px-4 py-12 text-center">Utilisateur non trouvé ou profil inaccessible.</div>;
+        // Cela pourrait se produire si le fetch initial a échoué mais n'a pas défini d'erreur (improbable avec la logique actuelle)
+        // ou si l'ID de profil n'est pas valide et que le fetch n'a pas encore terminé ou a défini l'erreur.
+        // Le message d'erreur ci-dessus devrait couvrir le cas où l'utilisateur n'est pas trouvé.
+        return <div className="container mx-auto px-4 py-12 text-center">Chargement du profil ou utilisateur non trouvé...</div>;
     }
 
     const joinDate = getDateFromTimestamp(profileUserData.createdAt);
@@ -404,6 +406,13 @@ export default function UserProfilePage() {
 
     return (
         <div className="container mx-auto max-w-6xl px-4 py-8">
+             {error && ( // Afficher un avertissement si certaines données n'ont pas pu être chargées mais que le profil de base l'a été
+                <Alert variant="warning" className="mb-6">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Avertissement</AlertTitle>
+                    <AlertDescription>Certaines informations (événements ou commentaires) n'ont pas pu être chargées. {error}</AlertDescription>
+                </Alert>
+             )}
             <div className="flex flex-col md:flex-row items-center md:items-end gap-4 md:gap-6 mb-8 border-b border-border pb-8">
                 <Avatar className="h-24 w-24 md:h-32 md:w-32 border-2 border-primary relative group">
                     <AvatarImage src={profileUserData.avatarUrl || undefined} alt={displayUsername} />
@@ -446,7 +455,7 @@ export default function UserProfilePage() {
                 </Avatar>
                 <div className="flex-1 space-y-1 text-center md:text-left">
                     <h1 className="text-2xl md:text-3xl font-bold text-foreground">{displayUsername}</h1>
-                     {profileUserData.pseudo && profileUserData.pseudo !== (profileUserData.displayName || profileUserData.email.split('@')[0]) && (
+                     {profileUserData.pseudo && profileUserData.displayName && profileUserData.pseudo !== profileUserData.displayName && (
                          <p className="text-lg text-primary">{profileUserData.pseudo}</p>
                      )}
                     <p className="text-sm text-muted-foreground">{profileUserData.email}</p>
@@ -590,7 +599,7 @@ export default function UserProfilePage() {
                              <CardDescription>Distribution des notes attribuées par {displayUsername} (échelle 0.5 - 5).</CardDescription>
                          </CardHeader>
                          <CardContent className="pl-2">
-                              {stats.averageRatingGiven > 0 ? (
+                              {stats.averageRatingGiven > 0 && ratingDistributionGiven.some(r => r.votes > 0) ? (
                                   <ChartContainer config={chartConfig} className="h-[150px] w-full">
                                      <BarChart accessibilityLayer data={ratingDistributionGiven.map(r => ({...r, rating: r.rating / 2}))} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
                                           <XAxis dataKey="rating" type="number" domain={[0, 5]} tickLine={false} tickMargin={10} axisLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12} interval={0} tickFormatter={(value) => `${value.toFixed(1)}`} />
@@ -609,9 +618,3 @@ export default function UserProfilePage() {
         </div>
     );
 }
-
-
-
-
-
-    
