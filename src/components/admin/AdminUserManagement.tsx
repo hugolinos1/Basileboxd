@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Users, Trash2, Loader2, Mail, UserCircle, CalendarDays, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as AlertDialogUITitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle as AlertUITitleComponent } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -32,9 +34,9 @@ interface AdminUserManagementProps {
   onUpdateCounts: (counts: { users: number }) => void;
 }
 
-const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
+export function AdminUserManagement({ onUpdateCounts }: AdminUserManagementProps) {
   const { toast } = useToast();
-  const { currentUser, isAdmin: currentUserIsAdmin, loading: firebaseLoading } = useFirebase();
+  const { user: currentUser, isAdmin: currentUserIsAdmin, loading: firebaseLoading, firebaseInitialized } = useFirebase();
 
   const [users, setUsers] = useState<UserDocData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +45,11 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchUsers = useCallback(async () => {
+    if (!db) {
+        setError("Firestore n'est pas initialisé.");
+        setLoading(false);
+        return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -51,7 +58,6 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
       const querySnapshot = await getDocs(q);
       const fetchedUsers: UserDocData[] = [];
       querySnapshot.forEach((doc) => {
-        // Ensure createdAt is handled correctly, even if it's missing in some docs
         const data = doc.data();
         fetchedUsers.push({
           id: doc.id,
@@ -61,17 +67,17 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
           pseudo: data.pseudo,
           avatarUrl: data.avatarUrl,
           createdAt: data.createdAt,
-          isAdmin: data.isAdmin || false, // Assuming isAdmin field exists
+          isAdmin: data.isAdmin || false,
         });
       });
       setUsers(fetchedUsers);
       onUpdateCounts({ users: fetchedUsers.length });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching users:", err);
-      setError("Failed to fetch users. Please try again later.");
+      setError("Impossible de charger les utilisateurs. " + err.message);
       toast({
-        title: "Error",
-        description: "Could not load user data.",
+        title: "Erreur",
+        description: "Impossible de charger les données utilisateurs.",
         variant: "destructive",
       });
     } finally {
@@ -80,22 +86,24 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
   }, [toast, onUpdateCounts]);
 
   useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+    if (firebaseInitialized && !firebaseLoading) {
+      fetchUsers();
+    }
+  }, [fetchUsers, firebaseInitialized, firebaseLoading]);
 
   const openDeleteDialog = (user: UserDocData) => {
     if (user.uid === currentUser?.uid) {
       toast({
-        title: "Cannot Delete Self",
-        description: "You cannot delete your own account from here.",
+        title: "Impossible de se supprimer",
+        description: "Vous ne pouvez pas supprimer votre propre compte depuis ce panneau.",
         variant: "destructive",
       });
       return;
     }
     if (user.isAdmin && !currentUserIsAdmin) {
         toast({
-            title: "Permission Denied",
-            description: "You do not have permission to delete an admin user.",
+            title: "Permission Refusée",
+            description: "Vous n'avez pas la permission de supprimer un administrateur.",
             variant: "destructive",
         });
         return;
@@ -106,18 +114,21 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
   const handleDeleteUser = async () => {
     if (!userToDelete || !currentUserIsAdmin) {
       toast({
-        title: "Error",
-        description: "No user selected for deletion or insufficient permissions.",
+        title: "Erreur",
+        description: "Aucun utilisateur sélectionné ou permissions insuffisantes.",
         variant: "destructive",
       });
+      setIsDeleting(false);
+      setUserToDelete(null);
       return;
     }
     if (userToDelete.uid === currentUser?.uid) {
       toast({
-        title: "Action Not Allowed",
-        description: "You cannot delete your own account.",
+        title: "Action Non Autorisée",
+        description: "Vous ne pouvez pas supprimer votre propre compte.",
         variant: "destructive",
       });
+      setIsDeleting(false);
       setUserToDelete(null);
       return;
     }
@@ -127,19 +138,18 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
       const userDocRef = doc(db, 'users', userToDelete.id);
       await deleteDoc(userDocRef);
       toast({
-        title: "User Deleted",
-        description: `${userToDelete.displayName || userToDelete.email} has been successfully deleted.`,
+        title: "Utilisateur Supprimé",
+        description: `${getDisplayName(userToDelete)} a été supprimé avec succès.`,
       });
-      // Refetch users or filter out the deleted user
       const updatedUsers = users.filter(user => user.id !== userToDelete.id);
       setUsers(updatedUsers);
       onUpdateCounts({ users: updatedUsers.length });
     } catch (err) {
       console.error("Error deleting user:", err);
-      setError(`Failed to delete user ${userToDelete.displayName || userToDelete.email}.`);
+      setError(`Impossible de supprimer l'utilisateur ${getDisplayName(userToDelete)}.`);
       toast({
-        title: "Error Deleting User",
-        description: `Could not delete user. ${err instanceof Error ? err.message : ''}`,
+        title: "Erreur de Suppression",
+        description: `Impossible de supprimer l'utilisateur. ${err instanceof Error ? err.message : ''}`,
         variant: "destructive",
       });
     } finally {
@@ -165,8 +175,8 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>User Management</CardTitle>
-          <CardDescription>Manage all registered users.</CardDescription>
+          <CardTitle><Skeleton className="h-6 w-1/2" /></CardTitle>
+          <CardDescription><Skeleton className="h-4 w-3/4" /></CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {[...Array(3)].map((_, i) => (
@@ -187,13 +197,11 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>User Management</CardTitle>
-          <CardDescription>Manage all registered users.</CardDescription>
+          <CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2 h-5 w-5" /> Utilisateurs</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertUITitleComponent>Error</AlertUITitleComponent>
+            <AlertUITitleComponent>Erreur de Chargement</AlertUITitleComponent>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         </CardContent>
@@ -206,18 +214,17 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">
-            <Users className="mr-2 h-6 w-6" /> User Management
+            <Users className="mr-2 h-6 w-6" /> Utilisateurs ({users.length})
           </CardTitle>
           <CardDescription>
-            View and manage all registered users in the application. Total users: {users.length}
+            Gérer tous les utilisateurs enregistrés dans l'application.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3 max-h-96 overflow-y-auto">
           {users.length === 0 ? (
             <div className="text-center text-gray-500 py-8">
               <Users className="mx-auto h-12 w-12 text-gray-400" />
-              <p className="mt-4 text-lg">No users found.</p>
-              <p className="text-sm">As users register, they will appear here.</p>
+              <p className="mt-4 text-lg">Aucun utilisateur trouvé.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -231,14 +238,14 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
                     <div>
                       <div className="font-semibold flex items-center">
                         {getDisplayName(user)}
-                        {user.isAdmin && <ShieldCheck className="ml-2 h-5 w-5 text-blue-500" titleAccess="Administrator"/>}
+                        {user.isAdmin && <ShieldCheck className="ml-2 h-5 w-5 text-blue-500" titleAccess="Administrateur"/>}
                       </div>
                       <div className="text-sm text-gray-500 flex items-center">
                         <Mail className="mr-1 h-4 w-4" /> {user.email}
                       </div>
                       {user.createdAt && (
                         <div className="text-xs text-gray-400 flex items-center">
-                          <CalendarDays className="mr-1 h-3 w-3" /> Joined: {getDateFromTimestamp(user.createdAt)}
+                          <CalendarDays className="mr-1 h-3 w-3" /> Rejoint le: {getDateFromTimestamp(user.createdAt) ? format(getDateFromTimestamp(user.createdAt)!, 'P', { locale: fr }) : 'N/A'}
                         </div>
                       )}
                        <div className="text-xs text-gray-400 flex items-center">
@@ -251,7 +258,7 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
                     size="sm"
                     onClick={() => openDeleteDialog(user)}
                     disabled={!currentUserIsAdmin || isDeleting || user.uid === currentUser?.uid || (user.isAdmin && !currentUserIsAdmin)}
-                    aria-label={`Delete user ${getDisplayName(user)}`}
+                    aria-label={`Supprimer l'utilisateur ${getDisplayName(user)}`}
                     className="w-full sm:w-auto"
                   >
                     {isDeleting && userToDelete?.id === user.id ? (
@@ -259,7 +266,7 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
                     ) : (
                       <Trash2 className="mr-2 h-4 w-4" />
                     )}
-                    Delete
+                    Supprimer
                   </Button>
                 </Card>
               ))}
@@ -272,17 +279,17 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
         <AlertDialog open={!!userToDelete} onOpenChange={() => setUserToDelete(null)}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogUITitle>Confirm Deletion</AlertDialogUITitle>
+              <AlertDialogUITitle>Confirmer la Suppression</AlertDialogUITitle>
               <AlertDialogDescription>
-                Are you sure you want to delete the user "{getDisplayName(userToDelete)}"?
-                This action cannot be undone and will permanently remove their data.
+                Êtes-vous sûr de vouloir supprimer l'utilisateur "{getDisplayName(userToDelete)}"?
+                Cette action est irréversible et supprimera définitivement ses données.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel disabled={isDeleting}>Annuler</AlertDialogCancel>
               <AlertDialogAction onClick={handleDeleteUser} disabled={isDeleting} className="bg-red-600 hover:bg-red-700">
                 {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Delete
+                Supprimer
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -290,6 +297,4 @@ const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
       )}
     </>
   );
-};
-
-export default AdminUserManagement;
+}
