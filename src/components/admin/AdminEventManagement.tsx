@@ -35,62 +35,90 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
   const [itemToDelete, setItemToDelete] = useState<PartyData | null>(null);
 
   const fetchParties = useCallback(async () => {
+    console.log("[AdminEventManagement] fetchParties called. isAdmin:", isAdmin, "db available:", !!db);
     setLoading(true);
     setError(null);
     if (!db) {
       setError("Firestore n'est pas initialisé.");
       setLoading(false);
+      console.error("[AdminEventManagement] Firestore 'db' instance is null.");
       return;
     }
     try {
       const partiesCollectionRef = collection(db, 'parties');
-      const q = query(partiesCollectionRef, orderBy('createdAt', 'desc'));
+      // Temporairement commenter orderBy pour tester
+      // const q = query(partiesCollectionRef, orderBy('createdAt', 'desc'));
+      const q = query(partiesCollectionRef); // Requête simplifiée
+      console.log("[AdminEventManagement] Executing Firestore query for parties...");
       const querySnapshot = await getDocs(q);
-      const fetchedParties = querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
-      setParties(fetchedParties);
+      console.log(`[AdminEventManagement] Firestore query executed. Found ${querySnapshot.size} party documents.`);
 
+      if (querySnapshot.empty) {
+        console.log("[AdminEventManagement] No parties found in 'parties' collection.");
+        setParties([]);
+      } else {
+        const fetchedParties = querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
+        console.log(`[AdminEventManagement] Mapped parties data: ${fetchedParties.length} items.`);
+        setParties(fetchedParties);
+      }
+      
+      // Recalculer les totaux même si la liste des fêtes est vide (pour mettre à jour à 0 si besoin)
       let totalComments = 0;
       let totalMedia = 0;
-      for (const party of fetchedParties) {
+      const allFetchedPartiesForCounts = querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
+
+      for (const party of allFetchedPartiesForCounts) {
         const commentsSnapshot = await getDocs(collection(db, 'parties', party.id, 'comments'));
         totalComments += commentsSnapshot.size;
         totalMedia += (party.mediaItems?.length || 0);
       }
-      onUpdateCounts({ events: fetchedParties.length, comments: totalComments, media: totalMedia });
+      console.log(`[AdminEventManagement] Updating counts: events=${allFetchedPartiesForCounts.length}, comments=${totalComments}, media=${totalMedia}`);
+      onUpdateCounts({ events: allFetchedPartiesForCounts.length, comments: totalComments, media: totalMedia });
 
     } catch (e: any) {
-      console.error("Erreur chargement fêtes:", e);
+      console.error("[AdminEventManagement] Erreur chargement fêtes:", e);
       let userFriendlyError = "Impossible de charger les événements. ";
       if (e.code === 'permission-denied' || e.message?.includes('permission-denied') || e.message?.includes('insufficient permissions')) {
           userFriendlyError += "Permission refusée. Vérifiez les règles Firestore pour la collection 'parties'.";
+           console.error("[AdminEventManagement] Firestore Permission Denied. Details:", e);
       } else if (e.message?.includes('requires an index')) {
-          userFriendlyError += "Un index Firestore est requis pour trier les événements par date de création. Veuillez créer cet index dans la console Firebase.";
+          userFriendlyError += "Un index Firestore est requis. Veuillez vérifier la console Firebase pour le créer. Détails: " + e.message;
+           console.error("[AdminEventManagement] Firestore Index Missing. Details:", e);
       } else {
           userFriendlyError += e.message;
       }
       setError(userFriendlyError);
     } finally {
       setLoading(false);
+      console.log("[AdminEventManagement] fetchParties finished.");
     }
-  }, [onUpdateCounts]);
+  }, [onUpdateCounts, isAdmin]); // Ajout de isAdmin comme dépendance de useCallback
 
 
   useEffect(() => {
-    if (firebaseInitialized && !authLoading) {
+    console.log("[AdminEventManagement useEffect] State Check - Initialized:", firebaseInitialized, "Auth Loading:", authLoading, "Is Admin:", isAdmin, "User:", !!user);
+    if (firebaseInitialized && !authLoading) { // Wait for auth state and firebase init
         if (isAdmin && db) {
+            console.log("[AdminEventManagement useEffect] Admin and DB ready, calling fetchParties.");
             fetchParties();
         } else if (!isAdmin && user) { // User is logged in but not admin
+            console.warn("[AdminEventManagement useEffect] User is not admin.");
             setError("Accès non autorisé à la gestion des événements.");
             setLoading(false);
         } else if (!user && !authLoading) { // User is not logged in
+             console.warn("[AdminEventManagement useEffect] User not logged in.");
              setError("Veuillez vous connecter pour accéder à cette section.");
              setLoading(false);
         } else if (!db) {
+            console.error("[AdminEventManagement useEffect] Firestore 'db' instance is null when trying to fetch parties.");
             setError("Firestore n'est pas initialisé pour la gestion des événements.");
             setLoading(false);
         }
+    } else {
+        console.log("[AdminEventManagement useEffect] Waiting for Firebase init or auth state.");
     }
-  }, [fetchParties, isAdmin, firebaseInitialized, authLoading, user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, firebaseInitialized, authLoading, user]); // fetchParties est maintenant stable grâce à useCallback
 
 
   const openDeleteDialog = (party: PartyData) => {
@@ -110,34 +138,28 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
     try {
       const partyDocRef = doc(db, 'parties', itemToDelete.id);
       
-      // Batch delete comments first
       const commentsRef = collection(db, 'parties', itemToDelete.id, 'comments');
       const commentsSnapshot = await getDocs(commentsRef);
       
       const batch = writeBatch(db);
       commentsSnapshot.forEach(commentDoc => {
-        batch.delete(commentDoc.ref); // Use commentDoc.ref for direct reference
+        batch.delete(commentDoc.ref);
       });
       
-      // Then delete the party document itself
       batch.delete(partyDocRef);
       
       await batch.commit();
 
-      // Update local state and counts
       const updatedParties = parties.filter(p => p.id !== itemToDelete.id);
       setParties(updatedParties);
       
+      // Recalculer les compteurs globaux de commentaires et médias
       let totalCommentsAfterDelete = 0;
       let totalMediaAfterDelete = 0;
-      updatedParties.forEach(p => {
-        totalMediaAfterDelete += (p.mediaItems?.length || 0);
-        // Comments for this party are gone, so no need to re-fetch their count for this party
-      });
-      // Recalculate total comments from remaining parties
-      for (const party of updatedParties) {
+      for (const party of updatedParties) { // Itérer sur les fêtes restantes
         const remainingCommentsSnap = await getDocs(collection(db, 'parties', party.id, 'comments'));
         totalCommentsAfterDelete += remainingCommentsSnap.size;
+        totalMediaAfterDelete += (party.mediaItems?.length || 0);
       }
 
       onUpdateCounts({ events: updatedParties.length, comments: totalCommentsAfterDelete, media: totalMediaAfterDelete });
