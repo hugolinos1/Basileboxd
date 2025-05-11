@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Users, Trash2, Loader2, Mail, UserCircle, CalendarDays, AlertTriangle } from 'lucide-react';
+import { Users, Trash2, Loader2, Mail, UserCircle, CalendarDays, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as AlertDialogUITitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle as AlertUITitleComponent } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -25,140 +25,157 @@ interface UserDocData {
   pseudo?: string;
   avatarUrl?: string;
   createdAt?: Timestamp;
+  isAdmin?: boolean; // Add isAdmin to check if the user is an admin
 }
 
 interface AdminUserManagementProps {
   onUpdateCounts: (counts: { users: number }) => void;
 }
 
-export function AdminUserManagement({ onUpdateCounts }: AdminUserManagementProps) {
+const AdminUserManagement = ({ onUpdateCounts }: AdminUserManagementProps) => {
+  const { toast } = useToast();
+  const { currentUser, isAdmin: currentUserIsAdmin, loading: firebaseLoading } = useFirebase();
+
   const [users, setUsers] = useState<UserDocData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { toast } = useToast();
-  const { isAdmin, firebaseInitialized, loading: authLoading, user: adminUser } = useFirebase();
-
+  const [userToDelete, setUserToDelete] = useState<UserDocData | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState<UserDocData | null>(null);
-
-  const getInitials = (name: string | null | undefined, email: string): string => {
-    if (name && name.length > 0) return name.charAt(0).toUpperCase();
-    if (email && email.length > 0) return email.charAt(0).toUpperCase();
-    return '?';
-  };
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
-    if (!db) {
-      setError("Firestore n'est pas initialisé.");
-      setLoading(false);
-      return;
-    }
     try {
       const usersCollectionRef = collection(db, 'users');
       const q = query(usersCollectionRef, orderBy('createdAt', 'desc'));
       const querySnapshot = await getDocs(q);
-      const fetchedUsers = querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as UserDocData));
+      const fetchedUsers: UserDocData[] = [];
+      querySnapshot.forEach((doc) => {
+        // Ensure createdAt is handled correctly, even if it's missing in some docs
+        const data = doc.data();
+        fetchedUsers.push({
+          id: doc.id,
+          uid: data.uid,
+          email: data.email,
+          displayName: data.displayName,
+          pseudo: data.pseudo,
+          avatarUrl: data.avatarUrl,
+          createdAt: data.createdAt,
+          isAdmin: data.isAdmin || false, // Assuming isAdmin field exists
+        });
+      });
       setUsers(fetchedUsers);
       onUpdateCounts({ users: fetchedUsers.length });
-    } catch (e: any) {
-      console.error("Erreur chargement utilisateurs:", e);
-      let userFriendlyError = "Impossible de charger les utilisateurs. ";
-      if (e.code === 'permission-denied') {
-          userFriendlyError += "Permission refusée. Vérifiez les règles Firestore pour la collection 'users'.";
-      } else if (e.message?.includes('requires an index')) {
-          userFriendlyError += "Un index Firestore est requis. " + e.message;
-      } else {
-          userFriendlyError += e.message;
-      }
-      setError(userFriendlyError);
+    } catch (err) {
+      console.error("Error fetching users:", err);
+      setError("Failed to fetch users. Please try again later.");
+      toast({
+        title: "Error",
+        description: "Could not load user data.",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
-  }, [onUpdateCounts]);
+  }, [toast, onUpdateCounts]);
 
   useEffect(() => {
-    if (firebaseInitialized && !authLoading) {
-        if (isAdmin && db) {
-            fetchUsers();
-        } else if (!isAdmin && adminUser) {
-            setError("Accès non autorisé à la gestion des utilisateurs.");
-            setLoading(false);
-        }  else if (!db) {
-            setError("Firestore n'est pas initialisé pour la gestion des utilisateurs.");
-            setLoading(false);
-        }
-    }
-  }, [isAdmin, firebaseInitialized, authLoading, adminUser, fetchUsers]);
+    fetchUsers();
+  }, [fetchUsers]);
 
-  const openDeleteDialog = (userToDelete: UserDocData) => {
-    if (adminUser && userToDelete.uid === adminUser.uid) {
-      toast({ title: "Action impossible", description: "Vous ne pouvez pas supprimer votre propre compte administrateur.", variant: "warning" });
+  const openDeleteDialog = (user: UserDocData) => {
+    if (user.uid === currentUser?.uid) {
+      toast({
+        title: "Cannot Delete Self",
+        description: "You cannot delete your own account from here.",
+        variant: "destructive",
+      });
       return;
     }
-    setItemToDelete(userToDelete);
-    setDialogOpen(true);
+    if (user.isAdmin && !currentUserIsAdmin) {
+        toast({
+            title: "Permission Denied",
+            description: "You do not have permission to delete an admin user.",
+            variant: "destructive",
+        });
+        return;
+    }
+    setUserToDelete(user);
   };
 
-  const confirmDelete = async () => {
-    if (!itemToDelete || !db || !isAdmin) {
-      toast({ title: 'Erreur', description: 'Action non autorisée ou données manquantes.', variant: 'destructive' });
-      setIsDeleting(false);
-      setDialogOpen(false);
+  const handleDeleteUser = async () => {
+    if (!userToDelete || !currentUserIsAdmin) {
+      toast({
+        title: "Error",
+        description: "No user selected for deletion or insufficient permissions.",
+        variant: "destructive",
+      });
       return;
     }
+    if (userToDelete.uid === currentUser?.uid) {
+      toast({
+        title: "Action Not Allowed",
+        description: "You cannot delete your own account.",
+        variant: "destructive",
+      });
+      setUserToDelete(null);
+      return;
+    }
+
     setIsDeleting(true);
     try {
-      // 1. Supprimer le document utilisateur de Firestore
-      const userDocRef = doc(db, 'users', itemToDelete.uid); // Utiliser l'UID pour le document ID
+      const userDocRef = doc(db, 'users', userToDelete.id);
       await deleteDoc(userDocRef);
-      
-      // 2. TODO IMPORTANT: Supprimer l'utilisateur de Firebase Authentication
-      // Cela DOIT être fait côté serveur avec Firebase Admin SDK (par exemple, via une Cloud Function).
-      // Le SDK client ne permet pas de supprimer d'autres utilisateurs.
-      console.warn(`Document Firestore pour ${itemToDelete.email} (UID: ${itemToDelete.uid}) supprimé. Veuillez supprimer manuellement l'utilisateur de Firebase Authentication ou implémenter une Cloud Function.`);
       toast({
-        title: 'Document utilisateur supprimé de Firestore',
-        description: `Les données de ${itemToDelete.email} ont été retirées de la base de données. N'oubliez pas de supprimer le compte d'authentification.`,
-        variant: 'default',
-        duration: 7000,
+        title: "User Deleted",
+        description: `${userToDelete.displayName || userToDelete.email} has been successfully deleted.`,
       });
-
-
-      const updatedUsers = users.filter(u => u.uid !== itemToDelete.uid);
+      // Refetch users or filter out the deleted user
+      const updatedUsers = users.filter(user => user.id !== userToDelete.id);
       setUsers(updatedUsers);
       onUpdateCounts({ users: updatedUsers.length });
-      
-    } catch (error: any) {
-      console.error(`Erreur lors de la suppression de l'utilisateur Firestore:`, error);
-      toast({ title: 'Erreur de suppression Firestore', description: `Impossible de supprimer les données de "${itemToDelete.email}" de Firestore. ${error.message}`, variant: 'destructive' });
+    } catch (err) {
+      console.error("Error deleting user:", err);
+      setError(`Failed to delete user ${userToDelete.displayName || userToDelete.email}.`);
+      toast({
+        title: "Error Deleting User",
+        description: `Could not delete user. ${err instanceof Error ? err.message : ''}`,
+        variant: "destructive",
+      });
     } finally {
       setIsDeleting(false);
-      setDialogOpen(false);
-      setItemToDelete(null);
+      setUserToDelete(null);
     }
   };
-  
-  if (loading || authLoading) {
+
+  const getDisplayName = (user: UserDocData) => {
+    return user.displayName || user.pseudo || user.email.split('@')[0] || 'N/A';
+  };
+
+  const getInitials = (name: string) => {
+    const parts = name.split(' ');
+    if (parts.length > 1) {
+      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+  };
+
+
+  if (loading || firebaseLoading) {
     return (
-      <Card className="bg-card border-border">
+      <Card>
         <CardHeader>
-          <CardTitle><Skeleton className="h-6 w-3/4" /></CardTitle>
-          <CardDescription><Skeleton className="h-4 w-full" /></CardDescription>
+          <CardTitle>User Management</CardTitle>
+          <CardDescription>Manage all registered users.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3 max-h-96 overflow-y-auto">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="flex items-center justify-between p-3 bg-secondary rounded-lg border border-border/30">
-              <div className="flex items-center space-x-3">
-                <Skeleton className="h-10 w-10 rounded-full bg-muted" />
-                <div className="space-y-1.5 flex-1">
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-3 w-48" />
-                </div>
+        <CardContent className="space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="flex items-center space-x-4 p-4 border rounded-md">
+              <Skeleton className="h-12 w-12 rounded-full" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-[250px]" />
+                <Skeleton className="h-4 w-[200px]" />
               </div>
-              <Skeleton className="h-9 w-24" />
             </div>
           ))}
         </CardContent>
@@ -168,13 +185,15 @@ export function AdminUserManagement({ onUpdateCounts }: AdminUserManagementProps
 
   if (error) {
     return (
-      <Card className="bg-card border-destructive">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-destructive flex items-center gap-2"><Users className="h-5 w-5" /> Utilisateurs</CardTitle>
+          <CardTitle>User Management</CardTitle>
+          <CardDescription>Manage all registered users.</CardDescription>
         </CardHeader>
         <CardContent>
           <Alert variant="destructive">
-            <AlertUITitleComponent>Erreur de Chargement</AlertUITitleComponent>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertUITitleComponent>Error</AlertUITitleComponent>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         </CardContent>
@@ -184,67 +203,93 @@ export function AdminUserManagement({ onUpdateCounts }: AdminUserManagementProps
 
   return (
     <>
-      <Card className="bg-card border-border">
+      <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Utilisateurs ({users.length})</CardTitle>
-          <CardDescription>Gérer les comptes utilisateurs.</CardDescription>
+          <CardTitle className="flex items-center">
+            <Users className="mr-2 h-6 w-6" /> User Management
+          </CardTitle>
+          <CardDescription>
+            View and manage all registered users in the application. Total users: {users.length}
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3 max-h-96 overflow-y-auto">
-          {users.length === 0 && <p className="text-sm text-muted-foreground">Aucun utilisateur trouvé.</p>}
-          {users.map((userDoc) => {
-            const joinDate = getDateFromTimestamp(userDoc.createdAt);
-            const displayName = userDoc.pseudo || userDoc.displayName || userDoc.email.split('@')[0];
-            return (
-                <div key={userDoc.uid} className="flex items-center justify-between p-3 bg-secondary rounded-lg border border-border/30 hover:border-primary/50 transition-colors duration-200">
-                <div className="flex items-center space-x-3 flex-1 min-w-0">
-                    <Avatar className="h-10 w-10 border">
-                    <AvatarImage src={userDoc.avatarUrl || undefined} alt={displayName} data-ai-hint="utilisateur avatar"/>
-                    <AvatarFallback className="bg-muted text-muted-foreground">
-                        {getInitials(displayName, userDoc.email)}
-                    </AvatarFallback>
+        <CardContent>
+          {users.length === 0 ? (
+            <div className="text-center text-gray-500 py-8">
+              <Users className="mx-auto h-12 w-12 text-gray-400" />
+              <p className="mt-4 text-lg">No users found.</p>
+              <p className="text-sm">As users register, they will appear here.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {users.map((user) => (
+                <Card key={user.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 hover:shadow-md transition-shadow">
+                  <div className="flex items-center space-x-4 mb-3 sm:mb-0">
+                    <Avatar className="h-12 w-12">
+                      <AvatarImage src={user.avatarUrl} alt={getDisplayName(user)} />
+                      <AvatarFallback>{getInitials(getDisplayName(user))}</AvatarFallback>
                     </Avatar>
-                    <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate" title={displayName}>{displayName}</p>
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Mail className="w-3 h-3"/> {userDoc.email}
-                    </p>
-                    {joinDate && (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <CalendarDays className="w-3 h-3"/> Inscrit le : {joinDate.toLocaleDateString()}
-                        </p>
-                    )}
+                    <div>
+                      <div className="font-semibold flex items-center">
+                        {getDisplayName(user)}
+                        {user.isAdmin && <ShieldCheck className="ml-2 h-5 w-5 text-blue-500" titleAccess="Administrator"/>}
+                      </div>
+                      <div className="text-sm text-gray-500 flex items-center">
+                        <Mail className="mr-1 h-4 w-4" /> {user.email}
+                      </div>
+                      {user.createdAt && (
+                        <div className="text-xs text-gray-400 flex items-center">
+                          <CalendarDays className="mr-1 h-3 w-3" /> Joined: {getDateFromTimestamp(user.createdAt)}
+                        </div>
+                      )}
+                       <div className="text-xs text-gray-400 flex items-center">
+                          <UserCircle className="mr-1 h-3 w-3" /> UID: {user.uid}
+                        </div>
                     </div>
-                </div>
-                {isAdmin && adminUser && userDoc.uid !== adminUser.uid && (
-                    <Button variant="destructive" size="sm" className="ml-4 flex-shrink-0" onClick={() => openDeleteDialog(userDoc)}>
-                    <Trash2 className="w-4 h-4 mr-1.5" /> Supprimer
-                    </Button>
-                )}
-                </div>
-            );
-          })}
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => openDeleteDialog(user)}
+                    disabled={!currentUserIsAdmin || isDeleting || user.uid === currentUser?.uid || (user.isAdmin && !currentUserIsAdmin)}
+                    aria-label={`Delete user ${getDisplayName(user)}`}
+                    className="w-full sm:w-auto"
+                  >
+                    {isDeleting && userToDelete?.id === user.id ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    Delete
+                  </Button>
+                </Card>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogUITitle>Êtes-vous sûr de vouloir supprimer cet utilisateur ?</AlertDialogUITitle>
-            <AlertDialogDescription>
-              Utilisateur : {itemToDelete?.email} (Pseudo: {itemToDelete?.pseudo || itemToDelete?.displayName || 'N/A'}) <br />
-              La suppression du document Firestore ne supprime PAS le compte d'authentification Firebase. Cette action devra être effectuée manuellement ou via une fonction backend.
-              Cette action est irréversible pour les données Firestore.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setItemToDelete(null)} disabled={isDeleting}>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} disabled={isDeleting || !isAdmin} className="bg-destructive hover:bg-destructive/90">
-              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
-              Supprimer de Firestore
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {userToDelete && (
+        <AlertDialog open={!!userToDelete} onOpenChange={() => setUserToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogUITitle>Confirm Deletion</AlertDialogUITitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete the user "{getDisplayName(userToDelete)}"?
+                This action cannot be undone and will permanently remove their data.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDeleteUser} disabled={isDeleting} className="bg-red-600 hover:bg-red-700">
+                {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </>
   );
-}
+};
+
+export default AdminUserManagement;
