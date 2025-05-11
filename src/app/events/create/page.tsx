@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -37,9 +36,8 @@ import {
   ACCEPTED_MEDIA_TYPES,
   MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  ACCEPTED_COVER_PHOTO_TYPES,
 } from '@/services/media-uploader';
-import { coverPhotoSchema } from '@/services/validation-schemas'; 
+import { coverPhotoSchema, ACCEPTED_COVER_PHOTO_TYPES } from '@/services/validation-schemas'; 
 
 
 import { Progress } from '@/components/ui/progress';
@@ -129,7 +127,7 @@ export default function CreateEventPage() {
         const usersSnapshot = await getDocs(usersCollectionRef);
         const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserData));
         setAllUsers(fetchedUsers);
-        console.log("Fetched all users:", fetchedUsers);
+        console.log("Fetched all users for Combobox:", fetchedUsers.map(u => ({uid: u.uid, email: u.email, pseudo: u.pseudo})));
       } catch (error) {
         console.error("Erreur lors de la récupération des utilisateurs:", error);
         toast({ title: "Erreur utilisateurs", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive" });
@@ -245,18 +243,27 @@ export default function CreateEventPage() {
   const handleAddParticipant = (userId: string) => {
     const currentFormParticipantUIDs = form.getValues('participants') || [];
     if (!currentFormParticipantUIDs.includes(userId)) {
-      form.setValue('participants', [...currentFormParticipantUIDs, userId]);
-      const participantData = allUsers.find(u => u.uid === userId);
+      console.log("[handleAddParticipant] Trying to add UID:", userId);
+      console.log("[handleAddParticipant] Current allUsers UIDs for lookup:", allUsers.map(u => u.uid));
+
+      const participantData = allUsers.find(u => u.uid === userId); // Firebase UIDs are case-sensitive
       if (participantData) {
+        form.setValue('participants', [...currentFormParticipantUIDs, userId]);
         setSelectedParticipants(prev => {
           if (!prev.find(p => p.uid === userId)) {
-            console.log("Adding to selectedParticipants:", participantData);
+            console.log("Adding to selectedParticipants state:", participantData);
             return [...prev, participantData];
           }
           return prev;
         });
       } else {
         console.warn(`Participant data not found in allUsers for UID: ${userId} when trying to update selectedParticipants state.`);
+        toast({
+          title: "Utilisateur introuvable",
+          description: `L'utilisateur avec l'ID "${userId}" n'a pas été trouvé. Assurez-vous que cet utilisateur existe et a un profil complet dans la base de données.`,
+          variant: "warning",
+          duration: 7000,
+        });
       }
     }
   };
@@ -532,7 +539,7 @@ export default function CreateEventPage() {
                             <FormItem>
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                   <FormControl>
-                                    <div> {/* Wrapper div */}
+                                    <React.Fragment> {/* Ensure a single child for FormControl */}
                                       {coverPhotoPreview ? (
                                           <>
                                               <div className="relative w-full h-full">
@@ -564,7 +571,7 @@ export default function CreateEventPage() {
                                           className="hidden"
                                           onChange={handleCoverPhotoChange}
                                       />
-                                    </div>
+                                    </React.Fragment>
                                   </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
@@ -667,7 +674,7 @@ export default function CreateEventPage() {
                       render={({ field }) => (
                         <FormItem>
                            <FormControl>
-                             <div> {/* Wrapper div */}
+                             <React.Fragment> {/* Ensure a single child for FormControl */}
                               <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
                                 <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
                               </Button>
@@ -679,7 +686,7 @@ export default function CreateEventPage() {
                                  onChange={handleMediaFileChange}
                                  className="hidden"
                                />
-                             </div>
+                             </React.Fragment>
                            </FormControl>
                           <FormDescription className="text-center">
                             Max {MEDIA_MAX_FILE_SIZE_CONFIG.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE_CONFIG.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE_CONFIG.audio / 1024 / 1024}Mo/Son.
