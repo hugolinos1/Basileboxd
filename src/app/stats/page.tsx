@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -10,10 +10,22 @@ import { Alert, AlertDescription, AlertTitle as AlertUITitle } from '@/component
 import { Skeleton } from '@/components/ui/skeleton';
 import { BarChart3, Users, Image as ImageIcon, CalendarCheck2, Star, MapPin, AlertTriangle, Loader2 } from 'lucide-react';
 import type { PartyData as SharedPartyData } from '@/lib/party-utils';
-// calculatePartyAverageRating is not used here, getDateFromTimestamp might be if displaying dates
 import { StatCard } from '@/components/stats/StatCard';
 import { GlobalRatingDistributionChart } from '@/components/stats/GlobalRatingDistributionChart';
-import { EventMap } from '@/components/stats/EventMap'; // Import EventMap directly
+import dynamic from 'next/dynamic';
+
+const EventMapWithNoSSR = dynamic(
+  () => import('@/components/stats/EventMap').then((mod) => mod.EventMap),
+  { 
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <Loader2 className="h-8 w-8 mr-2 animate-spin" />
+        Chargement de la carte...
+      </div>
+    )
+  }
+);
 
 type PartyData = SharedPartyData & { id: string };
 
@@ -72,7 +84,6 @@ export default function StatisticsPage() {
           }
         });
         
-        // Ratings are on a 0-10 scale, average should be /10, then /2 for /5 display
         const averageGlobalRating = totalRatingsCount > 0 ? (totalRatingSum / totalRatingsCount / 2) : 0;
 
 
@@ -178,7 +189,7 @@ export default function StatisticsPage() {
           </CardHeader>
           <CardContent className="h-[300px] md:h-[350px] p-0 rounded-b-lg overflow-hidden flex items-center justify-center bg-muted"> 
             {stats.allParties.length > 0 ? (
-                <EventMap parties={stats.allParties} />
+                <EventMapWithNoSSR parties={stats.allParties} /> 
             ) : (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground bg-muted">
                     <MapPin className="h-16 w-16 mx-auto mb-4 opacity-50" />
