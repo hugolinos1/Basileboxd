@@ -25,14 +25,16 @@ if (!firebaseConfig.apiKey) {
     console.error(`ERREUR CONFIG FIREBASE: ${firebaseInitializationError}`);
 }
 if (!firebaseConfig.projectId) {
-    // Warn but don't throw, as some functionalities might still work initially.
-    console.warn("CONFIG FIREBASE: L'ID de projet Firebase (NEXT_PUBLIC_FIREBASE_PROJECT_ID) est manquant. Vérifiez .env.local.");
-    // If projectId is missing, most services will fail anyway, so treat it as an error for initialization purposes.
-    if (!firebaseInitializationError) { // Don't overwrite the API key error
-       firebaseInitializationError = "ID de projet Firebase manquant (NEXT_PUBLIC_FIREBASE_PROJECT_ID).";
-       console.error(`ERREUR CONFIG FIREBASE: ${firebaseInitializationError}`);
-    }
+    const msg = "L'ID de projet Firebase (NEXT_PUBLIC_FIREBASE_PROJECT_ID) est manquant. Vérifiez .env.local.";
+    console.error(`ERREUR CONFIG FIREBASE: ${msg}`);
+    if (!firebaseInitializationError) firebaseInitializationError = msg;
 }
+if (!firebaseConfig.storageBucket) { // Added check for storageBucket
+    const msg = "Le nom du bucket de stockage Firebase (NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET) est manquant. Vérifiez .env.local.";
+    console.error(`ERREUR CONFIG FIREBASE: ${msg}`);
+    if (!firebaseInitializationError) firebaseInitializationError = msg;
+}
+
 
 // Initialize Firebase App - Ensure this runs only once
 let app: FirebaseApp | null = null;
@@ -55,7 +57,7 @@ if (!firebaseInitializationError) {
         // Initialize services only if app was initialized successfully
         auth = getAuth(app);
         db = getFirestore(app);
-        storage = getStorage(app);
+        storage = getStorage(app); // storage will be initialized if storageBucket is present
         console.log("Services Firebase (Auth, Firestore, Storage) initialisés.");
 
         // Initialize Analytics only on the client-side if supported
@@ -81,16 +83,14 @@ if (!firebaseInitializationError) {
         }
 
         // Connect to emulators if running in development mode
-        // Check for a specific environment variable or hostname
         if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
             console.log("Mode développement local détecté. Tentative de connexion aux émulateurs Firebase...");
              try {
-                // Use a flag to prevent multiple connection attempts within the same HMR cycle
                  if (!(window as any).__firebase_emulators_connected) {
                      console.log("Connexion aux émulateurs (Auth: 9099, Firestore: 8080, Storage: 9199)...");
                      connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
                      connectFirestoreEmulator(db, 'localhost', 8080);
-                     connectStorageEmulator(storage, 'localhost', 9199);
+                     if (storage) connectStorageEmulator(storage, 'localhost', 9199); // Check if storage is initialized
                      (window as any).__firebase_emulators_connected = true;
                       console.log("Connecté aux émulateurs Firebase.");
                  } else {
