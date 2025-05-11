@@ -36,8 +36,9 @@ import {
   ACCEPTED_MEDIA_TYPES,
   MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  ACCEPTED_COVER_PHOTO_TYPES, 
 } from '@/services/media-uploader';
-import { coverPhotoSchema, ACCEPTED_COVER_PHOTO_TYPES } from '@/services/validation-schemas'; 
+import { coverPhotoSchema } from '@/services/validation-schemas'; 
 
 
 import { Progress } from '@/components/ui/progress';
@@ -246,11 +247,11 @@ export default function CreateEventPage() {
       console.log("[handleAddParticipant] Trying to add UID:", userId);
       console.log("[handleAddParticipant] Current allUsers UIDs for lookup:", allUsers.map(u => u.uid));
 
-      const participantData = allUsers.find(u => u.uid === userId); // Firebase UIDs are case-sensitive
+      const participantData = allUsers.find(u => u.uid.toLowerCase() === userId.toLowerCase()); // Case-insensitive find
       if (participantData) {
-        form.setValue('participants', [...currentFormParticipantUIDs, userId]);
+        form.setValue('participants', [...currentFormParticipantUIDs, participantData.uid]); // Use the correct UID from participantData
         setSelectedParticipants(prev => {
-          if (!prev.find(p => p.uid === userId)) {
+          if (!prev.find(p => p.uid.toLowerCase() === participantData.uid.toLowerCase())) { // Case-insensitive check
             console.log("Adding to selectedParticipants state:", participantData);
             return [...prev, participantData];
           }
@@ -273,9 +274,9 @@ export default function CreateEventPage() {
       toast({ title: "Impossible de retirer", description: "Le créateur ne peut pas être retiré de l'événement.", variant: 'warning' });
       return;
     }
-    form.setValue('participants', (form.getValues('participants') || []).filter(uid => uid !== userId));
-    setSelectedParticipants(prev => prev.filter(p => p.uid !== userId));
-    console.log("Removed participant:", userId, "New selectedParticipants:", selectedParticipants.filter(p => p.uid !== userId));
+    form.setValue('participants', (form.getValues('participants') || []).filter(uid => uid.toLowerCase() !== userId.toLowerCase())); // Case-insensitive filter
+    setSelectedParticipants(prev => prev.filter(p => p.uid.toLowerCase() !== userId.toLowerCase())); // Case-insensitive filter
+    console.log("Removed participant:", userId, "New selectedParticipants:", selectedParticipants.filter(p => p.uid.toLowerCase() !== userId.toLowerCase()));
   };
 
 
@@ -424,7 +425,7 @@ export default function CreateEventPage() {
   }
 
   const comboboxOptions = allUsers
-    .filter(u => !(form.getValues('participants') || []).includes(u.uid))
+    .filter(u => !(form.getValues('participants') || []).map(uid => uid.toLowerCase()).includes(u.uid.toLowerCase()))
     .map(u => ({ value: u.uid, label: u.pseudo || u.displayName || u.email || u.uid }));
 
 
@@ -808,4 +809,3 @@ export default function CreateEventPage() {
     </div>
   );
 }
-
