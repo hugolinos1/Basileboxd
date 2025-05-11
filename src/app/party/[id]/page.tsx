@@ -9,7 +9,7 @@ import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format, formatDistanceToNow } from 'date-fns'; 
 import { fr } from 'date-fns/locale';
-import { Star, Send, User, MapPin, CalendarDays, Image as ImageIcon, Video, Music, Loader2, AlertTriangle, Upload, Edit2, X, File as FileIcon, UserPlus, Trash2, MessageSquare, CornerDownRight } from 'lucide-react'; 
+import { Star, Send, User, MapPin, CalendarDays, Image as ImageIconLucide, Video, Music, Loader2, AlertTriangle, Upload, Edit2, X, File as FileIcon, UserPlus, Trash2, MessageSquare, CornerDownRight } from 'lucide-react'; 
 import Image from 'next/image';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -40,22 +40,21 @@ import {
   uploadFile,
   getFileType as getMediaFileType,
   ACCEPTED_MEDIA_TYPES,
+  ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  ACCEPTED_COVER_PHOTO_TYPES, // Added this import
 } from '@/services/media-uploader';
-import { coverPhotoSchema, avatarSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
-import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
+import { coverPhotoSchema, avatarSchema } from '@/services/validation-schemas'; 
+import { Skeleton } from '@/components/ui/skeleton'; 
 import { Combobox } from '@/components/ui/combobox';
 import type { MediaItem as SharedMediaItem, PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
 import { Slider } from '@/components/ui/slider';
-import { normalizeCityName, getDateFromTimestamp as sharedGetDateFromTimestamp } from '@/lib/party-utils';
+import { normalizeCityName, getDateFromTimestamp as sharedGetDateFromTimestamp, geocodeCity as sharedGeocodeCity } from '@/lib/party-utils';
 
 
 // --- Interfaces ---
 type MediaItem = SharedMediaItem;
 type PartyData = SharedPartyData & { id: string }; 
-// type Comment = SharedCommentData; 
 
 interface UserProfile {
     id: string; 
@@ -66,59 +65,30 @@ interface UserProfile {
     avatarUrl?: string;
 }
 
-// Modified Comment interface for replies
-interface CommentWithReplies extends SharedCommentData { // Use SharedCommentData for base
-  id: string; // Ensure id is always present for processed comments
+interface CommentWithReplies extends SharedCommentData { 
+  id: string; 
   replies: CommentWithReplies[];
-  parentAuthorEmail?: string; // New field
+  parentAuthorEmail?: string; 
 }
 
 
 // --- Helper Functions ---
-const geocodeCity = async (cityName: string): Promise<{ lat: number; lon: number } | null> => {
-  if (!cityName) return null;
-  const normalizedCity = normalizeCityName(cityName); 
-  if (!normalizedCity) return null;
-
-  const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`;
-  try {
-    const response = await fetch(apiUrl, {
-      headers: {
-        'User-Agent': 'PartyHubApp/1.0 (contact@partagefestif.com)',
-        'Accept-Language': 'fr,en;q=0.9'
-      }
-    });
-    if (!response.ok) {
-      console.error(`Erreur API Nominatim: ${response.status} pour la ville: ${cityName} (normalisé: ${normalizedCity})`);
-      return null;
-    }
-    const data = await response.json();
-    if (data && data.length > 0 && data[0].lat && data[0].lon) {
-      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-    }
-    console.warn(`Aucune coordonnée trouvée pour: ${cityName} (normalisé: ${normalizedCity})`);
-    return null;
-  } catch (error) {
-    console.error("Erreur de géocodage:", error);
-    return null;
-  }
-};
-
+const geocodeCity = sharedGeocodeCity;
 const getDateFromTimestamp = sharedGetDateFromTimestamp;
 
 // --- Composants ---
 const RatingDistributionChart = ({ ratings }: { ratings: { [userId: string]: number } }) => {
   const ratingCounts = useMemo(() => {
-    const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 10 }, (_, i) => ({ // Changed from 20 to 10 for 0.5-5 scale
+    const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 10 }, (_, i) => ({ 
       rating: (i + 1) * 0.5,
       votes: 0,
       fill: '',
     }));
     Object.values(ratings).forEach(rating => {
-      const numericRating = Number(rating); // This is a 0-10 scale
+      const numericRating = Number(rating); 
       if (!isNaN(numericRating) && numericRating >= 0 && numericRating <= 10) {
-        const displayRating = numericRating / 2; // Convert to 0-5 scale
-        const index = Math.round(displayRating * 2) -1; // Index for 0.5 steps on 0-5 scale
+        const displayRating = numericRating / 2; 
+        const index = Math.round(displayRating * 2) -1; 
         if (index >= 0 && index < 10) {
           counts[index].votes++;
         }
@@ -149,21 +119,21 @@ const RatingDistributionChart = ({ ratings }: { ratings: { [userId: string]: num
         >
           <XAxis
             dataKey="rating"
-            type="number" // Ensure XAxis treats rating as a number for domain
-            domain={[0.5, 5]} // Set domain for 0.5 to 5 scale
+            type="number" 
+            domain={[0.5, 5]} 
             tickLine={false}
             axisLine={false}
             tickMargin={4}
             tickFormatter={(value) => (value % 1 === 0 ? `${value}.0` : `${value}`)}
             fontSize={10}
-            interval="preserveStartEnd" // Show first and last tick
-            ticks={[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]} // Define ticks for 0.5 steps
+            interval="preserveStartEnd" 
+            ticks={[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]} 
           />
           <YAxis hide={true} />
           <RechartsTooltip
             cursor={false}
             content={<ChartTooltipContent hideLabel hideIndicator />}
-            formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating} / 5 étoiles`]} // Display as X/5
+            formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating} / 5 étoiles`]} 
           />
           <Bar dataKey="votes" radius={2} />
         </BarChart>
@@ -185,7 +155,7 @@ export default function PartyDetailsPage() {
   const { toast } = useToast();
 
   const [party, setParty] = useState<PartyData | null>(null);
-  const [commentsData, setCommentsData] = useState<SharedCommentData[]>([]); // Use SharedCommentData
+  const [commentsData, setCommentsData] = useState<SharedCommentData[]>([]); 
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]); 
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -220,10 +190,12 @@ export default function PartyDetailsPage() {
   const [newPartyLocation, setNewPartyLocation] = useState('');
   const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
 
-  // NOUVEL ÉTAT pour gérer la réponse (comme suggéré dans l'étape 1)
   const [replyingToCommentInfo, setReplyingToCommentInfo] = useState<{ id: string; userEmail: string } | null>(null);
   
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
+  const souvenirInputRef = useRef<HTMLInputElement>(null);
+  const coverPhotoInputRef = useRef<HTMLInputElement>(null);
+
 
   const participantColors = useMemo(() => [ 'bg-red-600', 'bg-blue-600', 'bg-green-600', 'bg-yellow-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600', 'bg-teal-600', ], []);
   
@@ -235,6 +207,61 @@ export default function PartyDetailsPage() {
 
   const isCreator = useMemo(() => user && party && user.uid === party.createdBy, [user, party]);
   const canManageParty = useMemo(() => user && party && (user.uid === party.createdBy || isAdmin), [user, party, isAdmin]);
+
+  // Moved hooks before early returns
+  const partyDate = party ? getDateFromTimestamp(party.date) : null;
+
+  const comboboxOptions = useMemo(() => {
+    if (!allUsers || !party || !party.participants) {
+        return [];
+    }
+    return allUsers
+        .filter(u => !party.participants.map(pUid => pUid.toLowerCase()).includes(u.uid.toLowerCase()))
+        .map(u => ({
+            value: u.uid,
+            label: u.pseudo || u.displayName || u.email || u.uid,
+        }));
+  }, [allUsers, party]);
+
+  const organizedComments = useMemo(() => {
+    if (!commentsData) return [];
+    const commentsMap = new Map<string, CommentWithReplies>();
+    const topLevelComments: CommentWithReplies[] = [];
+
+    const sortedForProcessing = [...commentsData].sort((a, b) => {
+        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
+        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
+        return timeA - timeB; 
+    });
+
+    sortedForProcessing.forEach(commentItem => { 
+      if (!commentItem.id) {
+          console.warn("Commentaire sans ID rencontré lors de l'organisation:", commentItem);
+          return; 
+      }
+      const commentWithReplies: CommentWithReplies = { ...commentItem, replies: [] } as CommentWithReplies;
+      commentsMap.set(commentItem.id, commentWithReplies);
+
+      if (commentItem.parentId && commentsMap.has(commentItem.parentId)) {
+        const parentComment = commentsMap.get(commentItem.parentId)!;
+        commentWithReplies.parentAuthorEmail = parentComment.email; 
+        parentComment.replies.push(commentWithReplies);
+      } else {
+        topLevelComments.push(commentWithReplies);
+      }
+    });
+    
+    const sortRepliesDesc = (replies: CommentWithReplies[]) => {
+        replies.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
+        replies.forEach(reply => { if(reply.replies.length > 0) sortRepliesDesc(reply.replies)});
+    }
+    topLevelComments.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
+    topLevelComments.forEach(commentItem => { 
+      if(commentItem.replies.length > 0) sortRepliesDesc(commentItem.replies);
+    });
+
+    return topLevelComments;
+  }, [commentsData, getDateFromTimestamp]);
 
 
   // --- Effects ---
@@ -273,7 +300,6 @@ export default function PartyDetailsPage() {
         } else {
             setUserRating(0);
         }
-        // Do not setPageLoading(false) here if comments are still loading
       } else {
         console.log(`[PartyDetailsPage] Document ${partyId} n'existe pas.`);
         setError('Fête non trouvée.');
@@ -293,7 +319,6 @@ export default function PartyDetailsPage() {
         setPageLoading(false);
     });
 
-    // Listener for comments subcollection
     const commentsRef = collection(db, 'parties', partyId, 'comments');
     const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'desc'));
     
@@ -304,7 +329,7 @@ export default function PartyDetailsPage() {
             fetchedComments.push({ id: doc.id, ...doc.data() } as SharedCommentData);
         });
         setCommentsData(fetchedComments);
-        setPageLoading(false); // Now set page loading to false after comments are also loaded/attempted
+        setPageLoading(false); 
     }, (snapshotError: any) => {
          console.error('[PartyDetailsPage] Erreur listener snapshot commentaires:', snapshotError);
          let userFriendlyError = 'Impossible de charger les commentaires en temps réel.';
@@ -318,7 +343,7 @@ export default function PartyDetailsPage() {
             console.error("Firestore Index Missing for comments query: ", snapshotError.message);
          }
          setError(prevError => prevError || userFriendlyError); 
-         setPageLoading(false); // Also set loading to false on error
+         setPageLoading(false); 
     });
 
 
@@ -376,9 +401,9 @@ export default function PartyDetailsPage() {
      try {
          const partyDocRef = doc(db, 'parties', party.id);
          await updateDoc(partyDocRef, {
-             [`ratings.${user.uid}`]: newRating // Store rating as 0-10
+             [`ratings.${user.uid}`]: newRating 
          });
-         toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating/2}/5 étoiles.` }); // Display as 0-5
+         toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating/2}/5 étoiles.` }); 
      } catch (rateError: any) {
          console.error("Erreur note:", rateError);
          let description = rateError.message || 'Impossible d\'envoyer la note.';
@@ -391,7 +416,6 @@ export default function PartyDetailsPage() {
      }
   };
 
-  // MODIFICATION de handleAddComment (comme suggéré à l'étape 1)
   const handleAddComment = async () => {
     if (!user || !party || !comment.trim() || !db || !firebaseInitialized) {
       toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' });
@@ -406,7 +430,7 @@ export default function PartyDetailsPage() {
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: Timestamp.now(), // Change to Timestamp.now()
+        timestamp: Timestamp.now(), 
         partyId: party.id,
         ...(replyingToCommentInfo && { parentId: replyingToCommentInfo.id }),
       };
@@ -431,21 +455,20 @@ export default function PartyDetailsPage() {
     }
   };
 
-  // NOUVELLE FONCTION pour démarrer une réponse (comme suggéré à l'étape 1)
   const handleStartReply = (commentId: string, userEmail: string) => {
     setReplyingToCommentInfo({ id: commentId, userEmail });
+    setReplyingToCommentId(commentId); 
     setReplyText(''); 
     commentInputRef.current?.focus(); 
     commentInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  // NOUVELLE FONCTION pour annuler la réponse (comme suggéré à l'étape 1)
   const handleCancelReply = () => {
     setReplyingToCommentInfo(null);
+    setReplyingToCommentId(null);
     setReplyText('');
   };
 
-  // NOUVELLE FONCTION pour soumettre une réponse (comme suggéré à l'étape 1)
   const handleAddReply = async (parentCommentId: string) => {
     if (!user || !party || !replyText.trim() || !db || !firebaseInitialized) {
       toast({ title: 'Erreur', description: 'Impossible d\'ajouter une réponse.', variant: 'destructive' });
@@ -459,14 +482,14 @@ export default function PartyDetailsPage() {
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: replyText.trim(),
-        timestamp: Timestamp.now(), // Change to Timestamp.now()
+        timestamp: Timestamp.now(), 
         partyId: party.id,
         parentId: parentCommentId,
       };
       await addDoc(commentsCollectionRef, newReplyData);
       setReplyText('');
-      setReplyingToCommentId(null); // Efface l'ID du commentaire auquel on répondait
-      setReplyingToCommentInfo(null); // Efface aussi les infos de réponse
+      setReplyingToCommentId(null); 
+      setReplyingToCommentInfo(null); 
       toast({ title: 'Réponse ajoutée' });
     } catch (replyError: any) {
       console.error('Erreur lors de l\'ajout de la réponse:', replyError);
@@ -543,7 +566,7 @@ export default function PartyDetailsPage() {
             ).then(url => {
                 if (url && user) {
                     return {
-                        id: `${party.id}-${file.name}-${Date.now()}`, 
+                        id: `${party.id}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}-${Date.now()}`, 
                         url,
                         type: getMediaFileType(file),
                         uploaderId: user.uid,
@@ -795,131 +818,7 @@ export default function PartyDetailsPage() {
 
   const showSkeleton = pageLoading || userLoading;
 
-  // MODIFICATION pour organizedComments (comme suggéré à l'étape 1)
-  const organizedComments = useMemo(() => {
-    if (!commentsData) return [];
-    const commentsMap = new Map<string, CommentWithReplies>();
-    const topLevelComments: CommentWithReplies[] = [];
 
-    const sortedForProcessing = [...commentsData].sort((a, b) => {
-        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
-        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
-        return timeA - timeB; 
-    });
-
-    sortedForProcessing.forEach(commentItem => { // Renommé pour éviter la confusion
-      if (!commentItem.id) {
-          console.warn("Commentaire sans ID rencontré lors de l'organisation:", commentItem);
-          return; 
-      }
-      const commentWithReplies: CommentWithReplies = { ...commentItem, replies: [] } as CommentWithReplies;
-      commentsMap.set(commentItem.id, commentWithReplies);
-
-      if (commentItem.parentId && commentsMap.has(commentItem.parentId)) {
-        const parentComment = commentsMap.get(commentItem.parentId)!;
-        commentWithReplies.parentAuthorEmail = parentComment.email; 
-        parentComment.replies.push(commentWithReplies);
-      } else {
-        topLevelComments.push(commentWithReplies);
-      }
-    });
-    
-    const sortRepliesDesc = (replies: CommentWithReplies[]) => {
-        replies.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
-        replies.forEach(reply => { if(reply.replies.length > 0) sortRepliesDesc(reply.replies)});
-    }
-    topLevelComments.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
-    topLevelComments.forEach(commentItem => { 
-      if(commentItem.replies.length > 0) sortRepliesDesc(commentItem.replies);
-    });
-
-    return topLevelComments;
-  }, [commentsData]);
-
-
-  if (showSkeleton) {
-    return (
-        <div className="container mx-auto px-4 py-12">
-            <Card className="bg-card border border-border overflow-hidden shadow-lg">
-                <CardHeader className="p-0">
-                    <Skeleton className="h-48 md:h-64 lg:h-80 w-full bg-muted" />
-                </CardHeader>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-0">
-                    <div className="lg:col-span-2 border-r-0 lg:border-r border-border/50">
-                        <CardContent className="p-4 md:p-6">
-                            <Skeleton className="h-6 w-1/3 mb-4" />
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4">
-                                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="aspect-square w-full rounded-lg bg-muted" />)}
-                            </div>
-                        </CardContent>
-                        <CardContent className="p-4 md:p-6 border-t border-border/50">
-                             <Skeleton className="h-6 w-1/4 mb-5" />
-                            <div className="space-y-6">
-                                 <div className="flex items-start space-x-3">
-                                     <Skeleton className="h-9 w-9 rounded-full mt-1" />
-                                    <div className="flex-1 space-y-2">
-                                         <Skeleton className="h-20 w-full" />
-                                         <Skeleton className="h-8 w-24" />
-                                    </div>
-                                 </div>
-                                <Skeleton className="h-16 w-full" />
-                                <Skeleton className="h-16 w-full" />
-                            </div>
-                        </CardContent>
-                    </div>
-                     <div className="lg:col-span-1">
-                         <CardContent className="p-4 md:p-6">
-                              <Skeleton className="h-6 w-1/4 mb-4" />
-                              <Skeleton className="h-20 w-full rounded-lg" />
-                         </CardContent>
-                         <CardContent className="p-4 md:p-6 border-t border-border/50">
-                            <Skeleton className="h-24 w-full" />
-                         </CardContent>
-                         <CardContent className="p-4 md:p-6 border-t border-border/50">
-                              <Skeleton className="h-6 w-1/3 mb-4" />
-                              <div className="space-y-3">
-                                 <Skeleton className="h-8 w-full rounded-md" />
-                                 <Skeleton className="h-8 w-full rounded-md" />
-                                 <Skeleton className="h-8 w-full rounded-md" />
-                              </div>
-                         </CardContent>
-                     </div>
-                </div>
-            </Card>
-        </div>
-    );
-  }
-
-  if (error || initializationFailed) {
-     const displayError = error || initializationErrorMessage || "Une erreur inconnue est survenue.";
-     return (
-         <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
-             <Alert variant="destructive" className="max-w-lg">
-                 <AlertTriangle className="h-4 w-4" />
-                 <AlertUITitle>Erreur</AlertUITitle>
-                 <AlertDescription>{displayError}</AlertDescription>
-             </Alert>
-         </div>
-     );
-  }
-
-  if (!party) { return <div className="container mx-auto px-4 py-12 text-center">Fête non trouvée.</div>; }
-
-  const partyDate = getDateFromTimestamp(party.date);
-
-  const comboboxOptions = useMemo(() => {
-    if (!allUsers || !party || !party.participants) {
-        return [];
-    }
-    return allUsers
-        .filter(u => !party.participants.map(pUid => pUid.toLowerCase()).includes(u.uid.toLowerCase()))
-        .map(u => ({
-            value: u.uid,
-            label: u.pseudo || u.displayName || u.email || u.uid,
-        }));
-  }, [allUsers, party]);
-
-  // NOUVELLE FONCTION renderComment (comme suggéré à l'étape 1)
   const renderComment = (cmt: CommentWithReplies, level = 0) => {
     const commentDate = getDateFromTimestamp(cmt.timestamp);
     const showReplyForm = replyingToCommentId === cmt.id;
@@ -953,10 +852,10 @@ export default function PartyDetailsPage() {
                             size="sm" 
                             className="p-0 h-auto text-xs mt-2 text-primary hover:text-primary/80"
                             onClick={() => {
-                                if (replyingToCommentId === cmt.id) { // Si déjà en train de répondre à CE commentaire
-                                    handleCancelReply(); // Annuler la réponse
+                                if (replyingToCommentId === cmt.id) { 
+                                    handleCancelReply(); 
                                 } else {
-                                    handleStartReply(cmt.id!, cmt.email); // Commencer à répondre à ce commentaire
+                                    handleStartReply(cmt.id!, cmt.email); 
                                 }
                             }}
                         >
@@ -1030,6 +929,76 @@ export default function PartyDetailsPage() {
      );
    };
 
+
+  if (showSkeleton) {
+    return (
+        <div className="container mx-auto px-4 py-12">
+            <Card className="bg-card border border-border overflow-hidden shadow-lg">
+                <CardHeader className="p-0">
+                    <Skeleton className="h-48 md:h-64 lg:h-80 w-full bg-muted" />
+                </CardHeader>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-0">
+                    <div className="lg:col-span-2 border-r-0 lg:border-r border-border/50">
+                        <CardContent className="p-4 md:p-6">
+                            <Skeleton className="h-6 w-1/3 mb-4" />
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4">
+                                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="aspect-square w-full rounded-lg bg-muted" />)}
+                            </div>
+                        </CardContent>
+                        <CardContent className="p-4 md:p-6 border-t border-border/50">
+                             <Skeleton className="h-6 w-1/4 mb-5" />
+                            <div className="space-y-6">
+                                 <div className="flex items-start space-x-3">
+                                     <Skeleton className="h-9 w-9 rounded-full mt-1" />
+                                    <div className="flex-1 space-y-2">
+                                         <Skeleton className="h-20 w-full" />
+                                         <Skeleton className="h-8 w-24" />
+                                    </div>
+                                 </div>
+                                <Skeleton className="h-16 w-full" />
+                                <Skeleton className="h-16 w-full" />
+                            </div>
+                        </CardContent>
+                    </div>
+                     <div className="lg:col-span-1">
+                         <CardContent className="p-4 md:p-6">
+                              <Skeleton className="h-6 w-1/4 mb-4" />
+                              <Skeleton className="h-20 w-full rounded-lg" />
+                         </CardContent>
+                         <CardContent className="p-4 md:p-6 border-t border-border/50">
+                            <Skeleton className="h-24 w-full" />
+                         </CardContent>
+                         <CardContent className="p-4 md:p-6 border-t border-border/50">
+                              <Skeleton className="h-6 w-1/3 mb-4" />
+                              <div className="space-y-3">
+                                 <Skeleton className="h-8 w-full rounded-md" />
+                                 <Skeleton className="h-8 w-full rounded-md" />
+                                 <Skeleton className="h-8 w-full rounded-md" />
+                              </div>
+                         </CardContent>
+                     </div>
+                </div>
+            </Card>
+        </div>
+    );
+  }
+
+  if (error || initializationFailed) {
+     const displayError = error || initializationErrorMessage || "Une erreur inconnue est survenue.";
+     return (
+         <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
+             <Alert variant="destructive" className="max-w-lg">
+                 <AlertTriangle className="h-4 w-4" />
+                 <AlertUITitle>Erreur</AlertUITitle>
+                 <AlertDescription>{displayError}</AlertDescription>
+             </Alert>
+         </div>
+     );
+  }
+
+  if (!party) { return <div className="container mx-auto px-4 py-12 text-center">Fête non trouvée.</div>; }
+
+
   return (
     <div className="container mx-auto px-4 py-8 md:py-12">
       <Card className="bg-card border border-border overflow-hidden shadow-lg">
@@ -1038,7 +1007,7 @@ export default function PartyDetailsPage() {
                {party.coverPhotoUrl ? (
                    <Image src={party.coverPhotoUrl} alt={`Couverture ${party.name}`} layout="fill" objectFit="cover" quality={80} priority data-ai-hint="fête couverture événement" />
                ) : (
-                   <div className="absolute inset-0 bg-gradient-to-br from-secondary via-muted to-secondary flex items-center justify-center"> <ImageIcon className="h-16 w-16 text-muted-foreground/50" /> </div>
+                   <div className="absolute inset-0 bg-gradient-to-br from-secondary via-muted to-secondary flex items-center justify-center"> <ImageIconLucide className="h-16 w-16 text-muted-foreground/50" /> </div>
                )}
                 {(canManageParty) && (
                     <Dialog open={showEditCoverDialog} onOpenChange={setShowEditCoverDialog}>
@@ -1054,11 +1023,17 @@ export default function PartyDetailsPage() {
                                 <DialogDescription> Choisissez une nouvelle image pour l'événement. Max {MAX_FILE_SIZE.image / 1024 / 1024}Mo initial, sera compressée à {COMPRESSED_COVER_PHOTO_MAX_SIZE_MB}Mo. </DialogDescription>
                             </DialogHeader>
                              <div className="grid gap-4 py-4">
-                                <Input id="new-cover-input" type="file" accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')} onChange={handleNewCoverFileChange} className="col-span-3" />
+                                <Input 
+                                  id="new-cover-input" 
+                                  ref={coverPhotoInputRef}
+                                  type="file" 
+                                  accept={ACCEPTED_COVER_PHOTO_TYPES.join(',')} 
+                                  onChange={handleNewCoverFileChange} 
+                                  className="col-span-3" />
                                  {newCoverPreview && (
                                      <div className="relative aspect-video w-full border rounded mt-2 bg-muted">
                                          <Image src={newCoverPreview} alt="Aperçu nouvelle couverture" layout="fill" objectFit="contain" />
-                                          <Button variant="destructive" size="icon" className="absolute -top-2 -right-2 h-5 w-5 rounded-full z-10" onClick={() => { setNewCoverFile(null); if(newCoverPreview) URL.revokeObjectURL(newCoverPreview); setNewCoverPreview(null); }}> <X className="h-3 w-3" /> </Button>
+                                          <Button variant="destructive" size="icon" className="absolute -top-2 -right-2 h-5 w-5 rounded-full z-10" onClick={() => { setNewCoverFile(null); if(newCoverPreview) URL.revokeObjectURL(newCoverPreview); setNewCoverPreview(null); if(coverPhotoInputRef.current) coverPhotoInputRef.current.value = ''; }}> <X className="h-3 w-3" /> </Button>
                                      </div>
                                  )}
                              </div>
@@ -1177,7 +1152,14 @@ export default function PartyDetailsPage() {
                                     </DialogHeader>
                                     <div className="grid gap-4 py-4">
                                         <div> 
-                                            <Input id="souvenir-upload-input" type="file" multiple accept={ACCEPTED_MEDIA_TYPES.join(',')} onChange={handleSouvenirFileChange} className="col-span-3" />
+                                            <Input 
+                                              id="souvenir-upload-input" 
+                                              ref={souvenirInputRef}
+                                              type="file" 
+                                              multiple 
+                                              accept={ACCEPTED_MEDIA_TYPES.join(',')} 
+                                              onChange={handleSouvenirFileChange} 
+                                              className="col-span-3" />
                                         </div>
                                          {souvenirFiles.length > 0 && (
                                              <div className="space-y-3 mt-4 max-h-60 overflow-y-auto border p-3 rounded-md">
@@ -1222,7 +1204,9 @@ export default function PartyDetailsPage() {
                          )}
                      </div>
                     {party.mediaItems && party.mediaItems.length > 0 ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4"> {party.mediaItems.map((item) => renderMedia(item))} </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4"> 
+                            {party.mediaItems.map((item) => renderMedia(item))} 
+                        </div>
                     ) : ( <p className="text-muted-foreground text-sm">Aucun souvenir importé.</p> )}
                 </CardContent>
 
@@ -1275,7 +1259,7 @@ export default function PartyDetailsPage() {
                     <div className="flex flex-col items-center gap-3 bg-secondary/30 border border-border/50 p-4 rounded-lg">
                          <div className="w-full">
                             <Slider
-                                value={[userRating]} // Value from 0-10
+                                value={[userRating]} 
                                 onValueChange={(value) => handleRateParty(value[0])}
                                 max={10} 
                                 step={0.5} 
@@ -1284,7 +1268,7 @@ export default function PartyDetailsPage() {
                             />
                              <div className="flex justify-between text-xs text-muted-foreground mt-1.5">
                                 <span>0 ★</span>
-                                <span className="text-sm font-bold text-primary">{(userRating/2).toFixed(1)} / 5 ★</span> {/* Display as 0-5 */}
+                                <span className="text-sm font-bold text-primary">{(userRating/2).toFixed(1)} / 5 ★</span> 
                                 <span>5 ★</span>
                             </div>
                          </div>
@@ -1376,6 +1360,7 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
 
 
 
