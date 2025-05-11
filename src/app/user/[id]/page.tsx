@@ -4,7 +4,7 @@
 import { useEffect, useState, useMemo, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { doc, getDoc, collection, query, where, getDocs, orderBy, Timestamp, updateDoc, collectionGroup } from 'firebase/firestore';
-import { db } from '@/config/firebase';
+import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -33,7 +33,7 @@ import type { PartyData as SharedPartyData, CommentData as SharedCommentData } f
 interface FirestoreTimestamp { seconds: number; nanoseconds: number; }
 
 interface UserData {
-    id: string;
+    id: string; // Document ID from Firestore
     uid: string;
     email: string;
     displayName?: string;
@@ -54,7 +54,7 @@ const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date |
     if (!timestamp) return null;
     try {
         if (timestamp instanceof Timestamp) return timestamp.toDate();
-        if (timestamp instanceof Date) return timestamp;
+        if (timestamp instanceof Date) return timestamp; // Already a Date object
         if (typeof timestamp === 'object' && 'seconds' in timestamp && typeof timestamp.seconds === 'number') {
             const date = new Date(timestamp.seconds * 1000);
             return isNaN(date.getTime()) ? null : date;
@@ -163,8 +163,9 @@ export default function UserProfilePage() {
                 const userDocSnap = await getDoc(userDocRef);
 
                 if (!userDocSnap.exists()) {
-                    console.error(`[UserProfilePage fetchData] Utilisateur non trouvé pour l'ID: ${profileUserId}`);
-                    setError("Utilisateur non trouvé."); 
+                    const specificErrorMsg = `Utilisateur non trouvé dans Firestore pour l'ID : ${profileUserId}. Veuillez vérifier que ce document existe dans la collection 'users'.`;
+                    console.error(`[UserProfilePage fetchData] ${specificErrorMsg}`);
+                    setError(specificErrorMsg); 
                     setProfileUserData(null); 
                     setLoading(false);
                     return;
@@ -466,7 +467,7 @@ export default function UserProfilePage() {
                         <p className="text-xs text-muted-foreground uppercase">Commentaires</p>
                     </div>
                      <div>
-                        <p className="text-xl md:text-2xl font-bold text-primary">{stats.averageRatingGiven.toFixed(1)} ★</p>
+                        <p className="text-xl md:text-2xl font-bold text-primary">{(stats.averageRatingGiven / 2).toFixed(1)} ★</p> {/* Displayed 0-5 */}
                         <p className="text-xs text-muted-foreground uppercase">Note Moy.</p>
                     </div>
                 </div>
@@ -611,3 +612,6 @@ export default function UserProfilePage() {
 
 
 
+
+
+    
