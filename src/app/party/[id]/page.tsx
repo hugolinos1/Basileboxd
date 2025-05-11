@@ -3,20 +3,19 @@
 
 import { useEffect, useState, useMemo, useRef, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-// Import necessary Firestore functions, including FieldValue, orderBy, and addDoc
-import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, where, getDocs, writeBatch, limit, serverTimestamp, collectionGroup, addDoc, setDoc, arrayRemove, orderBy as firestoreOrderBy } from 'firebase/firestore'; // Import serverTimestamp, orderBy and addDoc, aliased firestoreOrderBy
+import { doc, getDoc, updateDoc, arrayUnion, Timestamp, onSnapshot, FieldValue, collection, query, getDocs, writeBatch, limit, serverTimestamp, collectionGroup, addDoc, setDoc, arrayRemove, orderBy as firestoreOrderBy } from 'firebase/firestore'; 
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
-import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
+import { format, formatDistanceToNow } from 'date-fns'; 
 import { fr } from 'date-fns/locale';
-import { Star, Send, User, MapPin, CalendarDays, Image as ImageIcon, Video, Music, Loader2, AlertTriangle, Upload, Edit2, X, File as FileIcon, UserPlus, Trash2, MessageSquare } from 'lucide-react'; // Added FileIcon and UserPlus, Trash2, MessageSquare
+import { Star, Send, User, MapPin, CalendarDays, Image as ImageIcon, Video, Music, Loader2, AlertTriangle, Upload, Edit2, X, File as FileIcon, UserPlus, Trash2, MessageSquare, CornerDownRight } from 'lucide-react'; 
 import Image from 'next/image';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription, AlertTitle as AlertUITitle } from '@/components/ui/alert'; // Renamed AlertTitle to AlertUITitle to avoid conflict
+import { Alert, AlertDescription, AlertTitle as AlertUITitle } from '@/components/ui/alert'; 
 import { useToast } from '@/hooks/use-toast';
 import ReactPlayer from 'react-player/lazy';
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip as RechartsTooltip } from 'recharts';
@@ -31,11 +30,10 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle as AlertDialogUITitle, // Renamed AlertDialogTitle to avoid conflict
+  AlertDialogTitle as AlertDialogUITitle, 
 } from "@/components/ui/alert-dialog";
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-// Import centralized uploader and helpers
 import {
   uploadFile,
   getFileType as getMediaFileType,
@@ -49,18 +47,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Combobox } from '@/components/ui/combobox';
 import type { MediaItem as SharedMediaItem, PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
 import { Slider } from '@/components/ui/slider';
-import { normalizeCityName } from '@/lib/party-utils';
+import { normalizeCityName, getDateFromTimestamp as sharedGetDateFromTimestamp } from '@/lib/party-utils';
 
 
 // --- Interfaces ---
-// Use shared interfaces for consistency
 type MediaItem = SharedMediaItem;
-type PartyData = SharedPartyData & { id: string }; // Ensure id is present
-type Comment = SharedCommentData; // Already includes id and partyId
+type PartyData = SharedPartyData & { id: string }; 
+type Comment = SharedCommentData; 
 
-// Interface for User data fetched from Firestore 'users' collection
 interface UserProfile {
-    id: string; // Document ID
+    id: string; 
     uid: string;
     email: string;
     displayName?: string;
@@ -68,12 +64,16 @@ interface UserProfile {
     avatarUrl?: string;
 }
 
+interface CommentWithReplies extends Comment {
+  replies: CommentWithReplies[];
+  parentAuthorEmail?: string; // Nouveau champ
+}
+
 
 // --- Helper Functions ---
-// Geocoding Helper (moved from CreateEventPage, potentially to a shared utils file later)
 const geocodeCity = async (cityName: string): Promise<{ lat: number; lon: number } | null> => {
   if (!cityName) return null;
-  const normalizedCity = normalizeCityName(cityName);
+  const normalizedCity = normalizeCityName(cityName); 
   if (!normalizedCity) return null;
 
   const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`;
@@ -85,13 +85,14 @@ const geocodeCity = async (cityName: string): Promise<{ lat: number; lon: number
       }
     });
     if (!response.ok) {
-      console.error(`Erreur API Nominatim: ${response.status} pour la ville: ${cityName}`);
+      console.error(`Erreur API Nominatim: ${response.status} pour la ville: ${cityName} (normalisé: ${normalizedCity})`);
       return null;
     }
     const data = await response.json();
     if (data && data.length > 0 && data[0].lat && data[0].lon) {
       return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
     }
+    console.warn(`Aucune coordonnée trouvée pour: ${cityName} (normalisé: ${normalizedCity})`);
     return null;
   } catch (error) {
     console.error("Erreur de géocodage:", error);
@@ -99,23 +100,20 @@ const geocodeCity = async (cityName: string): Promise<{ lat: number; lon: number
   }
 };
 
+const getDateFromTimestamp = sharedGetDateFromTimestamp;
 
 // --- Composants ---
-
-// RatingDistributionChart
 const RatingDistributionChart = ({ ratings }: { ratings: { [userId: string]: number } }) => {
   const ratingCounts = useMemo(() => {
-    // Scale is 0-10, with 0.5 steps. This means 20 possible values (0.5, 1, ..., 10)
     const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 20 }, (_, i) => ({
       rating: (i + 1) * 0.5,
       votes: 0,
       fill: '',
     }));
     Object.values(ratings).forEach(rating => {
-      // Ensure rating is a number and within the 0-10 range
       const numericRating = Number(rating);
       if (!isNaN(numericRating) && numericRating >= 0.5 && numericRating <= 10) {
-        const index = Math.round(numericRating * 2) - 1; // Convert 0.5-10 to 0-19 index
+        const index = Math.round(numericRating * 2) - 1; 
         if (index >= 0 && index < 20) {
           counts[index].votes++;
         }
@@ -151,7 +149,7 @@ const RatingDistributionChart = ({ ratings }: { ratings: { [userId: string]: num
             tickMargin={4}
             tickFormatter={(value) => (value % 1 === 0 ? `${value}.0` : `${value}`)}
             fontSize={10}
-            interval={3} // Show every 4th tick (0.5, 2.5, 4.5, 6.5, 8.5, 10) to avoid clutter
+            interval={3} 
           />
           <YAxis hide={true} />
           <RechartsTooltip
@@ -180,16 +178,21 @@ export default function PartyDetailsPage() {
 
   const [party, setParty] = useState<PartyData | null>(null);
   const [commentsData, setCommentsData] = useState<Comment[]>([]);
-  const [allUsers, setAllUsers] = useState<UserProfile[]>([]); // State to store all users for Combobox
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]); 
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [comment, setComment] = useState('');
+  
+  const [comment, setComment] = useState(''); // For top-level comments
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
-  const [replyingToCommentInfo, setReplyingToCommentInfo] = useState<{ id: string; userEmail: string } | null>(null);
+
+  // NOUVEAUX ÉTATS pour gérer la réponse
+  const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState(''); // Texte pour la réponse en cours
+  
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const [isRating, setIsRating] = useState(false);
-  const [userRating, setUserRating] = useState<number>(0); // User's rating for this party (0-10)
-  const [averageRating, setAverageRating] = useState<number>(0); // Party's average rating (0-10)
+  const [userRating, setUserRating] = useState<number>(0); 
+  const [averageRating, setAverageRating] = useState<number>(0); 
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [showAddSouvenirDialog, setShowAddSouvenirDialog] = useState(false);
   const [souvenirFiles, setSouvenirFiles] = useState<File[]>([]);
@@ -225,18 +228,6 @@ export default function PartyDetailsPage() {
     return '?'; 
   };
 
-  const getDateFromTimestamp = (timestamp: Timestamp | FieldValue | Date | undefined): Date | null => {
-        if (!timestamp) return null;
-        try {
-            if (timestamp instanceof Timestamp) return timestamp.toDate();
-            if (timestamp instanceof Date) return timestamp; // Already a Date object
-            // FieldValue cannot be converted on client before write
-            if (timestamp instanceof FieldValue) return null; 
-            
-            console.warn("Unrecognized timestamp format for getDateFromTimestamp:", timestamp);
-            return null;
-        } catch (e) { console.error("Erreur conversion timestamp:", timestamp, e); return null; }
-    }
 
   // --- Effects ---
   useEffect(() => {
@@ -266,8 +257,8 @@ export default function PartyDetailsPage() {
         console.log(`[PartyDetailsPage] Snapshot reçu pour ${partyId}.`);
         const data = { id: docSnap.id, ...docSnap.data() } as PartyData;
         setParty(data);
-        setNewPartyName(data.name); // Initialize newPartyName with current party name
-        setNewPartyLocation(data.location || ''); // Initialize newPartyLocation
+        setNewPartyName(data.name); 
+        setNewPartyLocation(data.location || ''); 
         calculateAndSetAverageRating(data.ratings);
         if (user && data.ratings && data.ratings[user.uid]) {
             setUserRating(data.ratings[user.uid]);
@@ -295,7 +286,7 @@ export default function PartyDetailsPage() {
     });
 
     const commentsRef = collection(db, 'parties', partyId, 'comments');
-    const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'desc')); 
+    const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'asc')); // Fetch in asc to build tree, then sort display
 
     const unsubscribeComments = onSnapshot(commentsQuery, (querySnapshot) => {
         console.log(`[PartyDetailsPage] Snapshot reçu pour les commentaires de ${partyId}. Nombre de commentaires: ${querySnapshot.size}`);
@@ -304,7 +295,7 @@ export default function PartyDetailsPage() {
             fetchedComments.push({ id: doc.id, ...doc.data() } as Comment);
         });
         setCommentsData(fetchedComments);
-        setPageLoading(false); 
+        // Page loading is handled by party snapshot
     }, (snapshotError: any) => {
          console.error('[PartyDetailsPage] Erreur listener snapshot commentaires:', snapshotError);
          let userFriendlyError = 'Impossible de charger les commentaires en temps réel.';
@@ -314,8 +305,7 @@ export default function PartyDetailsPage() {
          } else if (snapshotError.code === 'unauthenticated') {
              userFriendlyError = 'Non authentifié. Veuillez vous connecter pour voir les commentaires.';
          }
-         setError(userFriendlyError); 
-         setPageLoading(false);
+         setError(prevError => prevError || userFriendlyError); // Don't overwrite party error
     });
 
 
@@ -339,7 +329,7 @@ export default function PartyDetailsPage() {
             const usersSnapshot = await getDocs(usersCollectionRef);
             const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
             setAllUsers(fetchedUsers);
-             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length, fetchedUsers.map(u => ({uid: u.uid, email: u.email, pseudo: u.pseudo}) ));
+             console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length);
         } catch (error) {
             console.error("[PartyDetailsPage - fetchAllUsers] Erreur lors de la récupération de tous les utilisateurs:", error);
             toast({ title: "Erreur Utilisateurs", description: "Impossible de charger la liste des utilisateurs pour l'ajout.", variant: "destructive" });
@@ -367,34 +357,6 @@ export default function PartyDetailsPage() {
     setAverageRating(sum / allRatings.length);
   };
 
-   const renderMedia = (item: MediaItem) => {
-     const onError = (e: any) => { console.error(`Erreur média ${item.url}:`, e); setPlayerError(`Erreur chargement média`); }
-     const canDeleteSouvenir = user && (item.uploaderId === user.uid || isAdmin);
-
-     let mediaElement: JSX.Element;
-     if (item.type === 'video') { mediaElement = ( <div className="aspect-video bg-black rounded-lg overflow-hidden relative shadow-md"> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement vidéo</div>} <ReactPlayer url={item.url} controls width="100%" height="100%" onError={onError} className="absolute top-0 left-0" config={{ file: { attributes: { controlsList: 'nodownload' } } }} /> </div> ); }
-     else if (item.type === 'audio') { mediaElement = ( <div className="w-full bg-card p-3 rounded-lg shadow"> <ReactPlayer url={item.url} controls width="100%" height="40px" onError={onError}/> {playerError && <p className="text-destructive text-xs mt-1">Erreur chargement audio</p>} </div> ); }
-     else if (item.type === 'image') { mediaElement = ( <div className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={item.url} alt={`Souvenir ${item.fileName || item.id}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="souvenir fête photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
-     else { mediaElement = ( <div className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> {item.fileName || `Média ${item.id}`} </a> </div> );}
-
-     return (
-         <div key={item.id} className="relative group">
-             {mediaElement}
-             {canDeleteSouvenir && (
-                 <Button
-                     variant="destructive"
-                     size="icon"
-                     className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity rounded-full z-10"
-                     onClick={() => openDeleteSouvenirDialog(item)}
-                 >
-                     <Trash2 className="h-3 w-3" />
-                     <span className="sr-only">Supprimer souvenir</span>
-                 </Button>
-             )}
-         </div>
-     );
-   };
-
   const handleRateParty = async (newRating: number) => {
      if (!user || !party || !db || !firebaseInitialized) { toast({ title: 'Erreur', description: 'Impossible de noter pour le moment.', variant: 'destructive' }); return; }
      setIsRating(true);
@@ -403,7 +365,7 @@ export default function PartyDetailsPage() {
          await updateDoc(partyDocRef, {
              [`ratings.${user.uid}`]: newRating
          });
-         toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating}/10 étoiles.` });
+         toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating/2}/5 étoiles.` }); // Display as 0-5
      } catch (rateError: any) {
          console.error("Erreur note:", rateError);
          let description = rateError.message || 'Impossible d\'envoyer la note.';
@@ -424,32 +386,26 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      const newCommentData: Omit<Comment, 'id' | 'timestamp'> & { timestamp: FieldValue; parentId?: string } = { 
+      const newCommentData: Omit<Comment, 'id'> & { timestamp: FieldValue } = { 
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: serverTimestamp(),
+        timestamp: Timestamp.now(), // Changed to Timestamp.now() for client-side consistency
         partyId: party.id,
-        ...(replyingToCommentInfo && { parentId: replyingToCommentInfo.id }),
       };
 
       await addDoc(commentsCollectionRef, newCommentData);
 
       setComment('');
-      setReplyingToCommentInfo(null);
-      toast({ title: replyingToCommentInfo ? 'Réponse ajoutée' : 'Commentaire ajouté' });
+      toast({ title: 'Commentaire ajouté' });
     } catch (commentError: any) {
-        console.error('Erreur commentaire/réponse:', commentError);
-        let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire/réponse.';
-        if (commentError.code === 'invalid-argument') {
-            if (commentError.message?.includes('Unsupported field value')) {
-                errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
-            } else if (commentError.message?.includes('serverTimestamp')) { 
-                errorMessage = "Erreur de timestamp serveur. Réessayez.";
-            }
+        console.error('Erreur commentaire:', commentError);
+        let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
+        if (commentError.code === 'invalid-argument' && commentError.message?.includes('Unsupported field value: a custom MessageData object')) {
+            errorMessage = "Une valeur invalide a été envoyée (MessageData). Veuillez réessayer.";
         } else if (commentError.code === 'permission-denied') {
-            errorMessage = "Permission refusée. Vous ne pouvez peut-être pas commenter/répondre.";
+            errorMessage = "Permission refusée. Vous ne pouvez peut-être pas commenter.";
         }
         toast({ title: 'Erreur', description: errorMessage, variant: 'destructive' });
     } finally {
@@ -457,15 +413,42 @@ export default function PartyDetailsPage() {
     }
   };
 
-  const handleStartReply = (commentId: string, userEmail: string) => {
-    setReplyingToCommentInfo({ id: commentId, userEmail });
-    commentInputRef.current?.focus();
-    commentInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const handleAddReply = async (parentCommentId: string) => {
+    if (!user || !party || !replyText.trim() || !db || !firebaseInitialized) {
+      toast({ title: 'Erreur', description: 'Impossible d\'ajouter une réponse.', variant: 'destructive' });
+      return;
+    }
+    setIsSubmittingComment(true); // Use the same state for now, can be split if needed
+    try {
+      const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
+      const newReplyData: Omit<Comment, 'id'> & { timestamp: FieldValue; parentId: string } = {
+        userId: user.uid,
+        email: user.email || 'anonyme',
+        avatar: user.photoURL ?? null,
+        text: replyText.trim(),
+        timestamp: Timestamp.now(), // Use client-side timestamp for consistency
+        partyId: party.id,
+        parentId: parentCommentId,
+      };
+      await addDoc(commentsCollectionRef, newReplyData);
+      setReplyText('');
+      setReplyingToCommentId(null);
+      toast({ title: 'Réponse ajoutée' });
+    } catch (replyError: any) {
+      console.error('Erreur lors de l\'ajout de la réponse:', replyError);
+      toast({ title: 'Erreur Réponse', description: replyError.message || 'Impossible d\'ajouter la réponse.', variant: 'destructive' });
+    } finally {
+      setIsSubmittingComment(false);
+    }
   };
 
-  const handleCancelReply = () => {
-    setReplyingToCommentInfo(null);
+  const handleStartReply = (commentId: string, userEmail: string) => {
+    setReplyingToCommentId(commentId);
+    setReplyText(''); // Clear previous reply text
+    // Focus logic might need to be adjusted if the input isn't immediately visible
+    // setTimeout(() => commentInputRef.current?.focus(), 0); 
   };
+
 
     const handleSouvenirFileChange = (event: ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
@@ -854,12 +837,159 @@ export default function PartyDetailsPage() {
 
   const partyDate = getDateFromTimestamp(party.date);
 
-    const sortedComments = [...commentsData].sort((a, b) => {
+  const organizedComments = useMemo(() => {
+    if (!commentsData) return [];
+    const commentsMap = new Map<string, CommentWithReplies>();
+    const topLevelComments: CommentWithReplies[] = [];
+
+    const sortedForProcessing = [...commentsData].sort((a, b) => {
         const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
         const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
-        return timeB - timeA;
+        return timeA - timeB; 
     });
 
+    sortedForProcessing.forEach(comment => {
+      if (!comment.id) {
+          console.warn("Commentaire sans ID rencontré lors de l'organisation:", comment);
+          return; 
+      }
+      const commentWithReplies: CommentWithReplies = { ...comment, replies: [] };
+      commentsMap.set(comment.id, commentWithReplies);
+
+      if (comment.parentId && commentsMap.has(comment.parentId)) {
+        const parentComment = commentsMap.get(comment.parentId)!;
+        commentWithReplies.parentAuthorEmail = parentComment.email; 
+        parentComment.replies.push(commentWithReplies);
+      } else {
+        topLevelComments.push(commentWithReplies);
+      }
+    });
+    
+    const sortRepliesDesc = (replies: CommentWithReplies[]) => {
+        replies.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
+        replies.forEach(reply => { if(reply.replies.length > 0) sortRepliesDesc(reply.replies)});
+    }
+    topLevelComments.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
+    topLevelComments.forEach(commentItem => { 
+      if(commentItem.replies.length > 0) sortRepliesDesc(commentItem.replies);
+    });
+
+    return topLevelComments;
+  }, [commentsData]);
+
+
+  const renderComment = (cmt: CommentWithReplies, level = 0) => {
+    const commentDate = getDateFromTimestamp(cmt.timestamp);
+    const showReplyForm = replyingToCommentId === cmt.id;
+    const isReply = level > 0; 
+
+    return (
+        <div key={cmt.id} className={`mt-3 ${isReply ? `ml-6 md:ml-8 pl-3 border-l-2 border-primary/30` : 'ml-0'}`}>
+            <div className="flex items-start space-x-3">
+                <Avatar className={`h-8 w-8 border ${isReply ? 'h-7 w-7' : 'h-8 w-8'}`}>
+                    <AvatarImage src={cmt.avatar || undefined} alt={cmt.email} />
+                    <AvatarFallback className={`text-xs ${isReply ? 'text-[10px]' : 'text-xs'}`}>{getInitials(cmt.email, cmt.email)}</AvatarFallback>
+                </Avatar>
+                <div className={`flex-1 p-3 rounded-lg border ${isReply ? 'bg-secondary/20 border-border/20' : 'bg-secondary/50 border-border/30'}`}>
+                    <div className="flex justify-between items-center mb-1">
+                        <p className={`text-xs font-medium ${isReply ? 'text-foreground/90' : 'text-foreground'}`}>{cmt.email}</p>
+                        {commentDate && <p className="text-xs text-muted-foreground">{format(commentDate, 'PPp', { locale: fr })}</p>}
+                    </div>
+
+                    {isReply && cmt.parentAuthorEmail && (
+                        <p className="text-xs text-muted-foreground mb-1.5 flex items-center">
+                            <CornerDownRight className="h-3 w-3 mr-1 inline-block" />
+                            En réponse à <span className="font-medium ml-1 text-primary/80">{cmt.parentAuthorEmail}</span>
+                        </p>
+                    )}
+
+                    <p className={`text-sm ${isReply ? 'text-foreground/80' : 'text-foreground/90'} whitespace-pre-wrap`}>{cmt.text}</p>
+                    
+                    {user && (
+                        <Button 
+                            variant="link" 
+                            size="sm" 
+                            className="p-0 h-auto text-xs mt-2 text-primary hover:text-primary/80"
+                            onClick={() => {
+                                if (replyingToCommentId === cmt.id) {
+                                    setReplyingToCommentId(null);
+                                    setReplyText('');
+                                } else {
+                                    setReplyingToCommentId(cmt.id!);
+                                    setReplyText(''); // Clear text when focusing on a new reply
+                                }
+                            }}
+                        >
+                            <MessageSquare className="h-3 w-3 mr-1" />
+                            {showReplyForm ? 'Annuler' : 'Répondre'}
+                        </Button>
+                    )}
+                </div>
+            </div>
+
+            {showReplyForm && user && (
+                <div className={`ml-${isReply ? 8 : 11} mt-3 flex items-start space-x-3`}>
+                    <Avatar className="h-8 w-8 border mt-1">
+                         <AvatarImage src={user.photoURL || undefined} alt={user.email || ''}/>
+                         <AvatarFallback>{getInitials(user.displayName, user.email)}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                        <Textarea
+                            placeholder={`Répondre à ${cmt.email}...`}
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary"
+                            rows={2}
+                            ref={commentInputRef} // Re-assign ref here if needed for focus, though it's on the main comment input now
+                        />
+                        <Button
+                            onClick={() => handleAddReply(cmt.id!)}
+                            disabled={!replyText.trim() || isSubmittingComment}
+                            size="sm"
+                            className="bg-primary hover:bg-primary/90"
+                        >
+                            {isSubmittingComment && replyingToCommentId === cmt.id ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Envoyer
+                        </Button>
+                    </div>
+                </div>
+            )}
+            {cmt.replies && cmt.replies.length > 0 && (
+                <div className="mt-1"> 
+                    {cmt.replies.map(reply => renderComment(reply, level + 1))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+   const renderMedia = (item: MediaItem) => {
+     const onError = (e: any) => { console.error(`Erreur média ${item.url}:`, e); setPlayerError(`Erreur chargement média`); }
+     const canDeleteSouvenir = user && (item.uploaderId === user.uid || isAdmin);
+
+     let mediaElement: JSX.Element;
+     if (item.type === 'video') { mediaElement = ( <div className="aspect-video bg-black rounded-lg overflow-hidden relative shadow-md"> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement vidéo</div>} <ReactPlayer url={item.url} controls width="100%" height="100%" onError={onError} className="absolute top-0 left-0" config={{ file: { attributes: { controlsList: 'nodownload' } } }} /> </div> ); }
+     else if (item.type === 'audio') { mediaElement = ( <div className="w-full bg-card p-3 rounded-lg shadow"> <ReactPlayer url={item.url} controls width="100%" height="40px" onError={onError}/> {playerError && <p className="text-destructive text-xs mt-1">Erreur chargement audio</p>} </div> ); }
+     else if (item.type === 'image') { mediaElement = ( <div className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={item.url} alt={`Souvenir ${item.fileName || item.id}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="souvenir fête photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
+     else { mediaElement = ( <div className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> {item.fileName || `Média ${item.id}`} </a> </div> );}
+
+     return (
+         <div key={item.id} className="relative group">
+             {mediaElement}
+             {canDeleteSouvenir && (
+                 <Button
+                     variant="destructive"
+                     size="icon"
+                     className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity rounded-full z-10"
+                     onClick={() => openDeleteSouvenirDialog(item)}
+                 >
+                     <Trash2 className="h-3 w-3" />
+                     <span className="sr-only">Supprimer souvenir</span>
+                 </Button>
+             )}
+         </div>
+     );
+   };
 
   return (
     <div className="container mx-auto px-4 py-8 md:py-12">
@@ -1058,75 +1188,35 @@ export default function PartyDetailsPage() {
                 </CardContent>
 
                  <CardContent className="p-4 md:p-6 border-t border-border/50">
-                    <h3 className="text-xl font-semibold mb-5 text-foreground">Commentaires ({sortedComments.length})</h3>
+                    <h3 className="text-xl font-semibold mb-5 text-foreground">Commentaires ({commentsData.length})</h3> {/* Update to total comments count */}
                     <div className="space-y-6">
                        {user && (
                         <div className="flex items-start space-x-3">
                             <Avatar className="h-9 w-9 border mt-1"> <AvatarImage src={user.photoURL || undefined} alt={user.email || ''}/> <AvatarFallback>{getInitials(user.displayName, user.email)}</AvatarFallback> </Avatar>
                             <div className="flex-1">
-                                {replyingToCommentInfo && ( 
-                                    <div className="mb-2 text-xs text-muted-foreground">
-                                        Répondre à <span className="font-semibold text-primary">{replyingToCommentInfo.userEmail}</span>
-                                        <Button variant="ghost" size="sm" onClick={handleCancelReply} className="ml-2 text-xs p-0 h-auto text-destructive hover:text-destructive/80">
-                                            Annuler
-                                        </Button>
-                                    </div>
-                                )}
                                 <Textarea
                                     ref={commentInputRef} 
-                                    placeholder={replyingToCommentInfo ? "Votre réponse..." : "Votre commentaire..."} 
-                                    value={comment}
+                                    placeholder={"Votre commentaire..."} 
+                                    value={comment} // This is for top-level comment
                                     onChange={(e) => setComment(e.target.value)}
                                     className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary"
                                     rows={3}
                                 />
                                 <div className="flex gap-2">
                                     <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90">
-                                        {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                                        {replyingToCommentInfo ? "Répondre" : "Commenter"} 
+                                        {isSubmittingComment && !replyingToCommentId ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                                        Commenter
                                     </Button>
                                 </div>
                             </div>
                         </div>
                        )}
                        {!user && ( <p className="text-muted-foreground text-sm"> <button onClick={() => router.push('/auth')} className="text-primary hover:underline font-medium">Connectez-vous</button> pour commenter ou noter. </p> )}
-                       {sortedComments.length > 0 ? (
-                        <div className="space-y-4">
-                            {sortedComments.map((cmt, index) => {
-                                const commentDate = getDateFromTimestamp(cmt.timestamp); 
-                                const parentComment = cmt.parentId ? commentsData.find(parent => parent.id === cmt.parentId) : null;
-                                return (
-                                    <div key={cmt.id || index} className="flex items-start space-x-3">
-                                        <Avatar className="h-8 w-8 border"> <AvatarImage src={cmt.avatar || undefined} alt={cmt.email}/> <AvatarFallback className="text-xs">{getInitials(cmt.email, cmt.email)}</AvatarFallback> </Avatar>
-                                        <div className="flex-1 bg-secondary/50 p-3 rounded-lg border border-border/30">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <p className="text-xs font-medium text-foreground">{cmt.email}</p>
-                                             {commentDate && <p className="text-xs text-muted-foreground"> {format(commentDate, 'PPp', { locale: fr })} </p>}
-                                        </div>
-                                        {parentComment && ( 
-                                            <p className="text-xs text-muted-foreground mb-1">
-                                                En réponse à <span className="font-medium text-primary">{parentComment.email}</span>
-                                            </p>
-                                        )}
-                                        <p className="text-sm text-foreground/90 whitespace-pre-wrap">{cmt.text}</p>
-                                        {user && ( 
-                                            <div className="mt-2">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => handleStartReply(cmt.id!, cmt.email)} 
-                                                    className="text-xs text-muted-foreground hover:text-primary p-0 h-auto"
-                                                >
-                                                    <MessageSquare className="h-3 w-3 mr-1" />
-                                                    Répondre
-                                                </Button>
-                                            </div>
-                                        )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
+                       
+                       {organizedComments.length > 0 ? (
+                            <div className="space-y-4">
+                                {organizedComments.map(cmt => renderComment(cmt))}
+                            </div>
                        ) : ( <p className="text-muted-foreground text-center text-sm py-4">{user ? "Soyez le premier à commenter !" : "Aucun commentaire pour le moment."}</p> )}
                     </div>
                  </CardContent>
@@ -1147,13 +1237,13 @@ export default function PartyDetailsPage() {
                             />
                              <div className="flex justify-between text-xs text-muted-foreground mt-1.5">
                                 <span>0</span>
-                                <span>{userRating.toFixed(1)} / 10 ★</span>
+                                <span>{(userRating/2).toFixed(1)} / 5 ★</span>
                                 <span>10</span>
                             </div>
                          </div>
                         {isRating && <span className="text-xs text-muted-foreground">Envoi...</span>}
                         {!user && <span className="text-xs text-muted-foreground mt-1">Connectez-vous pour noter</span>}
-                        {user && userRating > 0 && <span className="text-xs text-muted-foreground mt-1">Votre note : {userRating.toFixed(1)}/10</span>}
+                        {user && userRating > 0 && <span className="text-xs text-muted-foreground mt-1">Votre note : {(userRating/2).toFixed(1)}/5</span>}
                         {user && userRating === 0 && <span className="text-xs text-muted-foreground mt-1">Donnez une note !</span>}
                     </div>
                  </CardContent>
@@ -1186,9 +1276,7 @@ export default function PartyDetailsPage() {
                                             />
                                          </div>
                                         <DialogFooter>
-                                             <DialogClose asChild>
-                                                 <Button type="button" variant="outline">Annuler</Button>
-                                             </DialogClose>
+                                             <DialogClose asChild><Button type="button" variant="outline">Annuler</Button></DialogClose>
                                         </DialogFooter>
                                     </DialogContent>
                                 </Dialog>
@@ -1241,3 +1329,4 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
