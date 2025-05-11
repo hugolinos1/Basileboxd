@@ -13,7 +13,7 @@ import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebas
 import { Loader2, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
 import { ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE } from '@/services/media-uploader';
 import { useFirebase } from '@/context/FirebaseContext';
-import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton import
+import { Skeleton } from '@/components/ui/skeleton';
 
 const HERO_IMAGE_STORAGE_PATH = 'siteConfiguration/heroImage'; // Path for the image in Storage
 const HERO_SETTINGS_DOC_PATH = 'siteConfiguration/heroSettings'; // Path for the Firestore document storing the URL
@@ -87,7 +87,6 @@ export function AdminHeroImageManagement() {
     // Attempt to delete the old image first if it's not the default one
     if (currentHeroImageUrl && currentHeroImageUrl !== DEFAULT_HERO_IMAGE_URL) {
         try {
-            const oldImageRef = ref(storage, currentHeroImageUrl); // Assumes currentHeroImageUrl is the full gs:// or https:// URL
             // Extract the path from the URL. This is a common pattern, but might need adjustment based on your URL format.
             const oldImagePath = new URL(currentHeroImageUrl).pathname.split('/o/')[1].split('?')[0];
             if (oldImagePath && oldImagePath !== HERO_IMAGE_STORAGE_PATH) { // Avoid deleting the "folder" itself
@@ -108,10 +107,10 @@ export function AdminHeroImageManagement() {
     const fileExtension = newHeroImageFile.name.split('.').pop();
     const newImageFileName = `heroImage-${Date.now()}.${fileExtension}`;
     const newImageStoragePath = `${HERO_IMAGE_STORAGE_PATH}/${newImageFileName}`; // e.g. siteConfiguration/heroImage/heroImage-timestamp.jpg
-    const storageRef = ref(storage, newImageStoragePath);
+    const storageRefInstance = ref(storage, newImageStoragePath);
 
     try {
-      const uploadTask = uploadBytesResumable(storageRef, newHeroImageFile);
+      const uploadTask = uploadBytesResumable(storageRefInstance, newHeroImageFile);
 
       uploadTask.on('state_changed',
         (snapshot) => {
@@ -190,7 +189,16 @@ export function AdminHeroImageManagement() {
             <Skeleton className="w-full h-48 rounded-md bg-muted" />
           ) : currentHeroImageUrl ? (
             <div className="relative w-full aspect-[16/7] rounded-md overflow-hidden border border-border">
-              <Image src={currentHeroImageUrl} alt="Image de fond actuelle" layout="fill" objectFit="cover" priority unoptimized={currentHeroImageUrl.includes('i.ibb.co') || currentHeroImageUrl.includes('localhost') || !currentHeroImageUrl.startsWith('https')} data-ai-hint="accueil fête concert"/>
+              <Image 
+                src={currentHeroImageUrl} 
+                alt="Image de fond actuelle" 
+                fill 
+                style={{ objectFit: 'cover' }} 
+                priority 
+                unoptimized={currentHeroImageUrl.includes('i.ibb.co') || currentHeroImageUrl.includes('localhost') || !currentHeroImageUrl.startsWith('https')} 
+                data-ai-hint="accueil fête concert"
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              />
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Aucune image configurée. L'image par défaut sera utilisée.</p>
@@ -210,7 +218,13 @@ export function AdminHeroImageManagement() {
             />
             {newHeroImagePreview && (
               <div className="mt-2 relative w-full max-w-md aspect-[16/7] rounded-md overflow-hidden border border-border">
-                <Image src={newHeroImagePreview} alt="Aperçu nouvelle image" layout="fill" objectFit="cover" />
+                <Image 
+                  src={newHeroImagePreview} 
+                  alt="Aperçu nouvelle image" 
+                  fill 
+                  style={{ objectFit: 'contain' }} 
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                />
                 <Button
                   variant="destructive"
                   size="icon"

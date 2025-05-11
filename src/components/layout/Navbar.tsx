@@ -64,7 +64,6 @@ export function Navbar() {
                 alt="BaliseBoxd Logo"
                 width={28}
                 height={28}
-                className="object-contain"
                 data-ai-hint="logo diable cornes"
             />
             <span className="font-bold text-primary">BaliseBoxd</span>

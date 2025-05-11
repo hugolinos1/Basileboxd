@@ -35,7 +35,7 @@ export function AdminMediaManagement({ onUpdateCounts }: AdminMediaManagementPro
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
-  const { isAdmin } = useFirebase();
+  const { isAdmin, firebaseInitialized, loading: authLoading } = useFirebase();
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -83,8 +83,14 @@ export function AdminMediaManagement({ onUpdateCounts }: AdminMediaManagementPro
   };
 
   useEffect(() => {
-    fetchAllMedia();
-  }, []);
+    if(firebaseInitialized && !authLoading && isAdmin){
+        fetchAllMedia();
+    } else if (firebaseInitialized && !isAdmin) {
+        setError("Accès non autorisé.");
+        setLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firebaseInitialized, authLoading, isAdmin]);
 
   const openDeleteDialog = (mediaItem: MediaItemWithPartyContext) => {
     setItemToDelete(mediaItem);
@@ -101,10 +107,25 @@ export function AdminMediaManagement({ onUpdateCounts }: AdminMediaManagementPro
       const partyDocRef = doc(db, 'parties', itemToDelete.partyId);
       // We need the exact object to remove from the array.
       // Firestore's arrayRemove requires the full object to match.
-      // If IDs are truly unique, this should be okay.
-      // If not, more complex logic would be needed (fetch doc, filter, then update).
+      const partyDocSnap = await getDocs(query(collection(db, 'parties'), orderBy('createdAt', 'desc'))); // Re-fetch to get the exact current state
+      const currentPartyData = partyDocSnap.docs.find(d => d.id === itemToDelete.partyId)?.data() as PartyData | undefined;
+      
+      if (!currentPartyData || !currentPartyData.mediaItems) {
+        throw new Error("Données de l'événement introuvables ou pas de médias.");
+      }
+
+      const mediaItemToRemove = currentPartyData.mediaItems.find(item => item.id === itemToDelete.id);
+
+      if(!mediaItemToRemove) {
+        toast({ title: "Erreur", description: "Le média à supprimer n'existe plus ou n'a pas été trouvé.", variant: "destructive" });
+        setIsDeleting(false);
+        setDialogOpen(false);
+        fetchAllMedia(); // Refresh list
+        return;
+      }
+
       await updateDoc(partyDocRef, {
-        mediaItems: arrayRemove(itemToDelete) // This removes the item IF it matches exactly.
+        mediaItems: arrayRemove(mediaItemToRemove) 
       });
 
       setAllMedia(prev => prev.filter(m => m.id !== itemToDelete.id));
@@ -126,7 +147,7 @@ export function AdminMediaManagement({ onUpdateCounts }: AdminMediaManagementPro
     return <LucideImage className="h-6 w-6" />;
   }
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <Card className="bg-card border-border">
         <CardHeader>
@@ -181,7 +202,14 @@ export function AdminMediaManagement({ onUpdateCounts }: AdminMediaManagementPro
               <div className="flex items-center space-x-3 flex-1 min-w-0">
                 <div className="h-12 w-12 rounded-md bg-muted flex items-center justify-center text-muted-foreground overflow-hidden">
                   {media.type === 'image' && media.url ? (
-                    <NextImage src={media.url} alt={media.fileName || 'Souvenir'} width={48} height={48} className="object-cover" data-ai-hint="souvenir fête" />
+                    <NextImage 
+                      src={media.url} 
+                      alt={media.fileName || 'Souvenir'} 
+                      width={48} 
+                      height={48} 
+                      style={{ objectFit: 'cover' }} 
+                      data-ai-hint="souvenir fête" 
+                    />
                   ) : (
                     renderMediaIcon(media.type)
                   )}
