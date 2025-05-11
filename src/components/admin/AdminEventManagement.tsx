@@ -2,12 +2,12 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { collection, getDocs, doc, deleteDoc, writeBatch, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, writeBatch, query, orderBy, Timestamp, collectionGroup } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Trash2, Loader2, Users, CalendarDays, Image as LucideImage } from 'lucide-react';
+import { Trash2, Loader2, Users, CalendarDays, Image as LucideImage, AlertTriangle } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as AlertDialogUITitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle as AlertUITitleComponent } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,11 +28,11 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
-  const { isAdmin, firebaseInitialized, loading: authLoading } = useFirebase();
+  const { isAdmin, firebaseInitialized, loading: authLoading, user } = useFirebase();
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<PartyData | null>(null);
 
   const fetchParties = useCallback(async () => {
     setLoading(true);
@@ -52,8 +52,7 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
       let totalComments = 0;
       let totalMedia = 0;
       for (const party of fetchedParties) {
-        const commentsRef = collection(db, 'parties', party.id, 'comments');
-        const commentsSnapshot = await getDocs(commentsRef);
+        const commentsSnapshot = await getDocs(collection(db, 'parties', party.id, 'comments'));
         totalComments += commentsSnapshot.size;
         totalMedia += (party.mediaItems?.length || 0);
       }
@@ -80,51 +79,68 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
     if (firebaseInitialized && !authLoading) {
         if (isAdmin && db) {
             fetchParties();
-        } else if (!isAdmin) {
+        } else if (!isAdmin && user) { // User is logged in but not admin
             setError("Accès non autorisé à la gestion des événements.");
             setLoading(false);
+        } else if (!user && !authLoading) { // User is not logged in
+             setError("Veuillez vous connecter pour accéder à cette section.");
+             setLoading(false);
         } else if (!db) {
             setError("Firestore n'est pas initialisé pour la gestion des événements.");
             setLoading(false);
         }
     }
-  }, [fetchParties, isAdmin, firebaseInitialized, authLoading]);
+  }, [fetchParties, isAdmin, firebaseInitialized, authLoading, user]);
 
 
-  const openDeleteDialog = (id: string, name: string) => {
-    setItemToDelete({ id, name });
+  const openDeleteDialog = (party: PartyData) => {
+    setItemToDelete(party);
     setDialogOpen(true);
   };
 
   const confirmDelete = async () => {
     if (!itemToDelete || !db || !isAdmin) {
       toast({ title: 'Erreur', description: 'Action non autorisée ou données manquantes.', variant: 'destructive' });
+      setIsDeleting(false);
+      setDialogOpen(false);
+      setItemToDelete(null);
       return;
     }
     setIsDeleting(true);
     try {
       const partyDocRef = doc(db, 'parties', itemToDelete.id);
+      
+      // Batch delete comments first
       const commentsRef = collection(db, 'parties', itemToDelete.id, 'comments');
       const commentsSnapshot = await getDocs(commentsRef);
-
+      
       const batch = writeBatch(db);
       commentsSnapshot.forEach(commentDoc => {
-        batch.delete(doc(commentsRef, commentDoc.id));
+        batch.delete(commentDoc.ref); // Use commentDoc.ref for direct reference
       });
+      
+      // Then delete the party document itself
       batch.delete(partyDocRef);
+      
       await batch.commit();
 
+      // Update local state and counts
       const updatedParties = parties.filter(p => p.id !== itemToDelete.id);
       setParties(updatedParties);
       
-      let totalComments = 0;
-      let totalMedia = 0;
+      let totalCommentsAfterDelete = 0;
+      let totalMediaAfterDelete = 0;
+      updatedParties.forEach(p => {
+        totalMediaAfterDelete += (p.mediaItems?.length || 0);
+        // Comments for this party are gone, so no need to re-fetch their count for this party
+      });
+      // Recalculate total comments from remaining parties
       for (const party of updatedParties) {
-        const commentsSnapshot = await getDocs(collection(db, 'parties', party.id, 'comments'));
-        totalComments += commentsSnapshot.size;
-        totalMedia += (party.mediaItems?.length || 0);
+        const remainingCommentsSnap = await getDocs(collection(db, 'parties', party.id, 'comments'));
+        totalCommentsAfterDelete += remainingCommentsSnap.size;
       }
-      onUpdateCounts({ events: updatedParties.length, comments: totalComments, media: totalMedia });
+
+      onUpdateCounts({ events: updatedParties.length, comments: totalCommentsAfterDelete, media: totalMediaAfterDelete });
       
       toast({ title: 'Événement supprimé', description: `L'événement "${itemToDelete.name}" et ses données associées ont été supprimés.` });
     } catch (error: any) {
@@ -166,7 +182,7 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
     return (
       <Card className="bg-card border-destructive">
         <CardHeader>
-          <CardTitle className="text-destructive flex items-center gap-2"><Users className="h-5 w-5" /> Events</CardTitle>
+          <CardTitle className="text-destructive flex items-center gap-2"><AlertTriangle className="h-5 w-5" /> Events</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert variant="destructive">
@@ -189,7 +205,7 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
           {parties.length === 0 && <p className="text-sm text-muted-foreground">Aucun événement trouvé.</p>}
           {parties.map((party) => (
             <div key={party.id} className="flex items-center justify-between p-3 bg-secondary rounded-lg border border-border/30 hover:border-primary/50 transition-colors duration-200">
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-4 flex-1 min-w-0">
                 {party.coverPhotoUrl ? (
                   <NextImage src={party.coverPhotoUrl} alt={party.name} width={64} height={64} className="h-16 w-16 rounded-md object-cover bg-muted" data-ai-hint="événement fête"/>
                 ) : (
@@ -205,7 +221,7 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
                 </div>
               </div>
               {isAdmin && (
-                <Button variant="destructive" size="sm" className="ml-4 flex-shrink-0" onClick={() => openDeleteDialog(party.id, party.name)}>
+                <Button variant="destructive" size="sm" className="ml-4 flex-shrink-0" onClick={() => openDeleteDialog(party)}>
                   <Trash2 className="w-4 h-4 mr-1.5" /> Supprimer
                 </Button>
               )}
