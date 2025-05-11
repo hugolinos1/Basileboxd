@@ -15,7 +15,7 @@ import { AdminUserManagement } from '@/components/admin/AdminUserManagement';
 import { AdminEventManagement } from '@/components/admin/AdminEventManagement';
 import { AdminCommentManagement } from '@/components/admin/AdminCommentManagement';
 import { AdminMediaManagement } from '@/components/admin/AdminMediaManagement';
-import { AdminHeroImageManagement } from '@/components/admin/AdminHeroImageManagement'; // Import du nouveau composant
+import { AdminHeroImageManagement } from '@/components/admin/AdminHeroImageManagement';
 
 
 export default function AdminPage() {
@@ -27,11 +27,11 @@ export default function AdminPage() {
   const [loadingCounts, setLoadingCounts] = useState(true);
 
   useEffect(() => {
-    if (!authLoading && !isAdmin) {
+    if (!authLoading && firebaseInitialized && !isAdmin) {
       toast({ title: 'Accès Refusé', description: "Vous n'êtes pas autorisé à accéder à cette page.", variant: 'destructive' });
       router.push('/');
     }
-  }, [user, isAdmin, authLoading, router, toast]);
+  }, [user, isAdmin, authLoading, router, toast, firebaseInitialized]);
 
   const updateCounts = (newCounts: Partial<typeof counts>) => {
     setCounts(prev => ({ ...prev, ...newCounts }));
@@ -67,13 +67,17 @@ export default function AdminPage() {
             }
         };
         fetchInitialCounts();
-    } else if (!authLoading && !isAdmin) {
+    } else if (!authLoading && !isAdmin && firebaseInitialized) {
+        // If not admin but firebase is initialized, stop loading counts
+        setLoadingCounts(false);
+    } else if (!firebaseInitialized && !authLoading) {
+        // If firebase is not initialized and auth is not loading, stop loading counts
         setLoadingCounts(false);
     }
-  }, [isAdmin, firebaseInitialized, toast]);
+  }, [isAdmin, firebaseInitialized, toast, authLoading]);
 
 
-  if (authLoading || !firebaseInitialized || loadingCounts) {
+  if (authLoading || !firebaseInitialized || (isAdmin && loadingCounts)) {
     return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]"><Loader2 className="h-8 w-8 animate-spin text-primary" /> Chargement...</div>;
   }
   if (!isAdmin) {
