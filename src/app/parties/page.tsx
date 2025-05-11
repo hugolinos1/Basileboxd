@@ -1,24 +1,43 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, query, orderBy, Timestamp, FirestoreError } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, FirestoreError, doc, getDoc as getFirestoreDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import Link from 'next/link';
 import Image from 'next/image';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Star, CalendarDays, MapPin, Image as ImageIcon, Loader2, AlertTriangle, PlusCircle, Search } from 'lucide-react';
+import { Star, CalendarDays, MapPin, Image as ImageIcon, Loader2, AlertTriangle, PlusCircle, Search, Users } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useFirebase } from '@/context/FirebaseContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { useSearchParams } from 'next/navigation'; // Import useSearchParams
+import { useSearchParams } from 'next/navigation';
 
 interface FirestoreTimestamp {
     seconds: number;
     nanoseconds: number;
+}
+
+interface ParticipantDetail {
+    id: string;
+    avatarUrl?: string;
+    email?: string;
+    displayName?: string;
+    pseudo?: string;
+}
+
+interface UserProfile { // For fetching user data
+    id: string;
+    uid: string;
+    email: string;
+    displayName?: string;
+    pseudo?: string;
+    avatarUrl?: string;
 }
 
 interface PartyData {
@@ -31,6 +50,8 @@ interface PartyData {
     ratings?: { [userId: string]: number };
     comments?: Comment[];
     createdAt: FirestoreTimestamp | Timestamp;
+    participants: string[]; // Array of UIDs
+    participantsDetails?: ParticipantDetail[]; // Added for displaying avatars
 }
 
 interface Comment {
@@ -53,8 +74,8 @@ const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date |
     if (!timestamp) return null;
     try {
         if (timestamp instanceof Timestamp) return timestamp.toDate();
-        if (timestamp && typeof timestamp === 'object' && typeof timestamp.seconds === 'number') {
-             const date = new Date(timestamp.seconds * 1000);
+        if (timestamp && typeof timestamp === 'object' && typeof (timestamp as any).seconds === 'number') {
+             const date = new Date((timestamp as FirestoreTimestamp).seconds * 1000);
              return isNaN(date.getTime()) ? null : date;
         } else if (timestamp instanceof Date) return timestamp;
         return null;
@@ -63,6 +84,12 @@ const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date |
         return null;
     }
 }
+
+const getInitials = (participant: ParticipantDetail): string => {
+    const name = participant.pseudo || participant.displayName || participant.email;
+    if (name && name.length > 0) return name.charAt(0).toUpperCase();
+    return participant.id.substring(0, 1).toUpperCase() || '?';
+};
 
 export default function PartiesListPage() {
   const [allParties, setAllParties] = useState<PartyData[]>([]);
@@ -102,13 +129,35 @@ export default function PartiesListPage() {
         if (querySnapshot.empty) {
             setAllParties([]);
         } else {
-            const partiesData = querySnapshot.docs.map(doc => {
-                 const data = doc.data();
+            const partiesDataPromises = querySnapshot.docs.map(async (docSnap) => {
+                 const data = docSnap.data();
                  if (!data.name || typeof data.name !== 'string' || !data.date || (typeof data.date !== 'object') || !data.createdAt || (typeof data.createdAt !== 'object')) {
                     return null;
                  }
+
+                 const participantDetailsPromises = (data.participants || []).slice(0, 5).map(async (participantId: string) => {
+                    let userProfile: UserProfile | null = null;
+                    try {
+                        const userDocRef = doc(db, 'users', participantId);
+                        const userDocSnap = await getFirestoreDoc(userDocRef);
+                        if (userDocSnap.exists()) {
+                            userProfile = { id: userDocSnap.id, ...userDocSnap.data() } as UserProfile;
+                        }
+                    } catch (e) {
+                        console.warn(`Could not fetch profile for participant ${participantId}:`, e);
+                    }
+                    return {
+                        id: participantId,
+                        avatarUrl: userProfile?.avatarUrl || undefined,
+                        email: userProfile?.email || undefined,
+                        displayName: userProfile?.displayName || undefined,
+                        pseudo: userProfile?.pseudo || undefined,
+                    };
+                 });
+                 const participantsDetails = await Promise.all(participantDetailsPromises);
+
                  const partyObject: PartyData = {
-                     id: doc.id,
+                     id: docSnap.id,
                      name: data.name,
                      description: data.description || undefined,
                      date: data.date,
@@ -117,9 +166,12 @@ export default function PartiesListPage() {
                      ratings: data.ratings || {},
                      comments: data.comments || [],
                      createdAt: data.createdAt,
+                     participants: data.participants || [],
+                     participantsDetails: participantsDetails,
                  };
                  return partyObject;
-            }).filter(party => party !== null) as PartyData[];
+            });
+            const partiesData = (await Promise.all(partiesDataPromises)).filter(party => party !== null) as PartyData[];
             setAllParties(partiesData);
         }
       } catch (fetchError: any) {
@@ -178,6 +230,7 @@ export default function PartiesListPage() {
                 <Skeleton className="h-5 w-3/4 bg-muted" />
                 <Skeleton className="h-4 w-1/2 bg-muted" />
                 <Skeleton className="h-4 w-1/3 bg-muted" />
+                 <Skeleton className="h-6 w-20 bg-muted" /> 
               </CardContent>
             </Card>
           ))}
@@ -266,7 +319,7 @@ export default function PartiesListPage() {
                        {averageRating > 0 && (
                          <Badge variant="secondary" className="absolute top-2 right-2 backdrop-blur-sm bg-black/50 border-white/20 text-sm px-2 py-0.5">
                             <Star className="h-3 w-3 text-yellow-400 fill-current mr-1" />
-                            {averageRating.toFixed(1)}
+                            {(averageRating / 2).toFixed(1)}
                          </Badge>
                        )}
                        {commentCount > 0 && (
@@ -298,6 +351,27 @@ export default function PartiesListPage() {
                         )}
                       </div>
                     </div>
+                    {party.participantsDetails && party.participantsDetails.length > 0 && (
+                        <div className="flex items-center mt-3 -space-x-2">
+                            {party.participantsDetails.slice(0, 4).map((participant) => (
+                                <Avatar key={participant.id} className="h-6 w-6 border-2 border-card group-hover:border-primary/30 transition-colors">
+                                    {participant.avatarUrl ? (
+                                        <AvatarImage src={participant.avatarUrl} alt={participant.pseudo || participant.displayName || participant.email || 'Participant'} />
+                                    ) : null}
+                                    <AvatarFallback className="text-xs bg-muted group-hover:bg-accent transition-colors">
+                                        {getInitials(participant)}
+                                    </AvatarFallback>
+                                </Avatar>
+                            ))}
+                            {party.participantsDetails.length > 4 && (
+                                <Avatar className="h-6 w-6 border-2 border-card">
+                                    <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+                                        +{party.participantsDetails.length - 4}
+                                    </AvatarFallback>
+                                </Avatar>
+                            )}
+                        </div>
+                    )}
                   </CardContent>
                 </Card>
               </Link>
