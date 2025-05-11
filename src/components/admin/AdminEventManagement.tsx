@@ -7,14 +7,14 @@ import { db } from '@/config/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ImageIcon, Trash2, Loader2, Users, CalendarDays, Image as LucideImage } from 'lucide-react';
+import { Trash2, Loader2, Users, CalendarDays, Image as LucideImage } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as AlertDialogUITitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle as AlertUITitleComponent } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { PartyData as SharedPartyData } from '@/lib/party-utils';
 import { getDateFromTimestamp as sharedGetDateFromTimestamp } from '@/lib/party-utils';
-import Image from 'next/image'; // Import NextImage
-import { useFirebase } from '@/context/FirebaseContext'; // Import useFirebase
+import NextImage from 'next/image';
+import { useFirebase } from '@/context/FirebaseContext';
 
 type PartyData = SharedPartyData & { id: string };
 const getDateFromTimestamp = sharedGetDateFromTimestamp;
@@ -28,7 +28,7 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
-   const { isAdmin } = useFirebase(); // Get isAdmin state
+  const { isAdmin, firebaseInitialized, loading: authLoading } = useFirebase();
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -49,11 +49,9 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
       const fetchedParties = querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
       setParties(fetchedParties);
 
-      // Calculate counts for parent
       let totalComments = 0;
       let totalMedia = 0;
       for (const party of fetchedParties) {
-        // Assuming comments are a subcollection. If they are an array on the party doc, adjust accordingly.
         const commentsRef = collection(db, 'parties', party.id, 'comments');
         const commentsSnapshot = await getDocs(commentsRef);
         totalComments += commentsSnapshot.size;
@@ -63,15 +61,35 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
 
     } catch (e: any) {
       console.error("Erreur chargement fêtes:", e);
-      setError("Impossible de charger les fêtes. " + e.message);
+      let userFriendlyError = "Impossible de charger les événements. ";
+      if (e.code === 'permission-denied' || e.message?.includes('permission-denied') || e.message?.includes('insufficient permissions')) {
+          userFriendlyError += "Permission refusée. Vérifiez les règles Firestore pour la collection 'parties'.";
+      } else if (e.message?.includes('requires an index')) {
+          userFriendlyError += "Un index Firestore est requis pour trier les événements par date de création. Veuillez créer cet index dans la console Firebase.";
+      } else {
+          userFriendlyError += e.message;
+      }
+      setError(userFriendlyError);
     } finally {
       setLoading(false);
     }
   }, [onUpdateCounts]);
 
+
   useEffect(() => {
-    fetchParties();
-  }, [fetchParties]);
+    if (firebaseInitialized && !authLoading) {
+        if (isAdmin && db) {
+            fetchParties();
+        } else if (!isAdmin) {
+            setError("Accès non autorisé à la gestion des événements.");
+            setLoading(false);
+        } else if (!db) {
+            setError("Firestore n'est pas initialisé pour la gestion des événements.");
+            setLoading(false);
+        }
+    }
+  }, [fetchParties, isAdmin, firebaseInitialized, authLoading]);
+
 
   const openDeleteDialog = (id: string, name: string) => {
     setItemToDelete({ id, name });
@@ -96,9 +114,18 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
       batch.delete(partyDocRef);
       await batch.commit();
 
-      setParties(prev => prev.filter(p => p.id !== itemToDelete.id));
-      // After deletion, refetch all data to update counts in parent
-      fetchParties();
+      const updatedParties = parties.filter(p => p.id !== itemToDelete.id);
+      setParties(updatedParties);
+      
+      let totalComments = 0;
+      let totalMedia = 0;
+      for (const party of updatedParties) {
+        const commentsSnapshot = await getDocs(collection(db, 'parties', party.id, 'comments'));
+        totalComments += commentsSnapshot.size;
+        totalMedia += (party.mediaItems?.length || 0);
+      }
+      onUpdateCounts({ events: updatedParties.length, comments: totalComments, media: totalMedia });
+      
       toast({ title: 'Événement supprimé', description: `L'événement "${itemToDelete.name}" et ses données associées ont été supprimés.` });
     } catch (error: any) {
       console.error(`Erreur lors de la suppression de l'événement:`, error);
@@ -110,7 +137,7 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <Card className="bg-card border-border">
         <CardHeader>
@@ -164,7 +191,7 @@ export function AdminEventManagement({ onUpdateCounts }: AdminEventManagementPro
             <div key={party.id} className="flex items-center justify-between p-3 bg-secondary rounded-lg border border-border/30 hover:border-primary/50 transition-colors duration-200">
               <div className="flex items-center space-x-4">
                 {party.coverPhotoUrl ? (
-                  <Image src={party.coverPhotoUrl} alt={party.name} width={64} height={64} className="h-16 w-16 rounded-md object-cover bg-muted" data-ai-hint="événement fête"/>
+                  <NextImage src={party.coverPhotoUrl} alt={party.name} width={64} height={64} className="h-16 w-16 rounded-md object-cover bg-muted" data-ai-hint="événement fête"/>
                 ) : (
                   <div className="h-16 w-16 rounded-md bg-muted flex items-center justify-center text-muted-foreground">
                     <LucideImage className="h-8 w-8" />
