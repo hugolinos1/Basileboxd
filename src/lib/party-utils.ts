@@ -1,4 +1,3 @@
-
 // src/lib/party-utils.ts
 import { Timestamp, FieldValue } from 'firebase/firestore';
 
@@ -24,6 +23,7 @@ export interface CommentData {
     timestamp: Timestamp | FieldValue | Date; // Allow FieldValue for serverTimestamp or Timestamp.now()
     partyId?: string; // partyId can be optional during creation, added before saving
     partyName?: string;
+    parentId?: string; // ID of the comment this is a reply to
 }
 
 export interface PartyData {

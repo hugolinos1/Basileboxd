@@ -1,8 +1,7 @@
-
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  reactStrictMode: false, // Maintenu pour nos tests de la carte
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -17,7 +16,7 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
-       {
+      {
         protocol: 'https',
         hostname: 'firebasestorage.googleapis.com',
         port: '',
@@ -29,13 +28,7 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
-      { // Allow Unsplash images
-        protocol: 'https',
-        hostname: 'images.unsplash.com',
-        port: '',
-        pathname: '/**',
-      },
-      { // Allow images from i.ibb.co
+      { // Ajoutez cette section pour i.ibb.co
         protocol: 'https',
         hostname: 'i.ibb.co',
         port: '',

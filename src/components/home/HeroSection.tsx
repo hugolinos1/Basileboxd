@@ -1,21 +1,22 @@
+
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
-import { PlusCircle } from 'lucide-react'; // Changed Play to PlusCircle
-import Link from 'next/link'; // Import Link
+import { PlusCircle } from 'lucide-react'; 
+import Link from 'next/link'; 
 
 export function HeroSection() {
   return (
     <div className="relative h-96 md:h-[500px] lg:h-[600px] w-full">
       {/* Background Image */}
       <Image
-        src="https://i.ibb.co/NnTT13h0/Snapchat-1715506731.jpg" // Updated image URL
-        alt="Groupe de jeunes s'amusant à une fête ou un concert" // Updated alt text for better description
+        src="https://i.ibb.co/NnTT13h0/Snapchat-1715506731.jpg" 
+        alt="Groupe de jeunes s'amusant à une fête ou un concert" 
         layout="fill"
         objectFit="cover"
         quality={85}
         priority // Load the hero image eagerly
         className="absolute inset-0 z-0"
-        data-ai-hint="fête jeunes soirée" // Updated AI hint
+        data-ai-hint="fête jeunes soirée" 
       />
 
       {/* Gradient Overlay */}
@@ -31,13 +32,13 @@ export function HeroSection() {
               BaliseBoxd
             </h1>
             <p className="text-base md:text-lg text-gray-200 mb-6 shadow-md">
-              Revivez, notez, documentez et partagez les meilleurs Events de Balise Boli.
+              Revivez, notez, documentez et partagez les meilleurs Events de Balise Boli
             </p>
             <div className="flex space-x-3">
               <Link href="/events/create" passHref>
                 <Button variant="default" size="lg" className="bg-white text-black hover:bg-gray-200">
-                  <PlusCircle className="mr-2 h-5 w-5 fill-black" /> {/* Changed icon */}
-                  Créer un Event {/* Updated text */}
+                  <PlusCircle className="mr-2 h-5 w-5 fill-current" /> 
+                  Créer un Event 
                 </Button>
               </Link>
             </div>
@@ -46,3 +47,4 @@ export function HeroSection() {
     </div>
   );
 }
+
