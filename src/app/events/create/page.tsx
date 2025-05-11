@@ -37,7 +37,7 @@ import {
   ACCEPTED_MEDIA_TYPES,
   MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  ACCEPTED_COVER_PHOTO_TYPES, // Import directly from media-uploader
+  ACCEPTED_COVER_PHOTO_TYPES,
 } from '@/services/media-uploader';
 import { coverPhotoSchema } from '@/services/validation-schemas'; 
 
@@ -396,7 +396,7 @@ export default function CreateEventPage() {
         }
       }
 
-      toast({ title: 'Événement créé !', description: `"${values.name}" est prêt à être partagé.` });
+      toast({ title: "Événement créé !", description: `"${values.name}" est prêt à être partagé.` });
       router.push(`/party/${partyId}`);
 
     } catch (error: any) {
@@ -532,7 +532,7 @@ export default function CreateEventPage() {
                             <FormItem>
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                   <FormControl>
-                                    <React.Fragment> {/* Ensure a single child for FormControl */}
+                                    <div> {/* Wrapper div */}
                                       {coverPhotoPreview ? (
                                           <>
                                               <div className="relative w-full h-full">
@@ -564,7 +564,7 @@ export default function CreateEventPage() {
                                           className="hidden"
                                           onChange={handleCoverPhotoChange}
                                       />
-                                    </React.Fragment>
+                                    </div>
                                   </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
@@ -667,7 +667,7 @@ export default function CreateEventPage() {
                       render={({ field }) => (
                         <FormItem>
                            <FormControl>
-                             <React.Fragment> {/* Ensure a single child for FormControl */}
+                             <div> {/* Wrapper div */}
                               <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
                                 <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
                               </Button>
@@ -679,7 +679,7 @@ export default function CreateEventPage() {
                                  onChange={handleMediaFileChange}
                                  className="hidden"
                                />
-                             </React.Fragment>
+                             </div>
                            </FormControl>
                           <FormDescription className="text-center">
                             Max {MEDIA_MAX_FILE_SIZE_CONFIG.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE_CONFIG.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE_CONFIG.audio / 1024 / 1024}Mo/Son.
