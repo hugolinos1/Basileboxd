@@ -179,7 +179,7 @@ export default function AdminPage() {
         if (type === 'Utilisateur') {
             await deleteDoc(doc(db, 'users', id));
             setUsersData(prev => prev.filter(u => u.id !== id));
-        } else if (type === 'Fête') {
+        } else if (type === 'Event') {
             const partyDocRef = doc(db, 'parties', id);
             const commentsRef = collection(db, 'parties', id, 'comments');
             const commentsSnapshot = await getDocs(commentsRef);
@@ -306,21 +306,21 @@ export default function AdminPage() {
             </Card>
         )}
 
-         {loadingParties ? renderSkeletonCard("Fêtes", "Chargement des fêtes...") : errorParties ? renderErrorCard("Fêtes", errorParties) : (
+         {loadingParties ? renderSkeletonCard("Events", "Chargement des Events...") : errorParties ? renderErrorCard("Events", errorParties) : (
             <Card className="bg-card border-border">
                 <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Fêtes ({partiesData.length})</CardTitle>
-                <CardDescription>Gérer les entrées de fêtes.</CardDescription>
+                <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Events ({partiesData.length})</CardTitle>
+                <CardDescription>Gérer les entrées de Events.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3 max-h-96 overflow-y-auto">
-                 {partiesData.length === 0 && <p className="text-sm text-muted-foreground">Aucune fête trouvée.</p>}
+                 {partiesData.length === 0 && <p className="text-sm text-muted-foreground">Aucun Event trouvé.</p>}
                  {partiesData.map((p) => (
                     <div key={p.id} className="flex flex-col sm:flex-row justify-between sm:items-center p-3 bg-secondary rounded-lg border border-border/30 hover:border-primary/50 transition-colors duration-200 space-y-2 sm:space-y-0">
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-foreground truncate" title={p.name}>{p.name}</p>
                             <p className="text-xs text-muted-foreground">Date : {getDateFromTimestamp(p.date)?.toLocaleDateString()} | Par : {p.creatorEmail || p.createdBy}</p>
                         </div>
-                         <Button variant="destructive" size="sm" className="mt-2 sm:mt-0 sm:ml-4 flex-shrink-0" onClick={() => openDeleteDialog('Fête', p.id, p.name)}>
+                         <Button variant="destructive" size="sm" className="mt-2 sm:mt-0 sm:ml-4 flex-shrink-0" onClick={() => openDeleteDialog('Event', p.id, p.name)}>
                             <Trash2 className="w-4 h-4 mr-1.5" /> Supprimer
                          </Button>
                     </div>
@@ -383,7 +383,7 @@ export default function AdminPage() {
                                    {m.fileName || m.id}
                                  </a>
                                   <p className="text-xs text-muted-foreground truncate">
-                                     Fête : {m.partyName || m.partyId} | Téléversé : {getDateFromTimestamp(m.uploadedAt)?.toLocaleDateString() || 'N/A'}
+                                     Event : {m.partyName || m.partyId} | Téléversé : {getDateFromTimestamp(m.uploadedAt)?.toLocaleDateString() || 'N/A'}
                                  </p>
                              </div>
                          </div>
@@ -409,7 +409,7 @@ export default function AdminPage() {
             <AlertDialogDescription>
               Type : {itemToDelete?.type} <br />
               Nom/ID : {itemToDelete?.name} <br />
-              {itemToDelete?.type === 'Fête' && "La suppression d'une fête entraînera la suppression de tous ses commentaires et médias associés."}
+              {itemToDelete?.type === 'Event' && "La suppression d'un Event entraînera la suppression de tous ses commentaires et médias associés."}
               Cette action est irréversible.
             </AlertDialogDescription>
           </AlertDialogHeader>
