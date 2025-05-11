@@ -3,21 +3,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check if the requester is an admin
     function isAdmin() {
-      // MAKE SURE TO REPLACE '4aqCNYkLwgXpp5kjMnGA6V0bdL52' WITH THE ACTUAL ADMIN UID if it changed
-      return request.auth != null && request.auth.uid == '4aqCNYkLwgXpp5kjMnGA6V0bdL52';
+      return request.auth != null && request.auth.uid == '4aqCNYkLwgXpp5kjMnGA6V0bdL52'; // ASSUREZ-VOUS QUE CET UID EST CORRECT
     }
 
-    // Rule for querying the 'comments' collection group
     match /{path=**}/comments/{commentId} {
       allow read: if request.auth != null;
     }
 
-    // Collection pour la configuration du site (ex: image de fond de la page d'accueil)
     match /siteConfiguration/{configId} {
       allow read: if true;
-      allow write: if isAdmin() && configId == 'mainPageBackground';
+      allow write: if isAdmin() && configId == 'heroSettings'; // Corrigé: mainPageBackground -> heroSettings
       allow delete: if false;
     }
 

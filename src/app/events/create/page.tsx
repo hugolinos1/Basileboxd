@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -156,15 +155,21 @@ export default function CreateEventPage() {
   });
 
   useEffect(() => {
-    if (user && allUsers.length > 0 && selectedParticipants.length === 0) {
-      const currentUserData = allUsers.find(u => u.uid === user.uid);
-      if (currentUserData && !form.getValues('participants')?.includes(user.uid)) {
-        console.log("Adding creator to participants:", currentUserData);
-        form.setValue('participants', [user.uid]);
-        setSelectedParticipants([currentUserData]);
+    if (user && allUsers.length > 0) {
+      const creatorDataInAllUsers = allUsers.find(u => u.uid === user.uid);
+      if (creatorDataInAllUsers) {
+        const isCreatorInSelectedParticipants = selectedParticipants.some(p => p.uid === user.uid);
+        if (!isCreatorInSelectedParticipants) {
+          setSelectedParticipants(prevSelected => [...prevSelected, creatorDataInAllUsers]);
+        }
+        
+        const formParticipantUIDs = form.getValues('participants') || [];
+        if (!formParticipantUIDs.includes(user.uid)) {
+          form.setValue('participants', [...formParticipantUIDs, user.uid]);
+        }
       }
     }
-  }, [user, allUsers, form, selectedParticipants.length]);
+  }, [user, allUsers, form]);
 
 
   const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -318,22 +323,32 @@ export default function CreateEventPage() {
         toast({ title: "Échec du géocodage", description: `Impossible de trouver les coordonnées pour ${values.location}. L'événement sera créé sans localisation précise.`, variant: "warning" });
       }
     }
+    
+    const currentParticipantUIDs = selectedParticipants.map(p => p.uid);
+    let finalParticipantUIDs = [...currentParticipantUIDs];
 
-    // Ensure participant UIDs and emails are correctly derived from selectedParticipants for storage
-    const finalParticipantUIDs = selectedParticipants.map(p => p.uid);
-    const finalParticipantEmails = selectedParticipants.map(p => p.email);
+    if (user && !finalParticipantUIDs.includes(user.uid)) {
+        finalParticipantUIDs.push(user.uid);
+    }
+    
+    const finalParticipantEmails = finalParticipantUIDs.map(uid => {
+        const participant = selectedParticipants.find(p => p.uid === uid);
+        if (participant) return participant.email;
+        if (user && user.uid === uid) return user.email || ''; 
+        return ''; 
+    }).filter(email => typeof email === 'string');
 
 
     try {
       const partyDocData: Omit<PartyData, 'id' | 'createdAt' | 'averageRating' | 'mediaItems' | 'coverPhotoUrl' | 'ratings' > & { createdAt: FieldValue, ratings: { [key: string]: number }, mediaItems: MediaItem[], coverPhotoUrl: string } = {
         name: values.name,
         description: values.description || '',
-        date: values.date, 
+        date: Timestamp.fromDate(values.date), 
         location: normalizedLocation,
         latitude: latitude,
         longitude: longitude,
         createdBy: user.uid,
-        creatorEmail: user.email || '',
+        creatorEmail: user.email || null,
         participants: finalParticipantUIDs,
         participantEmails: finalParticipantEmails,
         ratings: values.initialRating && user ? { [user.uid]: values.initialRating * 2 } : {}, // Convert 0-5 to 0-10 for storage
@@ -543,7 +558,7 @@ export default function CreateEventPage() {
                                   <FormControl>
                                     <div className="contents"> {/* Using div with 'contents' to act like React.Fragment but accept props */}
                                       {coverPhotoPreview ? (
-                                          <>
+                                          <React.Fragment>
                                               <div className="relative w-full h-full">
                                                   <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
                                               </div>
@@ -556,15 +571,15 @@ export default function CreateEventPage() {
                                               >
                                                   <X className="h-3 w-3" />
                                               </Button>
-                                          </>
+                                          </React.Fragment>
                                       ) : (
-                                        <>
+                                        <React.Fragment>
                                           <ImageIcon className="h-12 w-12 text-muted-foreground mb-2" />
                                           <p className="text-sm text-muted-foreground mb-2">Glissez-déposez ou cliquez pour ajouter</p>
                                            <Button type="button" variant="outline" size="sm" onClick={() => coverPhotoInputRef.current?.click()}>
                                               Ajouter une photo
                                           </Button>
-                                        </>
+                                        </React.Fragment>
                                       )}
                                        <Input
                                           ref={coverPhotoInputRef}
@@ -799,10 +814,10 @@ export default function CreateEventPage() {
 
           <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-lg py-6" disabled={isLoading || isUploadingCover || isUploadingMedia}>
             {isLoading ? (
-              <>
+              <React.Fragment>
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 {(isUploadingCover || isUploadingMedia) ? "Téléversement des fichiers..." : "Création de l'Event..."}
-              </>
+              </React.Fragment>
             ) : (
               "Créer l'Event"
             )}
@@ -812,4 +827,3 @@ export default function CreateEventPage() {
     </div>
   );
 }
-
