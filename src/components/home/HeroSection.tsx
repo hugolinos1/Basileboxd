@@ -32,7 +32,7 @@ export function HeroSection() {
               BaliseBoxd
             </h1>
             <p className="text-base md:text-lg text-gray-200 mb-6 shadow-md">
-              Revivez, notez, documentez et partagez les meilleurs Events de Balise Boli
+              Le QG des délires que t’as (presque) oubliés
             </p>
             <div className="flex space-x-3">
               <Link href="/events/create" passHref>
