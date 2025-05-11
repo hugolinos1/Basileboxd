@@ -1,3 +1,4 @@
+
 // src/app/party/[id]/page.tsx
 'use client';
 
@@ -34,15 +35,17 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
+// Import centralized uploader and helpers
 import {
   uploadFile,
   getFileType as getMediaFileType,
   ACCEPTED_MEDIA_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  ACCEPTED_COVER_PHOTO_TYPES, // Added this import
 } from '@/services/media-uploader';
-import { coverPhotoSchema, avatarSchema } from '@/services/validation-schemas'; 
-import { Skeleton } from '@/components/ui/skeleton'; 
+import { coverPhotoSchema, avatarSchema } from '@/services/validation-schemas'; // Import schema from dedicated file
+import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton
 import { Combobox } from '@/components/ui/combobox';
 import type { MediaItem as SharedMediaItem, PartyData as SharedPartyData, CommentData as SharedCommentData } from '@/lib/party-utils';
 import { Slider } from '@/components/ui/slider';
@@ -52,7 +55,7 @@ import { normalizeCityName, getDateFromTimestamp as sharedGetDateFromTimestamp }
 // --- Interfaces ---
 type MediaItem = SharedMediaItem;
 type PartyData = SharedPartyData & { id: string }; 
-type Comment = SharedCommentData; 
+// type Comment = SharedCommentData; 
 
 interface UserProfile {
     id: string; 
@@ -63,9 +66,11 @@ interface UserProfile {
     avatarUrl?: string;
 }
 
-interface CommentWithReplies extends Comment {
+// Modified Comment interface for replies
+interface CommentWithReplies extends SharedCommentData { // Use SharedCommentData for base
+  id: string; // Ensure id is always present for processed comments
   replies: CommentWithReplies[];
-  parentAuthorEmail?: string;
+  parentAuthorEmail?: string; // New field
 }
 
 
@@ -104,16 +109,17 @@ const getDateFromTimestamp = sharedGetDateFromTimestamp;
 // --- Composants ---
 const RatingDistributionChart = ({ ratings }: { ratings: { [userId: string]: number } }) => {
   const ratingCounts = useMemo(() => {
-    const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 20 }, (_, i) => ({
+    const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 10 }, (_, i) => ({ // Changed from 20 to 10 for 0.5-5 scale
       rating: (i + 1) * 0.5,
       votes: 0,
       fill: '',
     }));
     Object.values(ratings).forEach(rating => {
-      const numericRating = Number(rating);
-      if (!isNaN(numericRating) && numericRating >= 0.5 && numericRating <= 10) {
-        const index = Math.round(numericRating * 2) - 1; 
-        if (index >= 0 && index < 20) {
+      const numericRating = Number(rating); // This is a 0-10 scale
+      if (!isNaN(numericRating) && numericRating >= 0 && numericRating <= 10) {
+        const displayRating = numericRating / 2; // Convert to 0-5 scale
+        const index = Math.round(displayRating * 2) -1; // Index for 0.5 steps on 0-5 scale
+        if (index >= 0 && index < 10) {
           counts[index].votes++;
         }
       }
@@ -143,25 +149,28 @@ const RatingDistributionChart = ({ ratings }: { ratings: { [userId: string]: num
         >
           <XAxis
             dataKey="rating"
+            type="number" // Ensure XAxis treats rating as a number for domain
+            domain={[0.5, 5]} // Set domain for 0.5 to 5 scale
             tickLine={false}
             axisLine={false}
             tickMargin={4}
             tickFormatter={(value) => (value % 1 === 0 ? `${value}.0` : `${value}`)}
             fontSize={10}
-            interval={3} 
+            interval="preserveStartEnd" // Show first and last tick
+            ticks={[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]} // Define ticks for 0.5 steps
           />
           <YAxis hide={true} />
           <RechartsTooltip
             cursor={false}
             content={<ChartTooltipContent hideLabel hideIndicator />}
-            formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating} / 10 étoiles`]}
+            formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating} / 5 étoiles`]} // Display as X/5
           />
           <Bar dataKey="votes" radius={2} />
         </BarChart>
       </ChartContainer>
       <div className="flex justify-between items-center mt-1 px-1 text-xs text-muted-foreground">
         <span>0.5 ★</span>
-        <span>10 ★</span>
+        <span>5 ★</span>
       </div>
     </div>
   );
@@ -176,7 +185,7 @@ export default function PartyDetailsPage() {
   const { toast } = useToast();
 
   const [party, setParty] = useState<PartyData | null>(null);
-  const [commentsData, setCommentsData] = useState<Comment[]>([]);
+  const [commentsData, setCommentsData] = useState<SharedCommentData[]>([]); // Use SharedCommentData
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]); 
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -210,6 +219,9 @@ export default function PartyDetailsPage() {
   const [showEditLocationDialog, setShowEditLocationDialog] = useState(false);
   const [newPartyLocation, setNewPartyLocation] = useState('');
   const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
+
+  // NOUVEL ÉTAT pour gérer la réponse (comme suggéré dans l'étape 1)
+  const [replyingToCommentInfo, setReplyingToCommentInfo] = useState<{ id: string; userEmail: string } | null>(null);
   
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -222,60 +234,7 @@ export default function PartyDetailsPage() {
   }, []);
 
   const isCreator = useMemo(() => user && party && user.uid === party.createdBy, [user, party]);
-  const canManageParticipants = useMemo(() => user && party && (user.uid === party.createdBy || isAdmin), [user, party, isAdmin]);
-  const canEditPartyDetails = useMemo(() => user && party && (user.uid === party.createdBy || isAdmin), [user, party, isAdmin]);
-
-  const organizedComments = useMemo(() => {
-    if (!commentsData) return [];
-    const commentsMap = new Map<string, CommentWithReplies>();
-    const topLevelComments: CommentWithReplies[] = [];
-
-    const sortedForProcessing = [...commentsData].sort((a, b) => {
-        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
-        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
-        return timeA - timeB; 
-    });
-
-    sortedForProcessing.forEach(comment => {
-      if (!comment.id) {
-          console.warn("Commentaire sans ID rencontré lors de l'organisation:", comment);
-          return; 
-      }
-      const commentWithReplies: CommentWithReplies = { ...comment, replies: [] };
-      commentsMap.set(comment.id, commentWithReplies);
-
-      if (comment.parentId && commentsMap.has(comment.parentId)) {
-        const parentComment = commentsMap.get(comment.parentId)!;
-        commentWithReplies.parentAuthorEmail = parentComment.email; 
-        parentComment.replies.push(commentWithReplies);
-      } else {
-        topLevelComments.push(commentWithReplies);
-      }
-    });
-    
-    const sortRepliesDesc = (replies: CommentWithReplies[]) => {
-        replies.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
-        replies.forEach(reply => { if(reply.replies.length > 0) sortRepliesDesc(reply.replies)});
-    }
-    topLevelComments.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
-    topLevelComments.forEach(commentItem => { 
-      if(commentItem.replies.length > 0) sortRepliesDesc(commentItem.replies);
-    });
-
-    return topLevelComments;
-  }, [commentsData]);
-
-  const comboboxOptions = useMemo(() => {
-    if (!allUsers || !party || !party.participants) {
-        return [];
-    }
-    return allUsers
-        .filter(u => !party.participants.map(pUid => pUid.toLowerCase()).includes(u.uid.toLowerCase()))
-        .map(u => ({
-            value: u.uid,
-            label: u.pseudo || u.displayName || u.email || u.uid,
-        }));
-  }, [allUsers, party]);
+  const canManageParty = useMemo(() => user && party && (user.uid === party.createdBy || isAdmin), [user, party, isAdmin]);
 
 
   // --- Effects ---
@@ -314,7 +273,7 @@ export default function PartyDetailsPage() {
         } else {
             setUserRating(0);
         }
-        setPageLoading(false); 
+        // Do not setPageLoading(false) here if comments are still loading
       } else {
         console.log(`[PartyDetailsPage] Document ${partyId} n'existe pas.`);
         setError('Fête non trouvée.');
@@ -336,20 +295,21 @@ export default function PartyDetailsPage() {
 
     // Listener for comments subcollection
     const commentsRef = collection(db, 'parties', partyId, 'comments');
-    const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'desc')); // Fetch in desc for direct display
+    const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'desc'));
     
     const unsubscribeComments = onSnapshot(commentsQuery, (querySnapshot) => {
         console.log(`[PartyDetailsPage] Snapshot reçu pour les commentaires de ${partyId}. Nombre de commentaires: ${querySnapshot.size}`);
-        const fetchedComments: Comment[] = [];
+        const fetchedComments: SharedCommentData[] = [];
         querySnapshot.forEach((doc) => {
-            fetchedComments.push({ id: doc.id, ...doc.data() } as Comment);
+            fetchedComments.push({ id: doc.id, ...doc.data() } as SharedCommentData);
         });
         setCommentsData(fetchedComments);
+        setPageLoading(false); // Now set page loading to false after comments are also loaded/attempted
     }, (snapshotError: any) => {
          console.error('[PartyDetailsPage] Erreur listener snapshot commentaires:', snapshotError);
          let userFriendlyError = 'Impossible de charger les commentaires en temps réel.';
          if (snapshotError.code === 'permission-denied') {
-             userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité Firestore ET assurez-vous que l'index Firestore nécessaire pour la requête 'collectionGroup' sur 'comments' (trié par 'timestamp') existe et est activé.";
+             userFriendlyError = "Permission refusée. Veuillez vérifier vos règles de sécurité Firestore ET assurez-vous que l'index Firestore nécessaire pour la requête 'collectionGroup' sur 'comments' (trié par 'timestamp') existe et est activé.";
               console.error("Firestore Permission Denied: Check your security rules for the 'comments' subcollection AND ensure the composite index for collectionGroup 'comments' ordered by 'timestamp' exists.");
          } else if (snapshotError.code === 'unauthenticated') {
              userFriendlyError = 'Non authentifié. Veuillez vous connecter pour voir les commentaires.';
@@ -358,6 +318,7 @@ export default function PartyDetailsPage() {
             console.error("Firestore Index Missing for comments query: ", snapshotError.message);
          }
          setError(prevError => prevError || userFriendlyError); 
+         setPageLoading(false); // Also set loading to false on error
     });
 
 
@@ -415,7 +376,7 @@ export default function PartyDetailsPage() {
      try {
          const partyDocRef = doc(db, 'parties', party.id);
          await updateDoc(partyDocRef, {
-             [`ratings.${user.uid}`]: newRating
+             [`ratings.${user.uid}`]: newRating // Store rating as 0-10
          });
          toast({ title: 'Note envoyée', description: `Vous avez noté cette fête ${newRating/2}/5 étoiles.` }); // Display as 0-5
      } catch (rateError: any) {
@@ -430,6 +391,7 @@ export default function PartyDetailsPage() {
      }
   };
 
+  // MODIFICATION de handleAddComment (comme suggéré à l'étape 1)
   const handleAddComment = async () => {
     if (!user || !party || !comment.trim() || !db || !firebaseInitialized) {
       toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' });
@@ -438,12 +400,13 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      const newCommentData: Omit<Comment, 'id'> & { timestamp: FieldValue } = { 
+      
+      const newCommentData: Omit<SharedCommentData, 'id'> = { 
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: Timestamp.now(), 
+        timestamp: Timestamp.now(), // Change to Timestamp.now()
         partyId: party.id,
         ...(replyingToCommentInfo && { parentId: replyingToCommentInfo.id }),
       };
@@ -451,18 +414,14 @@ export default function PartyDetailsPage() {
       await addDoc(commentsCollectionRef, newCommentData);
 
       setComment('');
-      setReplyingToCommentInfo(null);
+      setReplyingToCommentInfo(null); 
       toast({ title: replyingToCommentInfo ? 'Réponse ajoutée' : 'Commentaire ajouté' });
 
     } catch (commentError: any) {
         console.error('Erreur commentaire/réponse:', commentError);
         let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire/réponse.';
-        if (commentError.code === 'invalid-argument') {
-            if (commentError.message?.includes('Unsupported field value')) {
-                errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
-            } else if (commentError.message?.includes('serverTimestamp')) { 
-                errorMessage = "Erreur de timestamp serveur. Réessayez.";
-            }
+         if (commentError.code === 'invalid-argument' && commentError.message?.includes('serverTimestamp()')) {
+            errorMessage = "Erreur de timestamp serveur. Utilisation de Timestamp.now() pour le client.";
         } else if (commentError.code === 'permission-denied') {
             errorMessage = "Permission refusée. Vous ne pouvez peut-être pas commenter/répondre.";
         }
@@ -472,6 +431,21 @@ export default function PartyDetailsPage() {
     }
   };
 
+  // NOUVELLE FONCTION pour démarrer une réponse (comme suggéré à l'étape 1)
+  const handleStartReply = (commentId: string, userEmail: string) => {
+    setReplyingToCommentInfo({ id: commentId, userEmail });
+    setReplyText(''); 
+    commentInputRef.current?.focus(); 
+    commentInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  // NOUVELLE FONCTION pour annuler la réponse (comme suggéré à l'étape 1)
+  const handleCancelReply = () => {
+    setReplyingToCommentInfo(null);
+    setReplyText('');
+  };
+
+  // NOUVELLE FONCTION pour soumettre une réponse (comme suggéré à l'étape 1)
   const handleAddReply = async (parentCommentId: string) => {
     if (!user || !party || !replyText.trim() || !db || !firebaseInitialized) {
       toast({ title: 'Erreur', description: 'Impossible d\'ajouter une réponse.', variant: 'destructive' });
@@ -480,37 +454,30 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true); 
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      const newReplyData: Omit<Comment, 'id'> & { timestamp: FieldValue; parentId: string } = {
+      const newReplyData: Omit<SharedCommentData, 'id'> = {
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: replyText.trim(),
-        timestamp: Timestamp.now(), 
+        timestamp: Timestamp.now(), // Change to Timestamp.now()
         partyId: party.id,
         parentId: parentCommentId,
       };
       await addDoc(commentsCollectionRef, newReplyData);
       setReplyText('');
-      setReplyingToCommentId(null);
+      setReplyingToCommentId(null); // Efface l'ID du commentaire auquel on répondait
+      setReplyingToCommentInfo(null); // Efface aussi les infos de réponse
       toast({ title: 'Réponse ajoutée' });
     } catch (replyError: any) {
       console.error('Erreur lors de l\'ajout de la réponse:', replyError);
-      toast({ title: 'Erreur Réponse', description: replyError.message || 'Impossible d\'ajouter la réponse.', variant: 'destructive' });
+      let errorMessage = replyError.message || 'Impossible d\'ajouter la réponse.';
+        if (replyError.code === 'invalid-argument' && replyError.message?.includes('serverTimestamp()')) {
+           errorMessage = "Erreur de timestamp serveur. Utilisation de Timestamp.now() pour le client.";
+       }
+      toast({ title: 'Erreur Réponse', description: errorMessage, variant: 'destructive' });
     } finally {
       setIsSubmittingComment(false);
     }
-  };
-
-  const handleStartReply = (commentId: string, userEmail: string) => {
-    setReplyingToCommentInfo({ id: commentId, userEmail });
-    setReplyText(''); 
-    commentInputRef.current?.focus();
-    commentInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-
-  const handleCancelReply = () => {
-    setReplyingToCommentInfo(null);
-    setReplyText('');
   };
 
     const handleSouvenirFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -694,7 +661,7 @@ export default function PartyDetailsPage() {
     };
 
     const handleAddParticipant = async (selectedUserId: string | null) => {
-        if (!user || !party || !canManageParticipants || !db || !selectedUserId) {
+        if (!user || !party || !canManageParty || !db || !selectedUserId) {
             toast({ title: 'Erreur', description: 'Permissions insuffisantes ou utilisateur non sélectionné.', variant: 'destructive' });
             return;
         }
@@ -735,7 +702,7 @@ export default function PartyDetailsPage() {
     };
 
     const handleUpdatePartyName = async () => {
-        if (!user || !party || !canEditPartyDetails || !db || !newPartyName.trim()) {
+        if (!user || !party || !canManageParty || !db || !newPartyName.trim()) {
             toast({ title: 'Erreur', description: 'Impossible de mettre à jour le nom pour le moment.', variant: 'destructive' });
             return;
         }
@@ -756,7 +723,7 @@ export default function PartyDetailsPage() {
     };
 
     const handleUpdatePartyLocation = async () => {
-        if (!user || !party || !canEditPartyDetails || !db || !newPartyLocation.trim()) {
+        if (!user || !party || !canManageParty || !db || !newPartyLocation.trim()) {
             toast({ title: 'Erreur', description: 'Impossible de mettre à jour le lieu pour le moment.', variant: 'destructive' });
             return;
         }
@@ -805,8 +772,6 @@ export default function PartyDetailsPage() {
         setIsDeletingSouvenir(true);
         try {
             const partyDocRef = doc(db, 'parties', party.id);
-            // To remove an item from an array, we need to provide the exact object to remove.
-            // Firestore's arrayRemove operator requires the full object.
             const mediaItemToRemove = party.mediaItems?.find(item => item.id === souvenirToDelete.id);
             if (!mediaItemToRemove) {
                  toast({ title: "Erreur", description: "Le souvenir à supprimer n'a pas été trouvé dans la liste actuelle.", variant: "destructive" });
@@ -829,6 +794,48 @@ export default function PartyDetailsPage() {
 
 
   const showSkeleton = pageLoading || userLoading;
+
+  // MODIFICATION pour organizedComments (comme suggéré à l'étape 1)
+  const organizedComments = useMemo(() => {
+    if (!commentsData) return [];
+    const commentsMap = new Map<string, CommentWithReplies>();
+    const topLevelComments: CommentWithReplies[] = [];
+
+    const sortedForProcessing = [...commentsData].sort((a, b) => {
+        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
+        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
+        return timeA - timeB; 
+    });
+
+    sortedForProcessing.forEach(commentItem => { // Renommé pour éviter la confusion
+      if (!commentItem.id) {
+          console.warn("Commentaire sans ID rencontré lors de l'organisation:", commentItem);
+          return; 
+      }
+      const commentWithReplies: CommentWithReplies = { ...commentItem, replies: [] } as CommentWithReplies;
+      commentsMap.set(commentItem.id, commentWithReplies);
+
+      if (commentItem.parentId && commentsMap.has(commentItem.parentId)) {
+        const parentComment = commentsMap.get(commentItem.parentId)!;
+        commentWithReplies.parentAuthorEmail = parentComment.email; 
+        parentComment.replies.push(commentWithReplies);
+      } else {
+        topLevelComments.push(commentWithReplies);
+      }
+    });
+    
+    const sortRepliesDesc = (replies: CommentWithReplies[]) => {
+        replies.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
+        replies.forEach(reply => { if(reply.replies.length > 0) sortRepliesDesc(reply.replies)});
+    }
+    topLevelComments.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
+    topLevelComments.forEach(commentItem => { 
+      if(commentItem.replies.length > 0) sortRepliesDesc(commentItem.replies);
+    });
+
+    return topLevelComments;
+  }, [commentsData]);
+
 
   if (showSkeleton) {
     return (
@@ -900,6 +907,19 @@ export default function PartyDetailsPage() {
 
   const partyDate = getDateFromTimestamp(party.date);
 
+  const comboboxOptions = useMemo(() => {
+    if (!allUsers || !party || !party.participants) {
+        return [];
+    }
+    return allUsers
+        .filter(u => !party.participants.map(pUid => pUid.toLowerCase()).includes(u.uid.toLowerCase()))
+        .map(u => ({
+            value: u.uid,
+            label: u.pseudo || u.displayName || u.email || u.uid,
+        }));
+  }, [allUsers, party]);
+
+  // NOUVELLE FONCTION renderComment (comme suggéré à l'étape 1)
   const renderComment = (cmt: CommentWithReplies, level = 0) => {
     const commentDate = getDateFromTimestamp(cmt.timestamp);
     const showReplyForm = replyingToCommentId === cmt.id;
@@ -933,12 +953,10 @@ export default function PartyDetailsPage() {
                             size="sm" 
                             className="p-0 h-auto text-xs mt-2 text-primary hover:text-primary/80"
                             onClick={() => {
-                                if (replyingToCommentId === cmt.id) {
-                                    setReplyingToCommentId(null);
-                                    setReplyText('');
+                                if (replyingToCommentId === cmt.id) { // Si déjà en train de répondre à CE commentaire
+                                    handleCancelReply(); // Annuler la réponse
                                 } else {
-                                    setReplyingToCommentId(cmt.id!);
-                                    setReplyText(''); 
+                                    handleStartReply(cmt.id!, cmt.email); // Commencer à répondre à ce commentaire
                                 }
                             }}
                         >
@@ -950,7 +968,7 @@ export default function PartyDetailsPage() {
             </div>
 
             {showReplyForm && user && (
-                <div className={`ml-${isReply ? 8 : 11} mt-3 flex items-start space-x-3`}>
+                <div className={`ml-${isReply ? 14 : 11} mt-3 flex items-start space-x-3`}>
                     <Avatar className="h-8 w-8 border mt-1">
                          <AvatarImage src={user.photoURL || undefined} alt={user.email || ''}/>
                          <AvatarFallback>{getInitials(user.displayName, user.email)}</AvatarFallback>
@@ -962,7 +980,6 @@ export default function PartyDetailsPage() {
                             onChange={(e) => setReplyText(e.target.value)}
                             className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary"
                             rows={2}
-                            ref={commentInputRef} 
                         />
                         <Button
                             onClick={() => handleAddReply(cmt.id!)}
@@ -1023,7 +1040,7 @@ export default function PartyDetailsPage() {
                ) : (
                    <div className="absolute inset-0 bg-gradient-to-br from-secondary via-muted to-secondary flex items-center justify-center"> <ImageIcon className="h-16 w-16 text-muted-foreground/50" /> </div>
                )}
-                {(canEditPartyDetails) && (
+                {(canManageParty) && (
                     <Dialog open={showEditCoverDialog} onOpenChange={setShowEditCoverDialog}>
                         <DialogTrigger asChild>
                              <Button variant="secondary" size="icon" className="absolute top-4 left-4 z-10 h-8 w-8 bg-black/50 hover:bg-black/70 border-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
@@ -1062,7 +1079,7 @@ export default function PartyDetailsPage() {
                 <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 text-white z-10">
                     <div className="flex items-center">
                         <CardTitle className="text-2xl md:text-4xl font-bold mb-1 text-shadow"> {party.name} </CardTitle>
-                        {canEditPartyDetails && (
+                        {canManageParty && (
                             <Dialog open={showEditPartyNameDialog} onOpenChange={setShowEditPartyNameDialog}>
                                 <DialogTrigger asChild>
                                     <Button variant="ghost" size="icon" className="ml-2 text-white hover:text-gray-300 h-7 w-7 p-1">
@@ -1098,7 +1115,7 @@ export default function PartyDetailsPage() {
                        {party.location && (
                         <span className="flex items-center gap-1.5">
                             <MapPin className="h-4 w-4"/> {party.location}
-                            {canEditPartyDetails && (
+                            {canManageParty && (
                                 <Dialog open={showEditLocationDialog} onOpenChange={setShowEditLocationDialog}>
                                     <DialogTrigger asChild>
                                         <Button variant="ghost" size="icon" className="ml-1 text-white hover:text-gray-300 h-6 w-6 p-0.5">
@@ -1216,7 +1233,7 @@ export default function PartyDetailsPage() {
                         <div className="flex items-start space-x-3">
                             <Avatar className="h-9 w-9 border mt-1"> <AvatarImage src={user.photoURL || undefined} alt={user.email || ''}/> <AvatarFallback>{getInitials(user.displayName, user.email)}</AvatarFallback> </Avatar>
                             <div className="flex-1">
-                                {replyingToCommentId && replyingToCommentInfo && (
+                                {replyingToCommentInfo && ( 
                                   <div className="mb-2 text-xs text-muted-foreground">
                                     Répondre à <span className="font-semibold text-primary">{replyingToCommentInfo.userEmail}</span>
                                     <Button variant="ghost" size="sm" onClick={handleCancelReply} className="ml-2 text-xs p-0 h-auto text-destructive hover:text-destructive/80">
@@ -1226,16 +1243,16 @@ export default function PartyDetailsPage() {
                                 )}
                                 <Textarea
                                     ref={commentInputRef} 
-                                    placeholder={replyingToCommentId ? `Votre réponse à ${replyingToCommentInfo?.userEmail}...` : "Votre commentaire..."} 
-                                    value={replyingToCommentId ? replyText : comment}
-                                    onChange={(e) => replyingToCommentId ? setReplyText(e.target.value) : setComment(e.target.value)}
+                                    placeholder={replyingToCommentInfo ? `Votre réponse à ${replyingToCommentInfo.userEmail}...` : "Votre commentaire..."} 
+                                    value={replyingToCommentInfo ? replyText : comment}
+                                    onChange={(e) => replyingToCommentInfo ? setReplyText(e.target.value) : setComment(e.target.value)}
                                     className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary"
                                     rows={3}
                                 />
                                 <div className="flex gap-2">
-                                    <Button onClick={() => replyingToCommentId ? handleAddReply(replyingToCommentId) : handleAddComment()} disabled={replyingToCommentId ? !replyText.trim() : !comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90">
+                                    <Button onClick={() => replyingToCommentId ? handleAddReply(replyingToCommentId) : handleAddComment()} disabled={(replyingToCommentId ? !replyText.trim() : !comment.trim()) || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90">
                                         {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                                        {replyingToCommentId ? "Répondre" : "Commenter"}
+                                        {replyingToCommentInfo ? "Répondre" : "Commenter"} 
                                     </Button>
                                 </div>
                             </div>
@@ -1258,7 +1275,7 @@ export default function PartyDetailsPage() {
                     <div className="flex flex-col items-center gap-3 bg-secondary/30 border border-border/50 p-4 rounded-lg">
                          <div className="w-full">
                             <Slider
-                                value={[userRating]}
+                                value={[userRating]} // Value from 0-10
                                 onValueChange={(value) => handleRateParty(value[0])}
                                 max={10} 
                                 step={0.5} 
@@ -1266,9 +1283,9 @@ export default function PartyDetailsPage() {
                                 className="w-full"
                             />
                              <div className="flex justify-between text-xs text-muted-foreground mt-1.5">
-                                <span>0</span>
-                                <span>{(userRating/2).toFixed(1)} / 5 ★</span>
-                                <span>10</span>
+                                <span>0 ★</span>
+                                <span className="text-sm font-bold text-primary">{(userRating/2).toFixed(1)} / 5 ★</span> {/* Display as 0-5 */}
+                                <span>5 ★</span>
                             </div>
                          </div>
                         {isRating && <span className="text-xs text-muted-foreground">Envoi...</span>}
@@ -1283,7 +1300,7 @@ export default function PartyDetailsPage() {
                  <CardContent className="p-4 md:p-6 border-t border-border/50">
                       <div className="flex justify-between items-center mb-4">
                            <h3 className="text-xl font-semibold text-foreground">Participants ({party.participants?.length || 0})</h3>
-                            {canManageParticipants && (
+                            {canManageParty && (
                                 <Dialog open={showAddParticipantDialog} onOpenChange={setShowAddParticipantDialog}>
                                     <DialogTrigger asChild>
                                         <Button variant="outline" size="sm"> <UserPlus className="mr-2 h-4 w-4" /> Ajouter </Button>
@@ -1359,5 +1376,6 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
 
 
