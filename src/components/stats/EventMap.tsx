@@ -3,8 +3,8 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import L, { LatLngExpression, LatLngTuple, Map as LeafletMapInstance } from 'leaflet';
-// Ensure leaflet.css is imported if not globally done in globals.css or layout
-// import 'leaflet/dist/leaflet.css'; 
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+// import 'leaflet/dist/leaflet.css'; // No longer needed here
 import type { PartyData } from '@/lib/party-utils';
 import { MapPin, Loader2 } from 'lucide-react';
 import { normalizeCityName } from '@/lib/party-utils';
@@ -46,6 +46,7 @@ const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple
     return null;
   }
   
+  // Use 'q' parameter for general queries and 'addressdetails=1' for more structured data if needed
   const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`;
   console.log(`[getCoordinates] Tentative de géocodage pour : "${originalCityName}" (normalisé: "${normalizedCity}"). URL de l'API: ${apiUrl}`);
   
@@ -90,15 +91,55 @@ const getCoordinates = async (cityName: string | undefined): Promise<LatLngTuple
   }
 };
 
+const DynamicMapUpdater: React.FC<{ parties: MappedParty[] }> = ({ parties }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    // Clear existing markers
+    map.eachLayer((layer) => {
+      if (layer instanceof L.Marker) {
+        map.removeLayer(layer);
+      }
+    });
+
+    // Add new markers
+    parties.forEach(party => {
+      L.marker(party.coordinates).addTo(map)
+        .bindPopup(`<b>${party.name}</b><br>${party.location || 'Lieu non spécifié'}<br><a href="/party/${party.id}" target="_blank" rel="noopener noreferrer" style="color: hsl(var(--primary));">Voir l'événement</a>`);
+    });
+
+    // Fit bounds if parties exist
+    if (parties.length > 0) {
+      try {
+        const bounds = L.latLngBounds(parties.map(p => p.coordinates));
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
+        } else if (parties.length === 1) {
+          map.setView(parties[0].coordinates, 10);
+        }
+      } catch (boundsError) {
+        console.error("[DynamicMapUpdater] Erreur lors de l'ajustement des limites de la carte:", boundsError);
+      }
+    } else {
+      // Optional: Set a default view if no parties or if bounds are invalid
+      // map.setView([46.2276, 2.2137], 5); 
+    }
+  }, [parties, map]);
+
+  return null; // This component does not render anything itself
+};
+
 
 export function EventMap({ parties }: EventMapProps) {
   const [mappedParties, setMappedParties] = useState<MappedParty[]>([]);
   const [isLoadingGeocoding, setIsLoadingGeocoding] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
-  const mapRef = useRef<LeafletMapInstance | null>(null);
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const MAP_CONTAINER_ID = "event-map-leaflet-instance"; // Unique ID for the map div
+  
+  const mapContainerRef = useRef<HTMLDivElement>(null); // Ref for the map container
+  const mapRef = useRef<LeafletMapInstance | null>(null); // Ref for the map instance
+  const [mapContainerKey, setMapContainerKey] = useState(Date.now()); // Key to force remount
+
 
   useEffect(() => {
     setIsClient(true);
@@ -142,71 +183,22 @@ export function EventMap({ parties }: EventMapProps) {
     processParties();
   }, [isClient, parties]);
 
+  // Effect to cleanup map instance on component unmount or before re-initialization
   useEffect(() => {
-    if (!isClient || !mapContainerRef.current || isLoadingGeocoding) {
-      return;
-    }
-
-    // Clean up existing map instance if any
-    if (mapRef.current) {
-      console.log("[EventMap useEffect map init] Suppression de l'instance de carte existante.");
-      mapRef.current.remove();
-      mapRef.current = null;
-    }
-    // Ensure _leaflet_id is cleared if Leaflet somehow attached it to the raw DOM element
-    if ((mapContainerRef.current as any)._leaflet_id) {
-        console.log("[EventMap useEffect map init] Nettoyage de _leaflet_id du conteneur.");
-        (mapContainerRef.current as any)._leaflet_id = null;
-    }
-
-    if (mappedParties.length > 0) {
-        console.log("[EventMap useEffect map init] Initialisation de la nouvelle carte Leaflet.");
-        // Ensure the container is empty before initializing a new map
-        // This might be redundant if mapRef.current.remove() cleans up the DOM, but good as a safeguard.
-        mapContainerRef.current.innerHTML = ''; 
-
-        mapRef.current = L.map(mapContainerRef.current).setView([46.2276, 2.2137], 5); // Default view
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            maxZoom: 18,
-        }).addTo(mapRef.current);
-
-        mappedParties.forEach(party => {
-            L.marker(party.coordinates).addTo(mapRef.current!)
-                .bindPopup(`<b>${party.name}</b><br>${party.location || 'Lieu non spécifié'}<br><a href="/party/${party.id}" target="_blank" rel="noopener noreferrer" style="color: hsl(var(--primary));">Voir l'événement</a>`);
-        });
-
-        if (mapRef.current) {
-            try {
-                const bounds = L.latLngBounds(mappedParties.map(p => p.coordinates));
-                if (bounds.isValid()) {
-                    mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
-                } else if (mappedParties.length === 1) {
-                    mapRef.current.setView(mappedParties[0].coordinates, 10);
-                }
-            } catch (boundsError) {
-                console.error("[EventMap useEffect map init] Erreur lors de l'ajustement des limites de la carte:", boundsError);
-            }
-        }
-    } else if (parties.length > 0 && !error) {
-         console.log("[EventMap useEffect map init] Des événements existent mais aucun n'a pu être géocodé.");
-    } else {
-         console.log("[EventMap useEffect map init] Aucune partie à afficher ou une erreur s'est produite.");
-    }
-
-    // Cleanup function
     return () => {
       if (mapRef.current) {
-        console.log("[EventMap useEffect map cleanup] Suppression de l'instance de carte lors du démontage.");
+        console.log("[EventMap Cleanup] Suppression de l'instance de carte existante.");
         mapRef.current.remove();
         mapRef.current = null;
+        // Force remount of MapContainer by changing its key
+        setMapContainerKey(Date.now());
       }
     };
-  // Dependencies: re-run if isClient changes, or if the successfully geocoded parties change,
-  // or if loading/error states change which might affect whether the map should be rendered.
-  }, [isClient, mappedParties, isLoadingGeocoding, error, parties.length]); 
+  }, []); // Empty dependency array: run only on mount and unmount
 
+
+  const initialCenter: LatLngExpression = [46.2276, 2.2137]; // France center
+  const initialZoom = 5;
 
   if (!isClient || isLoadingGeocoding) {
     return (
@@ -247,9 +239,23 @@ export function EventMap({ parties }: EventMapProps) {
    }
 
   return (
-    // This div will be the container for the Leaflet map
-    <div ref={mapContainerRef} id={MAP_CONTAINER_ID} className="h-full w-full leaflet-container">
-      {/* Leaflet map will be initialized here by useEffect */}
+    <div className="h-full w-full" key={mapContainerKey}> 
+      {isClient && ( 
+        <MapContainer
+          whenCreated={instance => { mapRef.current = instance; }} // Store map instance
+          center={initialCenter}
+          zoom={initialZoom}
+          scrollWheelZoom={true}
+          className="leaflet-container" // Use a consistent class
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <DynamicMapUpdater parties={mappedParties} />
+        </MapContainer>
+      )}
     </div>
   );
 }
+
