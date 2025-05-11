@@ -43,6 +43,7 @@ export interface PartyData {
     ratings?: { [userId: string]: number }; // Ratings are 0-10
     createdAt?: FirestoreTimestamp | Timestamp | Date; // Allow Date
     averageRating?: number; // Calculated average, scale 0-5 for display
+    comments?: CommentData[]; // Updated to use CommentData type for consistency
 }
 
 // --- Helper Functions ---

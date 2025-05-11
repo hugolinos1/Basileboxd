@@ -9,7 +9,7 @@ import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { format, formatDistanceToNow } from 'date-fns'; // Import formatDistanceToNow
 import { fr } from 'date-fns/locale';
-import { Star, Send, User, MapPin, CalendarDays, Image as ImageIcon, Video, Music, Loader2, AlertTriangle, Upload, Edit2, X, File as FileIcon, UserPlus, Trash2 } from 'lucide-react'; // Added FileIcon and UserPlus, Trash2
+import { Star, Send, User, MapPin, CalendarDays, Image as ImageIcon, Video, Music, Loader2, AlertTriangle, Upload, Edit2, X, File as FileIcon, UserPlus, Trash2, MessageSquare } from 'lucide-react'; // Added FileIcon and UserPlus, Trash2, MessageSquare
 import Image from 'next/image';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -185,6 +185,8 @@ export default function PartyDetailsPage() {
   const [error, setError] = useState<string | null>(null);
   const [comment, setComment] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [replyingToCommentInfo, setReplyingToCommentInfo] = useState<{ id: string; userEmail: string } | null>(null);
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const [isRating, setIsRating] = useState(false);
   const [userRating, setUserRating] = useState<number>(0); // User's rating for this party (0-10)
   const [averageRating, setAverageRating] = useState<number>(0); // Party's average rating (0-10)
@@ -272,8 +274,7 @@ export default function PartyDetailsPage() {
         } else {
             setUserRating(0);
         }
-        // Comments are now handled by a separate listener
-        setPageLoading(false); // Potentially set loading false earlier if party data is enough
+        setPageLoading(false); 
       } else {
         console.log(`[PartyDetailsPage] Document ${partyId} n'existe pas.`);
         setError('Fête non trouvée.');
@@ -293,7 +294,6 @@ export default function PartyDetailsPage() {
         setPageLoading(false);
     });
 
-    // Listener for comments subcollection
     const commentsRef = collection(db, 'parties', partyId, 'comments');
     const commentsQuery = query(commentsRef, firestoreOrderBy('timestamp', 'desc')); 
 
@@ -304,7 +304,7 @@ export default function PartyDetailsPage() {
             fetchedComments.push({ id: doc.id, ...doc.data() } as Comment);
         });
         setCommentsData(fetchedComments);
-        setPageLoading(false); // Set loading false after comments are also fetched
+        setPageLoading(false); 
     }, (snapshotError: any) => {
          console.error('[PartyDetailsPage] Erreur listener snapshot commentaires:', snapshotError);
          let userFriendlyError = 'Impossible de charger les commentaires en temps réel.';
@@ -314,7 +314,7 @@ export default function PartyDetailsPage() {
          } else if (snapshotError.code === 'unauthenticated') {
              userFriendlyError = 'Non authentifié. Veuillez vous connecter pour voir les commentaires.';
          }
-         setError(userFriendlyError); // Show error, but party data might still be valid
+         setError(userFriendlyError); 
          setPageLoading(false);
     });
 
@@ -327,7 +327,6 @@ export default function PartyDetailsPage() {
 
   }, [partyId, user, firebaseInitialized, userLoading, initializationFailed, initializationErrorMessage]);
 
-  // Fetch all users for participant Combobox
    useEffect(() => {
     const fetchAllUsers = async () => {
         if (!db) {
@@ -360,7 +359,6 @@ export default function PartyDetailsPage() {
    }, [souvenirPreviews, newCoverPreview]);
 
 
-  // --- Helper Functions ---
   const calculateAndSetAverageRating = (ratings: { [userId: string]: number } | undefined) => {
     if (!ratings) { setAverageRating(0); return; }
     const allRatings = Object.values(ratings);
@@ -397,9 +395,6 @@ export default function PartyDetailsPage() {
      );
    };
 
-
-  // --- Event Handlers ---
-
   const handleRateParty = async (newRating: number) => {
      if (!user || !party || !db || !firebaseInitialized) { toast({ title: 'Erreur', description: 'Impossible de noter pour le moment.', variant: 'destructive' }); return; }
      setIsRating(true);
@@ -421,7 +416,7 @@ export default function PartyDetailsPage() {
      }
   };
 
- const handleAddComment = async () => {
+  const handleAddComment = async () => {
     if (!user || !party || !comment.trim() || !db || !firebaseInitialized) {
       toast({ title: 'Erreur', description: 'Impossible d\'ajouter un commentaire.', variant: 'destructive' });
       return;
@@ -429,24 +424,24 @@ export default function PartyDetailsPage() {
     setIsSubmittingComment(true);
     try {
       const commentsCollectionRef = collection(db, 'parties', party.id, 'comments');
-      // For comments subcollection, timestamp needs to be Firebase Timestamp for ordering
-      const newCommentData: Omit<Comment, 'id' | 'timestamp'> & { timestamp: FieldValue } = { 
+      const newCommentData: Omit<Comment, 'id' | 'timestamp'> & { timestamp: FieldValue; parentId?: string } = { 
         userId: user.uid,
         email: user.email || 'anonyme',
         avatar: user.photoURL ?? null,
         text: comment.trim(),
-        timestamp: serverTimestamp(), // Use serverTimestamp() for reliable ordering
-        partyId: party.id, 
+        timestamp: serverTimestamp(),
+        partyId: party.id,
+        ...(replyingToCommentInfo && { parentId: replyingToCommentInfo.id }),
       };
 
       await addDoc(commentsCollectionRef, newCommentData);
 
-
       setComment('');
-      toast({ title: 'Commentaire ajouté' });
+      setReplyingToCommentInfo(null);
+      toast({ title: replyingToCommentInfo ? 'Réponse ajoutée' : 'Commentaire ajouté' });
     } catch (commentError: any) {
-        console.error('Erreur commentaire:', commentError);
-        let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire.';
+        console.error('Erreur commentaire/réponse:', commentError);
+        let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire/réponse.';
         if (commentError.code === 'invalid-argument') {
             if (commentError.message?.includes('Unsupported field value')) {
                 errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
@@ -454,16 +449,24 @@ export default function PartyDetailsPage() {
                 errorMessage = "Erreur de timestamp serveur. Réessayez.";
             }
         } else if (commentError.code === 'permission-denied') {
-            errorMessage = "Permission refusée. Vous ne pouvez peut-être pas commenter cet événement.";
+            errorMessage = "Permission refusée. Vous ne pouvez peut-être pas commenter/répondre.";
         }
         toast({ title: 'Erreur', description: errorMessage, variant: 'destructive' });
     } finally {
         setIsSubmittingComment(false);
     }
-};
+  };
 
+  const handleStartReply = (commentId: string, userEmail: string) => {
+    setReplyingToCommentInfo({ id: commentId, userEmail });
+    commentInputRef.current?.focus();
+    commentInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
-  // --- Souvenir Upload Handlers ---
+  const handleCancelReply = () => {
+    setReplyingToCommentInfo(null);
+  };
+
     const handleSouvenirFileChange = (event: ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
         if (files) {
@@ -526,14 +529,13 @@ export default function PartyDetailsPage() {
                 'souvenir' 
             ).then(url => {
                 if (url && user) {
-                     // When adding to an array, ensure the timestamp is a client-generated Firebase Timestamp
                     return {
                         id: `${party.id}-${file.name}-${Date.now()}`, 
                         url,
                         type: getMediaFileType(file),
                         uploaderId: user.uid,
                         uploaderEmail: user.email || undefined,
-                        uploadedAt: Timestamp.now(), // Use Timestamp.now() for arrayUnion
+                        uploadedAt: Timestamp.now(), 
                         fileName: file.name,
                       } as MediaItem; 
                 }
@@ -577,12 +579,11 @@ export default function PartyDetailsPage() {
         }
     };
 
-     // --- Edit Cover Photo Handlers ---
     const handleNewCoverFileChange = (event: ChangeEvent<HTMLInputElement>) => {
         const isBrowser = typeof window !== 'undefined';
         const file = event.target.files?.[0];
         if (file) {
-            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true };
+            const validationResult = isBrowser && file instanceof File ? coverPhotoSchema.safeParse(file) : { success: true }; 
             if (validationResult.success) {
                 setNewCoverFile(file);
                 if (newCoverPreview) URL.revokeObjectURL(newCoverPreview);
@@ -646,58 +647,36 @@ export default function PartyDetailsPage() {
         }
     };
 
-    // --- Add Participant Handler ---
     const handleAddParticipant = async (selectedUserId: string | null) => {
         console.log("[handleAddParticipant] Début. Utilisateur sélectionné:", selectedUserId);
-        console.log("[handleAddParticipant] Utilisateur actuel (currentUser):", user?.email);
-        console.log("[handleAddParticipant] Détails de l'événement (party):", party);
-        console.log("[handleAddParticipant] Liste de tous les utilisateurs (allUsers - premiers 5 pour concision):", allUsers.slice(0,5).map(u => ({uid: u.uid, email: u.email, pseudo: u.pseudo}) ));
-        console.log("[handleAddParticipant] Peut gérer les participants (canManageParticipants):", canManageParticipants);
-        console.log("[handleAddParticipant] DB initialisé:", !!db);
-
-
         if (!user || !party || !canManageParticipants || !db || !selectedUserId) {
             toast({ title: 'Erreur', description: 'Permissions insuffisantes ou utilisateur non sélectionné.', variant: 'destructive' });
              console.error("[handleAddParticipant] Préconditions non remplies:", {user:!!user, party:!!party, canManageParticipants, db:!!db, selectedUserId});
             return;
         }
-
         setIsAddingParticipant(true);
-        console.log("[handleAddParticipant] Recherche de l'utilisateur dans `allUsers`. UID recherché:", selectedUserId);
-
         const userToAdd = allUsers.find(u => u.uid.toLowerCase() === selectedUserId.toLowerCase());
-        console.log("[handleAddParticipant] Utilisateur trouvé dans allUsers:", userToAdd ? {uid: userToAdd.uid, email: userToAdd.email, pseudo: userToAdd.pseudo} : "Non trouvé");
-
-
         if (!userToAdd) {
             toast({ title: 'Utilisateur non trouvé', description: 'Impossible de trouver les détails de l\'utilisateur sélectionné.', variant: 'destructive' });
             console.error("[handleAddParticipant] Utilisateur non trouvé dans la liste allUsers. UID recherché:", selectedUserId, "Liste complète des UIDs dans allUsers:", allUsers.map(u => u.uid));
             setIsAddingParticipant(false);
             return;
         }
-
         const emailToAdd = userToAdd.email.toLowerCase();
-
          if (party.participantEmails?.map(e => e.toLowerCase()).includes(emailToAdd)) {
             toast({ title: 'Info', description: `${userToAdd.pseudo || userToAdd.displayName || userToAdd.email} est déjà participant.`, variant: 'default' });
-            console.log("[handleAddParticipant] L'utilisateur est déjà participant:", userToAdd.email);
             setIsAddingParticipant(false);
             setShowAddParticipantDialog(false);
             return;
          }
-
         try {
-             console.log("[handleAddParticipant] Tentative de mise à jour de Firestore pour ajouter le participant...");
              const partyDocRef = doc(db, 'parties', party.id);
              await updateDoc(partyDocRef, {
-                 participants: arrayUnion(userToAdd.uid), // Add UID
-                 participantEmails: arrayUnion(userToAdd.email) // Add email
+                 participants: arrayUnion(userToAdd.uid), 
+                 participantEmails: arrayUnion(userToAdd.email) 
              });
-
              toast({ title: 'Participant ajouté', description: `${userToAdd.pseudo || userToAdd.displayName || userToAdd.email} a été ajouté à l'événement.` });
-             console.log("[handleAddParticipant] Participant ajouté avec succès:", userToAdd.email);
              setShowAddParticipantDialog(false);
-
         } catch (error: any) {
              console.error("[handleAddParticipant] Erreur lors de l'ajout du participant à Firestore:", error);
               let userFriendlyError = "Impossible d'ajouter le participant.";
@@ -706,7 +685,6 @@ export default function PartyDetailsPage() {
               }
              toast({ title: 'Erreur', description: userFriendlyError, variant: 'destructive' });
         } finally {
-            console.log("[handleAddParticipant] Fin.");
             setIsAddingParticipant(false);
         }
     };
@@ -783,7 +761,7 @@ export default function PartyDetailsPage() {
         try {
             const partyDocRef = doc(db, 'parties', party.id);
             await updateDoc(partyDocRef, {
-                mediaItems: arrayRemove(souvenirToDelete) // Remove the specific souvenir object
+                mediaItems: arrayRemove(souvenirToDelete) 
             });
             toast({ title: "Souvenir supprimé", description: `Le souvenir "${souvenirToDelete.fileName || souvenirToDelete.id}" a été supprimé.` });
             setSouvenirToDelete(null);
@@ -797,14 +775,13 @@ export default function PartyDetailsPage() {
     };
 
     const comboboxOptions = allUsers
-    .filter(u => !party?.participants.includes(u.uid)) // Filter out existing participants
+    .filter(u => !party?.participants.includes(u.uid)) 
     .map(u => ({
         value: u.uid,
         label: u.pseudo || u.displayName || u.email || u.uid,
     }));
 
 
-  // --- Render Logic ---
   const showSkeleton = pageLoading || userLoading;
 
   if (showSkeleton) {
@@ -877,7 +854,6 @@ export default function PartyDetailsPage() {
 
   const partyDate = getDateFromTimestamp(party.date);
 
-    // Use commentsData from state, which is updated by the snapshot listener
     const sortedComments = [...commentsData].sort((a, b) => {
         const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
         const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
@@ -888,7 +864,6 @@ export default function PartyDetailsPage() {
   return (
     <div className="container mx-auto px-4 py-8 md:py-12">
       <Card className="bg-card border border-border overflow-hidden shadow-lg">
-        {/* Header Section */}
         <CardHeader className="p-0 relative border-b border-border/50">
            <div className="relative h-48 md:h-64 lg:h-80 w-full group">
                {party.coverPhotoUrl ? (
@@ -1016,11 +991,8 @@ export default function PartyDetailsPage() {
            </div>
         </CardHeader>
 
-        {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-0">
-             {/* Left Column (Span 2): Media & Comments */}
              <div className="lg:col-span-2 border-r-0 lg:border-r border-border/50">
-                {/* Media Section */}
                 <CardContent className="p-4 md:p-6">
                     <div className="flex justify-between items-center mb-4">
                          <h3 className="text-xl font-semibold text-foreground">Souvenirs ({party.mediaItems?.length || 0})</h3>
@@ -1035,7 +1007,7 @@ export default function PartyDetailsPage() {
                                          <DialogDescription> Téléversez des photos, vidéos ou sons pour cet événement. </DialogDescription>
                                     </DialogHeader>
                                     <div className="grid gap-4 py-4">
-                                        <div> {/* Wrapper div for Slot */}
+                                        <div> 
                                             <Input id="souvenir-upload-input" type="file" multiple accept={ACCEPTED_MEDIA_TYPES.join(',')} onChange={handleSouvenirFileChange} className="col-span-3" />
                                         </div>
                                          {souvenirFiles.length > 0 && (
@@ -1085,7 +1057,6 @@ export default function PartyDetailsPage() {
                     ) : ( <p className="text-muted-foreground text-sm">Aucun souvenir importé.</p> )}
                 </CardContent>
 
-                 {/* Comments Section */}
                  <CardContent className="p-4 md:p-6 border-t border-border/50">
                     <h3 className="text-xl font-semibold mb-5 text-foreground">Commentaires ({sortedComments.length})</h3>
                     <div className="space-y-6">
@@ -1093,10 +1064,27 @@ export default function PartyDetailsPage() {
                         <div className="flex items-start space-x-3">
                             <Avatar className="h-9 w-9 border mt-1"> <AvatarImage src={user.photoURL || undefined} alt={user.email || ''}/> <AvatarFallback>{getInitials(user.displayName, user.email)}</AvatarFallback> </Avatar>
                             <div className="flex-1">
-                                <Textarea placeholder="Votre commentaire..." value={comment} onChange={(e) => setComment(e.target.value)} className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary" rows={3} />
+                                {replyingToCommentInfo && ( 
+                                    <div className="mb-2 text-xs text-muted-foreground">
+                                        Répondre à <span className="font-semibold text-primary">{replyingToCommentInfo.userEmail}</span>
+                                        <Button variant="ghost" size="sm" onClick={handleCancelReply} className="ml-2 text-xs p-0 h-auto text-destructive hover:text-destructive/80">
+                                            Annuler
+                                        </Button>
+                                    </div>
+                                )}
+                                <Textarea
+                                    ref={commentInputRef} 
+                                    placeholder={replyingToCommentInfo ? "Votre réponse..." : "Votre commentaire..."} 
+                                    value={comment}
+                                    onChange={(e) => setComment(e.target.value)}
+                                    className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary"
+                                    rows={3}
+                                />
                                 <div className="flex gap-2">
-                                    <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90"> {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />} Commenter </Button>
-                                   
+                                    <Button onClick={handleAddComment} disabled={!comment.trim() || isSubmittingComment} size="sm" className="bg-primary hover:bg-primary/90">
+                                        {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                                        {replyingToCommentInfo ? "Répondre" : "Commenter"} 
+                                    </Button>
                                 </div>
                             </div>
                         </div>
@@ -1105,7 +1093,8 @@ export default function PartyDetailsPage() {
                        {sortedComments.length > 0 ? (
                         <div className="space-y-4">
                             {sortedComments.map((cmt, index) => {
-                                const commentDate = getDateFromTimestamp(cmt.timestamp); // Accepts Date objects now
+                                const commentDate = getDateFromTimestamp(cmt.timestamp); 
+                                const parentComment = cmt.parentId ? commentsData.find(parent => parent.id === cmt.parentId) : null;
                                 return (
                                     <div key={cmt.id || index} className="flex items-start space-x-3">
                                         <Avatar className="h-8 w-8 border"> <AvatarImage src={cmt.avatar || undefined} alt={cmt.email}/> <AvatarFallback className="text-xs">{getInitials(cmt.email, cmt.email)}</AvatarFallback> </Avatar>
@@ -1114,7 +1103,25 @@ export default function PartyDetailsPage() {
                                             <p className="text-xs font-medium text-foreground">{cmt.email}</p>
                                              {commentDate && <p className="text-xs text-muted-foreground"> {format(commentDate, 'PPp', { locale: fr })} </p>}
                                         </div>
+                                        {parentComment && ( 
+                                            <p className="text-xs text-muted-foreground mb-1">
+                                                En réponse à <span className="font-medium text-primary">{parentComment.email}</span>
+                                            </p>
+                                        )}
                                         <p className="text-sm text-foreground/90 whitespace-pre-wrap">{cmt.text}</p>
+                                        {user && ( 
+                                            <div className="mt-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => handleStartReply(cmt.id!, cmt.email)} 
+                                                    className="text-xs text-muted-foreground hover:text-primary p-0 h-auto"
+                                                >
+                                                    <MessageSquare className="h-3 w-3 mr-1" />
+                                                    Répondre
+                                                </Button>
+                                            </div>
+                                        )}
                                         </div>
                                     </div>
                                 );
@@ -1125,7 +1132,6 @@ export default function PartyDetailsPage() {
                  </CardContent>
              </div>
 
-             {/* Right Column (Span 1): Rating & Participants */}
             <div className="lg:col-span-1">
                  <CardContent className="p-4 md:p-6">
                     <h3 className="text-xl font-semibold mb-4 text-foreground">Votre Note</h3>
@@ -1134,8 +1140,8 @@ export default function PartyDetailsPage() {
                             <Slider
                                 value={[userRating]}
                                 onValueChange={(value) => handleRateParty(value[0])}
-                                max={10} // Scale from 0 to 10
-                                step={0.5} // Allow 0.5 increments
+                                max={10} 
+                                step={0.5} 
                                 disabled={!user || isRating}
                                 className="w-full"
                             />
@@ -1183,7 +1189,6 @@ export default function PartyDetailsPage() {
                                              <DialogClose asChild>
                                                  <Button type="button" variant="outline">Annuler</Button>
                                              </DialogClose>
-                                             {/* Le bouton "Ajouter" n'est plus nécessaire ici car la sélection dans Combobox déclenche l'ajout */}
                                         </DialogFooter>
                                     </DialogContent>
                                 </Dialog>
@@ -1211,7 +1216,6 @@ export default function PartyDetailsPage() {
 
       </Card>
 
-       {/* Souvenir Delete Confirmation Dialog */}
         <AlertDialog open={showDeleteSouvenirDialog} onOpenChange={setShowDeleteSouvenirDialog}>
             <AlertDialogContent>
                 <AlertDialogHeader>
@@ -1234,10 +1238,6 @@ export default function PartyDetailsPage() {
   );
 }
 
-// Helper pour les noms de classe (à conserver)
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
-
-    
-    
