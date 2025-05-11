@@ -8,19 +8,19 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { db, storage } from '@/config/firebase';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore'; 
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Loader2, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
-import { ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE } from '@/services/media-uploader'; // Using existing constants
+import { ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE } from '@/services/media-uploader';
 import { useFirebase } from '@/context/FirebaseContext';
+import { Skeleton } from '@/components/ui/skeleton'; // Added Skeleton import
 
-const HERO_IMAGE_STORAGE_PATH = 'site_configuration/hero_image/hero_image'; // Fixed path for easy overwrite/delete
-const HERO_SETTINGS_DOC_PATH = 'siteConfiguration/heroSettings';
+const HERO_IMAGE_STORAGE_PATH = 'siteConfiguration/heroImage'; // Path for the image in Storage
+const HERO_SETTINGS_DOC_PATH = 'siteConfiguration/heroSettings'; // Path for the Firestore document storing the URL
 const DEFAULT_HERO_IMAGE_URL = "https://i.ibb.co/NnTT13h0/Snapchat-1715506731.jpg";
 
-
 export function AdminHeroImageManagement() {
-  const { isAdmin } = useFirebase();
+  const { isAdmin, firebaseInitialized } = useFirebase();
   const { toast } = useToast();
   const [currentHeroImageUrl, setCurrentHeroImageUrl] = useState<string | null>(DEFAULT_HERO_IMAGE_URL);
   const [newHeroImageFile, setNewHeroImageFile] = useState<File | null>(null);
@@ -30,8 +30,15 @@ export function AdminHeroImageManagement() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (!firebaseInitialized) return;
+
     const fetchCurrentImageUrl = async () => {
-      if (!db) return;
+      if (!db) {
+        console.warn("Firestore DB instance is not available in AdminHeroImageManagement.");
+        setCurrentHeroImageUrl(DEFAULT_HERO_IMAGE_URL);
+        setIsLoadingCurrent(false);
+        return;
+      }
       setIsLoadingCurrent(true);
       try {
         const docRef = doc(db, HERO_SETTINGS_DOC_PATH);
@@ -40,17 +47,18 @@ export function AdminHeroImageManagement() {
           setCurrentHeroImageUrl(docSnap.data().heroImageUrl);
         } else {
           setCurrentHeroImageUrl(DEFAULT_HERO_IMAGE_URL);
+          console.log(`Hero image URL not found in Firestore at ${HERO_SETTINGS_DOC_PATH}, using default.`);
         }
       } catch (error) {
         console.error("Error fetching current hero image URL:", error);
-        toast({ title: "Erreur", description: "Impossible de charger l'image actuelle.", variant: "destructive" });
+        toast({ title: "Erreur", description: "Impossible de charger l'image de fond actuelle.", variant: "destructive" });
         setCurrentHeroImageUrl(DEFAULT_HERO_IMAGE_URL);
       } finally {
         setIsLoadingCurrent(false);
       }
     };
     fetchCurrentImageUrl();
-  }, [toast]);
+  }, [toast, firebaseInitialized]);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -59,11 +67,12 @@ export function AdminHeroImageManagement() {
         toast({ title: "Type de fichier non supporté", description: `Veuillez sélectionner une image (${ACCEPTED_COVER_PHOTO_TYPES.join(', ')}).`, variant: "destructive" });
         return;
       }
-      if (file.size > MAX_FILE_SIZE.image) { // Using existing image size limit for consistency
+      if (file.size > MAX_FILE_SIZE.image) { 
         toast({ title: "Fichier trop volumineux", description: `L'image ne doit pas dépasser ${MAX_FILE_SIZE.image / 1024 / 1024}Mo.`, variant: "destructive" });
         return;
       }
       setNewHeroImageFile(file);
+      if (newHeroImagePreview) URL.revokeObjectURL(newHeroImagePreview);
       setNewHeroImagePreview(URL.createObjectURL(file));
     }
   };
@@ -75,18 +84,39 @@ export function AdminHeroImageManagement() {
     }
     setIsUploading(true);
 
-    try {
-      // Delete existing image if one is stored with the fixed name (optional, but good for cleanup)
-      // This requires listAll and then delete, or just trying to delete the known path.
-      // For simplicity, we'll just overwrite. If you need to guarantee no orphaned files with dynamic names, 
-      // you'd store the full storage path in Firestore and delete that specific path.
-      // Since we use a fixed path HERO_IMAGE_STORAGE_PATH, overwriting is fine.
+    // Attempt to delete the old image first if it's not the default one
+    if (currentHeroImageUrl && currentHeroImageUrl !== DEFAULT_HERO_IMAGE_URL) {
+        try {
+            const oldImageRef = ref(storage, currentHeroImageUrl); // Assumes currentHeroImageUrl is the full gs:// or https:// URL
+            // Extract the path from the URL. This is a common pattern, but might need adjustment based on your URL format.
+            const oldImagePath = new URL(currentHeroImageUrl).pathname.split('/o/')[1].split('?')[0];
+            if (oldImagePath && oldImagePath !== HERO_IMAGE_STORAGE_PATH) { // Avoid deleting the "folder" itself
+                 await deleteObject(ref(storage, decodeURIComponent(oldImagePath)));
+                 console.log("Ancienne image de la page d'accueil supprimée de Storage.");
+            }
+        } catch (deleteError: any) {
+            // Log error but continue with upload, as the old image might not exist or path extraction failed
+            console.warn("Avertissement lors de la suppression de l'ancienne image:", deleteError.message);
+             // If it's a "object-not-found" error, it's fine, just means it was already deleted or never existed at that path.
+            if (deleteError.code !== 'storage/object-not-found') {
+                 toast({ title: "Avertissement", description: "Impossible de supprimer l'ancienne image de fond, mais la nouvelle sera téléversée.", variant: "default" });
+            }
+        }
+    }
 
-      const storageRef = ref(storage, `${HERO_IMAGE_STORAGE_PATH}.${newHeroImageFile.name.split('.').pop()}`); // Append extension
+
+    const fileExtension = newHeroImageFile.name.split('.').pop();
+    const newImageFileName = `heroImage-${Date.now()}.${fileExtension}`;
+    const newImageStoragePath = `${HERO_IMAGE_STORAGE_PATH}/${newImageFileName}`; // e.g. siteConfiguration/heroImage/heroImage-timestamp.jpg
+    const storageRef = ref(storage, newImageStoragePath);
+
+    try {
       const uploadTask = uploadBytesResumable(storageRef, newHeroImageFile);
 
       uploadTask.on('state_changed',
-        null, // No progress tracking for this simple upload
+        (snapshot) => {
+          // Optional: Manage progress
+        },
         (error) => {
           console.error("Upload error:", error);
           toast({ title: "Échec du téléversement", description: error.message, variant: "destructive" });
@@ -94,13 +124,14 @@ export function AdminHeroImageManagement() {
         },
         async () => {
           const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          await setDoc(doc(db, HERO_SETTINGS_DOC_PATH), { heroImageUrl: downloadURL }, { merge: true });
+          // Use setDoc to overwrite or create the document with the new URL.
+          await setDoc(doc(db, HERO_SETTINGS_DOC_PATH), { heroImageUrl: downloadURL });
           setCurrentHeroImageUrl(downloadURL);
-          toast({ title: "Image Hero mise à jour !" });
+          toast({ title: "Image de fond mise à jour !" });
           setNewHeroImageFile(null);
           if (newHeroImagePreview) URL.revokeObjectURL(newHeroImagePreview);
           setNewHeroImagePreview(null);
-          if (fileInputRef.current) fileInputRef.current.value = ""; // Reset file input
+          if (fileInputRef.current) fileInputRef.current.value = "";
           setIsUploading(false);
         }
       );
@@ -110,12 +141,47 @@ export function AdminHeroImageManagement() {
       setIsUploading(false);
     }
   };
+  
+  const handleDeleteHeroImage = async () => {
+    if (!isAdmin || !storage || !db) {
+      toast({ title: "Erreur", description: "Permissions insuffisantes ou service non disponible.", variant: "destructive" });
+      return;
+    }
+    setIsUploading(true); 
+    try {
+      // If currentHeroImageUrl is not the default, try to delete it from Storage
+      if (currentHeroImageUrl && currentHeroImageUrl !== DEFAULT_HERO_IMAGE_URL) {
+        try {
+          const imagePath = new URL(currentHeroImageUrl).pathname.split('/o/')[1].split('?')[0];
+           if (imagePath && imagePath.startsWith(HERO_IMAGE_STORAGE_PATH)) { // Make sure we are deleting within the designated path
+             await deleteObject(ref(storage, decodeURIComponent(imagePath)));
+             console.log("Image de fond actuelle supprimée de Storage.");
+           }
+        } catch (deleteError: any) {
+          console.warn("Avertissement: Impossible de supprimer l'image actuelle de Storage:", deleteError.message);
+           if (deleteError.code !== 'storage/object-not-found') {
+            toast({ title: "Avertissement", description: "L'ancienne image de fond n'a pas pu être supprimée du stockage, mais les paramètres seront réinitialisés.", variant: "default" });
+           }
+        }
+      }
+      // Update Firestore to use the default URL
+      await setDoc(doc(db, HERO_SETTINGS_DOC_PATH), { heroImageUrl: DEFAULT_HERO_IMAGE_URL }); 
+      setCurrentHeroImageUrl(DEFAULT_HERO_IMAGE_URL);
+      toast({ title: "Image de fond réinitialisée à la valeur par défaut." });
+    } catch (error: any) {
+        console.error("Erreur lors de la réinitialisation de l'image:", error);
+        toast({ title: "Erreur", description: "Impossible de réinitialiser l'image de fond.", variant: "destructive" });
+    } finally {
+        setIsUploading(false);
+    }
+  };
+
 
   return (
     <Card className="bg-card border-border">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2"><ImageIcon className="h-5 w-5" /> Image de la Section Héro</CardTitle>
-        <CardDescription>Gérer l'image principale affichée sur la page d'accueil.</CardDescription>
+        <CardTitle className="flex items-center gap-2"><ImageIcon className="h-5 w-5" /> Image de Fond Principale</CardTitle>
+        <CardDescription>Gérer l'image de fond affichée sur la page d'accueil.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
@@ -124,7 +190,7 @@ export function AdminHeroImageManagement() {
             <Skeleton className="w-full h-48 rounded-md bg-muted" />
           ) : currentHeroImageUrl ? (
             <div className="relative w-full aspect-[16/7] rounded-md overflow-hidden border border-border">
-              <Image src={currentHeroImageUrl} alt="Image Héro Actuelle" layout="fill" objectFit="cover" data-ai-hint="paysage urbain"/>
+              <Image src={currentHeroImageUrl} alt="Image de fond actuelle" layout="fill" objectFit="cover" priority unoptimized={currentHeroImageUrl.includes('i.ibb.co') || currentHeroImageUrl.includes('localhost') || !currentHeroImageUrl.startsWith('https')} data-ai-hint="accueil fête concert"/>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Aucune image configurée. L'image par défaut sera utilisée.</p>
@@ -132,7 +198,7 @@ export function AdminHeroImageManagement() {
         </div>
 
         {isAdmin && (
-          <div className="space-y-2 pt-4 border-t border-border/50">
+          <div className="space-y-3 pt-4 border-t border-border/50">
             <h4 className="text-sm font-medium text-muted-foreground">Modifier l'Image :</h4>
             <Input
               ref={fileInputRef}
@@ -143,12 +209,12 @@ export function AdminHeroImageManagement() {
               disabled={isUploading}
             />
             {newHeroImagePreview && (
-              <div className="mt-2 relative w-1/2 aspect-[16/7] rounded-md overflow-hidden border border-border">
-                <Image src={newHeroImagePreview} alt="Aperçu nouvelle image Héro" layout="fill" objectFit="cover" />
+              <div className="mt-2 relative w-full max-w-md aspect-[16/7] rounded-md overflow-hidden border border-border">
+                <Image src={newHeroImagePreview} alt="Aperçu nouvelle image" layout="fill" objectFit="cover" />
                 <Button
                   variant="destructive"
                   size="icon"
-                  className="absolute top-1 right-1 h-6 w-6 rounded-full z-10 opacity-80 hover:opacity-100"
+                  className="absolute top-1 right-1 h-6 w-6 rounded-full z-10 opacity-70 hover:opacity-100"
                   onClick={() => {
                     setNewHeroImageFile(null);
                     if (newHeroImagePreview) URL.revokeObjectURL(newHeroImagePreview);
@@ -156,15 +222,22 @@ export function AdminHeroImageManagement() {
                     if (fileInputRef.current) fileInputRef.current.value = "";
                   }}
                   disabled={isUploading}
+                  title="Retirer l'aperçu"
                 >
                   <Trash2 className="h-3 w-3" />
                 </Button>
               </div>
             )}
-            <Button onClick={handleUploadAndSave} disabled={!newHeroImageFile || isUploading || !isAdmin} className="w-full md:w-auto">
-              {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-              Mettre à jour l'Image Héro
-            </Button>
+            <div className="flex flex-wrap gap-2 items-center">
+                <Button onClick={handleUploadAndSave} disabled={!newHeroImageFile || isUploading} className="flex-grow sm:flex-grow-0">
+                  {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                  Mettre à jour l'Image
+                </Button>
+                 <Button onClick={handleDeleteHeroImage} variant="outline" disabled={isUploading || currentHeroImageUrl === DEFAULT_HERO_IMAGE_URL} className="flex-grow sm:flex-grow-0">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Réinitialiser à l'image par défaut
+                </Button>
+            </div>
           </div>
         )}
       </CardContent>
