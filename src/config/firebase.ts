@@ -18,19 +18,16 @@ const firebaseConfig: FirebaseOptions = {
 let firebaseInitialized = false;
 let firebaseInitializationError: string | null = null;
 
-
 // Validate essential config FIRST
 if (!firebaseConfig.apiKey) {
     console.error("MISSING FIREBASE API KEY: The NEXT_PUBLIC_FIREBASE_API_KEY environment variable is not set.");
+    // Throw a detailed error to guide the user.
     firebaseInitializationError = "Firebase API key is missing. Please check your environment variables (ensure NEXT_PUBLIC_FIREBASE_API_KEY is set in .env.local) and restart the Next.js development server (npm run dev). If deploying, ensure this variable is set in your deployment environment.";
 }
-if (!firebaseConfig.projectId && !firebaseInitializationError) { 
+if (!firebaseConfig.projectId && !firebaseInitializationError) {
+    // Warn but don't throw, as some functionalities might still work initially.
     console.warn("Firebase Project ID (NEXT_PUBLIC_FIREBASE_PROJECT_ID) is missing. Some Firebase services might not work correctly.");
-    firebaseInitializationError = "Firebase Project ID is missing. Check .env.local.";
-}
-if (!firebaseConfig.storageBucket && !firebaseInitializationError) {
-    console.warn("Firebase Storage Bucket (NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET) is missing. File uploads will likely fail.");
-    firebaseInitializationError = "Firebase Storage Bucket is missing. Check .env.local.";
+    firebaseInitializationError = firebaseInitializationError || "Firebase Project ID is missing. Check .env.local for NEXT_PUBLIC_FIREBASE_PROJECT_ID.";
 }
 
 
@@ -47,24 +44,29 @@ if (!firebaseInitializationError) {
             console.log("Application Firebase initialisée.");
         } else {
             app = getApp();
+            console.log("Application Firebase récupérée.");
         }
-        firebaseInitialized = true; 
+        firebaseInitialized = true;
 
         auth = getAuth(app);
         db = getFirestore(app);
-        storage = getStorage(app); 
+        storage = getStorage(app);
         console.log("Services Firebase (Auth, Firestore, Storage) initialisés.");
 
         if (typeof window !== 'undefined') {
             isSupported().then((supported) => {
-                if (supported && firebaseConfig.measurementId) {
+                if (supported && firebaseConfig.measurementId && app) {
                     try {
-                         analytics = getAnalytics(app!);
+                         analytics = getAnalytics(app);
                          console.log("Firebase Analytics initialisé.");
                     } catch (analyticsError) {
                         console.warn("L'initialisation de Firebase Analytics a échoué :", analyticsError);
                         analytics = null;
                     }
+                } else if (!supported) {
+                    console.log("Firebase Analytics n'est pas supporté dans cet environnement.");
+                } else if (!firebaseConfig.measurementId) {
+                     console.log("Firebase Measurement ID manquant, Analytics non initialisé.");
                 }
             }).catch(err => {
                  console.error("Erreur lors de la vérification de la prise en charge de Firebase Analytics :", err);
@@ -74,13 +76,15 @@ if (!firebaseInitializationError) {
         if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
             console.log("Mode développement local détecté. Tentative de connexion aux émulateurs Firebase...");
              try {
-                 if (!(window as any).__firebase_emulators_connected) {
+                 if (!(window as any).__firebase_emulators_connected_v2) { // Changed flag name to avoid stale state issues
                      console.log("Connexion aux émulateurs (Auth: 9099, Firestore: 8080, Storage: 9199)...");
                      connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true });
                      connectFirestoreEmulator(db, 'localhost', 8080);
-                     if (storage) connectStorageEmulator(storage, 'localhost', 9199); 
-                     (window as any).__firebase_emulators_connected = true;
+                     if (storage) connectStorageEmulator(storage, 'localhost', 9199);
+                     (window as any).__firebase_emulators_connected_v2 = true;
                       console.log("Connecté aux émulateurs Firebase.");
+                 } else {
+                     console.log("Déjà connecté aux émulateurs Firebase.");
                  }
              } catch (emulatorError: any) {
                   console.warn("Erreur de connexion à l'émulateur :", emulatorError.message);
@@ -95,11 +99,11 @@ if (!firebaseInitializationError) {
         db = null;
         storage = null;
         analytics = null;
-        firebaseInitialized = false;
+        firebaseInitialized = false; // Ensure this is set to false on error
     }
 } else {
      console.error("L'application Firebase n'a pas pu être initialisée en raison d'erreurs de configuration. Les services Firebase ne seront pas disponibles.");
-     firebaseInitialized = false;
+     firebaseInitialized = false; // Explicitly set to false
 }
 
 export { app, auth, db, storage, analytics, firebaseInitialized, firebaseInitializationError };
@@ -120,11 +124,8 @@ service cloud.firestore {
 
     // Règle pour la collection "parties" (Événements)
     match /parties/{partyId} {
-      // Lecture : Tout utilisateur (connecté ou non) peut lire les détails d'un événement.
-      allow read: if true;
+      allow read: if true; // Tout le monde peut lire les événements
 
-      // Création : Tout utilisateur connecté peut créer un événement.
-      // Des validations de base sont incluses.
       allow create: if request.auth != null &&
                        request.resource.data.name is string &&
                        request.resource.data.name.size() > 0 &&
@@ -134,46 +135,46 @@ service cloud.firestore {
                        request.resource.data.participants is list &&
                        request.auth.uid in request.resource.data.participants;
 
-      // Mise à jour :
       allow update: if request.auth != null &&
                       (
-                        // Règle 1: Créateur ou Admin met à jour les détails principaux de l'événement
+                        // Règle 1: Créateur ou Admin met à jour les champs principaux
                         ( (request.auth.uid == resource.data.createdBy || isAdmin()) &&
                           request.resource.data.diff(resource.data).affectedKeys()
-                            .hasOnly(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'latitude', 'longitude', 'participants', 'participantEmails', 'mediaItems']) &&
+                            .hasAny(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'latitude', 'longitude', 'participants', 'participantEmails']) &&
                           (!('name' in request.resource.data.diff(resource.data).affectedKeys()) || (request.resource.data.name is string && request.resource.data.name.size() > 0) ) &&
                           (!('date' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.date is timestamp ) &&
-                          request.resource.data.createdBy == resource.data.createdBy &&
-                          request.resource.data.creatorEmail == resource.data.creatorEmail
+                          (isAdmin() || ( // Admin peut tout changer, créateur ne peut pas changer les champs sensibles
+                            request.resource.data.createdBy == resource.data.createdBy &&
+                            request.resource.data.creatorEmail == resource.data.creatorEmail
+                          ))
                         ) ||
                         // Règle 2: Tout utilisateur connecté peut ajouter/mettre à jour sa propre note
                         ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']) &&
                           request.resource.data.ratings[request.auth.uid] is number &&
                           request.resource.data.ratings[request.auth.uid] >= 0 && request.resource.data.ratings[request.auth.uid] <= 10 &&
-                           (
-                            (resource.data.ratings == null || !(request.auth.uid in resource.data.ratings.keys())) || 
-                            (request.auth.uid in resource.data.ratings.keys() && request.resource.data.ratings[request.auth.uid] != resource.data.ratings[request.auth.uid]) 
-                          ) &&
-                          resource.data.ratings.keys().removeAll(request.resource.data.ratings.keys()).size() == 0 &&
-                          request.resource.data.ratings.keys().removeAll(resource.data.ratings.keys()).hasOnly([request.auth.uid])
+                           // S'assurer que l'utilisateur ne modifie que sa propre note et ne supprime pas celles des autres
+                           (resource.data.ratings == null || resource.data.ratings.keys().removeAll(request.resource.data.ratings.keys()).size() == 0) &&
+                           request.resource.data.ratings.keys().removeAll(resource.data.ratings.keys()).hasOnly([request.auth.uid])
                         ) ||
-                        // Règle 3: Tout utilisateur connecté peut AJOUTER des souvenirs (mediaItems)
-                        (
-                          request.auth != null && 
-                          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
-                          request.resource.data.mediaItems.size() > resource.data.mediaItems.size()
+                        // Règle 3: Tout utilisateur connecté peut AJOUTER des mediaItems (arrayUnion)
+                        ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
+                          request.resource.data.mediaItems.size() > resource.data.mediaItems.size() && // Strictement pour l'ajout
+                          // Valider que le dernier item ajouté a l'uploaderId correct et un timestamp
+                          request.resource.data.mediaItems[request.resource.data.mediaItems.size() - 1].uploaderId == request.auth.uid &&
+                          request.resource.data.mediaItems[request.resource.data.mediaItems.size() - 1].uploadedAt is timestamp
+                        ) ||
+                        // Règle 4: Le créateur ou un admin peut supprimer des mediaItems (arrayRemove)
+                        ( (request.auth.uid == resource.data.createdBy || isAdmin()) &&
+                           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
+                           request.resource.data.mediaItems.size() < resource.data.mediaItems.size() // Strictement pour la suppression
                         )
                       );
 
-      // Suppression : Seul un admin peut supprimer un événement.
       allow delete: if isAdmin();
 
-      // Sous-collection "comments"
       match /comments/{commentId} {
-        // Lecture : Tout utilisateur (connecté ou non) peut lire les commentaires.
-        allow read: if true;
+        allow read: if true; 
 
-        // Création : Tout utilisateur connecté peut créer un commentaire.
         allow create: if request.auth != null &&
                          request.resource.data.userId == request.auth.uid &&
                          request.resource.data.text is string &&
@@ -181,62 +182,54 @@ service cloud.firestore {
                          request.resource.data.partyId == partyId &&
                          request.resource.data.timestamp is timestamp;
 
-        // Mise à jour : L'utilisateur peut mettre à jour le texte de son propre commentaire, ou un admin peut tout mettre à jour.
         allow update: if request.auth != null &&
                          (
                            (request.auth.uid == resource.data.userId &&
                             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) &&
                             request.resource.data.text is string && request.resource.data.text.size() > 0 &&
-                            request.resource.data.userId == resource.data.userId &&
-                            request.resource.data.partyId == resource.data.partyId &&
-                            request.resource.data.timestamp == resource.data.timestamp
+                            request.resource.data.userId == resource.data.userId && // Ne pas changer l'auteur du commentaire
+                            request.resource.data.partyId == resource.data.partyId && // Ne pas changer le partyId
+                            request.resource.data.timestamp == resource.data.timestamp // Ne pas changer le timestamp original
                            ) ||
-                           isAdmin()
+                           isAdmin() // L'admin peut mettre à jour n'importe quel champ
                          );
 
-        // Suppression : L'utilisateur peut supprimer son propre commentaire, ou un admin peut supprimer n'importe quel commentaire.
-        allow delete: if request.auth != null &&
-                         (request.auth.uid == resource.data.userId || isAdmin());
+        allow delete: if request.auth != null && (request.auth.uid == resource.data.userId || isAdmin());
       }
     }
 
-    // Règle pour la collection "users"
     match /users/{userId} {
-      // Lecture : Tout le monde peut lire les profils utilisateurs (y compris non authentifié).
       allow read: if true;
-
-      // Création : Un utilisateur connecté peut créer son propre document de profil.
       allow create: if request.auth != null &&
-                       request.auth.uid == userId &&
+                       request.auth.uid == userId && // L'UID du document doit correspondre à l'UID de l'utilisateur authentifié
                        request.resource.data.email == request.auth.token.email &&
                        request.resource.data.uid == request.auth.uid &&
                        request.resource.data.createdAt is timestamp;
 
-      // Mise à jour : Un utilisateur peut mettre à jour son propre profil (certains champs), ou un admin peut tout mettre à jour.
       allow update: if request.auth != null &&
                        (
+                         // L'utilisateur peut mettre à jour son propre profil (champs spécifiques)
                          ( request.auth.uid == userId &&
                            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'pseudo', 'avatarUrl']) &&
-                           (!('displayName' in request.resource.data) || request.resource.data.displayName is string) &&
-                           (!('pseudo' in request.resource.data) || request.resource.data.pseudo is string) &&
-                           (!('avatarUrl' in request.resource.data) || request.resource.data.avatarUrl is string)
+                           // Validations de type optionnelles si les champs sont fournis
+                           (!('displayName' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.displayName is string) &&
+                           (!('pseudo' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.pseudo is string) &&
+                           (!('avatarUrl' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.avatarUrl is string)
                          ) ||
-                         isAdmin()
+                         isAdmin() // L'admin peut mettre à jour n'importe quel champ (avec prudence)
                        ) &&
+                       // Empêcher la modification des champs critiques par un non-admin lors de sa propre mise à jour
                        (isAdmin() || (
                            request.resource.data.uid == resource.data.uid &&
                            request.resource.data.email == resource.data.email &&
                            request.resource.data.createdAt == resource.data.createdAt
                        ));
-
-      // Suppression : Seul un admin peut supprimer les documents utilisateurs (à utiliser avec une extrême prudence).
       allow delete: if isAdmin();
     }
     
-    // Règles pour la collection "siteConfiguration" (pour l'image Hero)
     match /siteConfiguration/{configDocId} {
-      allow read: if true; // Tout le monde peut lire la config (ex: URL de l'image hero)
-      allow write: if isAdmin(); // Seul un admin peut modifier la config
+      allow read: if true; 
+      allow write: if isAdmin(); 
     }
   }
 }
