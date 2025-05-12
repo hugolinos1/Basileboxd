@@ -29,7 +29,7 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
-  AlertDialogHeader, // Added AlertDialogHeader
+  AlertDialogHeader, 
   AlertDialogTitle as AlertDialogUITitle, 
 } from "@/components/ui/alert-dialog";
 import { Input } from '@/components/ui/input';
@@ -39,7 +39,6 @@ import {
   uploadFile,
   getFileType as getMediaFileType, 
   ACCEPTED_MEDIA_TYPES,
-  ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
   ACCEPTED_AVATAR_TYPES, 
@@ -376,7 +375,7 @@ export default function PartyDetailsPage() {
         email: currentUser.email || 'anonyme',
         avatar: currentUser.photoURL ?? null,
         text: comment.trim(),
-        timestamp: Timestamp.now(),
+        timestamp: Timestamp.now(), // Utilisation de Timestamp.now() côté client
         partyId: party.id,
         ...(replyingToCommentInfo && { parentId: replyingToCommentInfo.id }),
       };
@@ -432,7 +431,7 @@ export default function PartyDetailsPage() {
         email: currentUser.email || 'anonyme',
         avatar: currentUser.photoURL ?? null,
         text: replyText.trim(),
-        timestamp: Timestamp.now(),
+        timestamp: Timestamp.now(), // Utilisation de Timestamp.now() côté client
         partyId: party.id,
         parentId: parentCommentId,
       };
@@ -525,7 +524,7 @@ export default function PartyDetailsPage() {
                         type: getMediaFileType(file),
                         uploaderId: currentUser.uid,
                         uploaderEmail: currentUser.email || undefined,
-                        uploadedAt: Timestamp.now(),
+                        uploadedAt: Timestamp.now(), // Utilisation de Timestamp.now() côté client
                         fileName: file.name,
                       } as MediaItem; 
                 }
@@ -1377,6 +1376,7 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
 
 
 

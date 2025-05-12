@@ -1,22 +1,17 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     // Helper function to check if the requester is an admin
-    // IMPORTANT: Replace '4aqCNYkLwgXpp5kjMnGA6V0bdL52' with the actual UID of YOUR admin user.
     function isAdmin() {
       return request.auth != null && request.auth.uid == '4aqCNYkLwgXpp5kjMnGA6V0bdL52';
     }
 
     // Rules for "parties" (Events) collection
     match /parties/{partyId} {
-      // Allow anyone to read event details (for public display like homepage)
-      // Change to "if request.auth != null;" if events should only be visible to logged-in users.
-      allow read: if true;
+      allow read: if true; // Public read access or "if request.auth != null;" for authenticated only
 
-      // Allow authenticated users to create events with basic data validation
       allow create: if request.auth != null &&
                        request.resource.data.name is string &&
                        request.resource.data.name.size() > 0 &&
@@ -26,78 +21,63 @@ service cloud.firestore {
                        request.resource.data.participants is list &&
                        request.auth.uid in request.resource.data.participants;
 
-      // Allow updates under specific conditions
       allow update: if request.auth != null &&
                       (
-                        // Condition 1: Creator or Admin can update primary event details, media, and participants
+                        // Rule 1: Creator or Admin can update main details, mediaItems, or participants
                         ( (request.auth.uid == resource.data.createdBy || isAdmin()) &&
                           request.resource.data.diff(resource.data).affectedKeys()
-                            .hasOnly(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'latitude', 'longitude', 'participants', 'participantEmails', 'mediaItems']) &&
-                          // Basic validation for updated fields
+                            .hasAny(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'latitude', 'longitude', 'participants', 'participantEmails', 'mediaItems']) &&
+                          // Validations for updated fields if present
                           (!('name' in request.resource.data.diff(resource.data).affectedKeys()) || (request.resource.data.name is string && request.resource.data.name.size() > 0) ) &&
                           (!('date' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.date is timestamp ) &&
-                          // Prevent modification of critical immutable fields by creator/admin here
+                          // Prevent modification of sensitive fields by this route
                           request.resource.data.createdBy == resource.data.createdBy &&
                           request.resource.data.creatorEmail == resource.data.creatorEmail
                         ) ||
-                        // Condition 2: Any authenticated user can add/update THEIR OWN rating
+                        // Rule 2: Any authenticated user can add/update their own rating
                         ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']) &&
                           request.resource.data.ratings[request.auth.uid] is number &&
                           request.resource.data.ratings[request.auth.uid] >= 0 && request.resource.data.ratings[request.auth.uid] <= 10 &&
-                          // Ensure only the user's own rating is affected or added
-                          (
-                            (resource.data.ratings == null || !(request.auth.uid in resource.data.ratings.keys())) || // Adding a new rating
-                            (request.auth.uid in resource.data.ratings.keys() && request.resource.data.ratings[request.auth.uid] != resource.data.ratings[request.auth.uid]) // Modifying existing rating
-                          ) &&
-                          // Check that no other user's ratings are touched
-                          resource.data.ratings.keys().removeAll(request.resource.data.ratings.keys()).size() == 0 &&
-                          request.resource.data.ratings.keys().removeAll(resource.data.ratings.keys()).hasOnly([request.auth.uid])
+                          (resource.data.ratings == null || resource.data.ratings.keys().removeAll(request.resource.data.ratings.keys()).size() == 0) &&
+                          request.resource.data.ratings.keys().removeAll(resource.data.ratings == null ? [] : resource.data.ratings.keys()).hasOnly([request.auth.uid])
                         ) ||
-                        // Condition 3: Any authenticated user can ADD to mediaItems array
-                        // This rule is for arrayUnion operations where a user adds their own media.
-                        // Client-side code MUST ensure the 'uploaderId' of the new media item is the current user's UID.
-                        (
-                          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
-                          request.resource.data.mediaItems.size() > resource.data.mediaItems.size() // Ensures it's an addition
-                          // Further validation of the *content* of the added item (e.g., uploaderId matches request.auth.uid)
-                          // is hard to do perfectly for arrayUnion in rules.
-                          // Rely on client-side logic to set uploaderId correctly.
-                          // A more secure way would be a Cloud Function for adding media.
+                        // Rule 3: Any authenticated user can ADD mediaItems
+                        // Client MUST ensure new items have uploaderId == request.auth.uid
+                        ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
+                          ( (resource.data.mediaItems == null && request.resource.data.mediaItems.size() > 0) || // Adding to empty array
+                            (resource.data.mediaItems != null && request.resource.data.mediaItems.size() > resource.data.mediaItems.size()) // Adding to existing array
+                          )
+                          // Further validation for each new item's uploaderId is complex here.
+                          // This rule allows adding items; client must ensure correct uploaderId.
+                          // For deletion/modification of mediaItems by creator/admin, Rule 1 applies.
                         )
                       );
 
-      // Allow delete ONLY if user is an admin
       allow delete: if isAdmin();
 
-      // Rules for "comments" subcollection
+      // Subcollection "comments"
       match /comments/{commentId} {
-        // Allow anyone to read comments (for public display)
-        // Change to "if request.auth != null;" if comments should only be visible to logged-in users.
-        allow read: if true;
+        allow read: if true; // Or "if request.auth != null;"
 
-        // Allow authenticated users to create comments with validation
         allow create: if request.auth != null &&
                          request.resource.data.userId == request.auth.uid &&
                          request.resource.data.text is string &&
                          request.resource.data.text.size() > 0 &&
-                         request.resource.data.partyId == partyId && // Ensures comment is for this party
-                         request.resource.data.timestamp is timestamp; // serverTimestamp() will be evaluated by server
+                         request.resource.data.partyId == partyId &&
+                         request.resource.data.timestamp is timestamp;
 
-        // Allow comment author or admin to update the text of their comment
         allow update: if request.auth != null &&
                          (
                            (request.auth.uid == resource.data.userId &&
                             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) &&
                             request.resource.data.text is string && request.resource.data.text.size() > 0 &&
-                            // Ensure other critical fields are not changed by the author
                             request.resource.data.userId == resource.data.userId &&
                             request.resource.data.partyId == resource.data.partyId &&
                             request.resource.data.timestamp == resource.data.timestamp
                            ) ||
-                           isAdmin() // Admin can update any field of a comment
+                           isAdmin()
                          );
 
-        // Allow comment author or admin to delete comments
         allow delete: if request.auth != null &&
                          (request.auth.uid == resource.data.userId || isAdmin());
       }
@@ -105,38 +85,35 @@ service cloud.firestore {
 
     // Rules for "users" collection
     match /users/{userId} {
-      // Allow anyone to read user profiles (e.g., for display names, avatars)
       allow read: if true;
-
-      // Allow authenticated users to create their own profile document
       allow create: if request.auth != null &&
-                       request.auth.uid == userId && // Document ID must match authenticated user's UID
+                       request.auth.uid == userId &&
                        request.resource.data.email == request.auth.token.email &&
                        request.resource.data.uid == request.auth.uid &&
                        request.resource.data.createdAt is timestamp;
 
-      // Allow users to update specific fields of their own profile, or admin to update any user's profile
       allow update: if request.auth != null &&
                        (
                          ( request.auth.uid == userId &&
-                           // User can only update these specific fields
                            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'pseudo', 'avatarUrl']) &&
-                           // Basic type checks if these fields are part of the update
                            (!('displayName' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.displayName is string) &&
                            (!('pseudo' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.pseudo is string) &&
                            (!('avatarUrl' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.avatarUrl is string)
                          ) ||
-                         isAdmin() // Admin can update more broadly (client code should control what fields admin can change)
+                         isAdmin()
                        ) &&
-                       // Prevent non-admins from changing critical immutable fields during their own update
                        (isAdmin() || (
                            request.resource.data.uid == resource.data.uid &&
                            request.resource.data.email == resource.data.email &&
                            request.resource.data.createdAt == resource.data.createdAt
                        ));
-
-      // Allow delete if user is an admin (use with extreme caution, this is a destructive operation)
       allow delete: if isAdmin();
+    }
+    
+    // Rules for "siteConfiguration" collection (for hero image)
+    match /siteConfiguration/{configDocId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }
