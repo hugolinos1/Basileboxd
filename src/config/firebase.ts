@@ -22,11 +22,9 @@ let firebaseInitializationError: string | null = null;
 // Validate essential config FIRST
 if (!firebaseConfig.apiKey) {
     console.error("MISSING FIREBASE API KEY: The NEXT_PUBLIC_FIREBASE_API_KEY environment variable is not set.");
-    // Throw a detailed error to guide the user.
     firebaseInitializationError = "Firebase API key is missing. Please check your environment variables (ensure NEXT_PUBLIC_FIREBASE_API_KEY is set in .env.local) and restart the Next.js development server (npm run dev). If deploying, ensure this variable is set in your deployment environment.";
-    // Not throwing here to allow the app to partially load and show an error in FirebaseProvider
 }
-if (!firebaseConfig.projectId && !firebaseInitializationError) { // Only set if not already an API key error
+if (!firebaseConfig.projectId && !firebaseInitializationError) { 
     console.warn("Firebase Project ID (NEXT_PUBLIC_FIREBASE_PROJECT_ID) is missing. Some Firebase services might not work correctly.");
     firebaseInitializationError = "Firebase Project ID is missing. Check .env.local.";
 }
@@ -107,24 +105,26 @@ if (!firebaseInitializationError) {
 export { app, auth, db, storage, analytics, firebaseInitialized, firebaseInitializationError };
 
 /*
-Voici les règles de sécurité Firestore recommandées, basées sur votre dernière demande :
+Voici les règles de sécurité Firestore recommandées :
 
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check if the requester is an admin
-    // IMPORTANT: Replace 'YOUR_ADMIN_UID_HERE' with the actual UID of the admin user from Firebase Authentication.
+    // Fonction utilitaire pour vérifier si l'utilisateur est un administrateur
     function isAdmin() {
-      // MAKE SURE TO REPLACE 'YOUR_ADMIN_UID_HERE' WITH THE ACTUAL ADMIN UID
+      // ASSUREZ-VOUS DE REMPLACER PAR L'UID RÉEL DE L'ADMINISTRATEUR
       return request.auth != null && request.auth.uid == '4aqCNYkLwgXpp5kjMnGA6V0bdL52';
     }
 
     // Règle pour la collection "parties" (Événements)
     match /parties/{partyId} {
-      allow read: if true; 
+      // Lecture : Tout utilisateur (connecté ou non) peut lire les détails d'un événement.
+      allow read: if true;
 
+      // Création : Tout utilisateur connecté peut créer un événement.
+      // Des validations de base sont incluses.
       allow create: if request.auth != null &&
                        request.resource.data.name is string &&
                        request.resource.data.name.size() > 0 &&
@@ -134,69 +134,92 @@ service cloud.firestore {
                        request.resource.data.participants is list &&
                        request.auth.uid in request.resource.data.participants;
 
+      // Mise à jour :
       allow update: if request.auth != null &&
                       (
-                        // Règle 1: Créateur ou Admin met à jour les détails principaux ET/OU les mediaItems ET/OU les participants
+                        // Règle 1: Créateur ou Admin met à jour les détails principaux de l'événement
                         ( (request.auth.uid == resource.data.createdBy || isAdmin()) &&
                           request.resource.data.diff(resource.data).affectedKeys()
                             .hasOnly(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'latitude', 'longitude', 'participants', 'participantEmails', 'mediaItems']) &&
                           (!('name' in request.resource.data.diff(resource.data).affectedKeys()) || (request.resource.data.name is string && request.resource.data.name.size() > 0) ) &&
                           (!('date' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.date is timestamp ) &&
-                          request.resource.data.createdBy == resource.data.createdBy && // Cannot change creator
-                          request.resource.data.creatorEmail == resource.data.creatorEmail // Cannot change creator email
+                          request.resource.data.createdBy == resource.data.createdBy &&
+                          request.resource.data.creatorEmail == resource.data.creatorEmail
                         ) ||
                         // Règle 2: Tout utilisateur connecté peut ajouter/mettre à jour sa propre note
                         ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']) &&
                           request.resource.data.ratings[request.auth.uid] is number &&
                           request.resource.data.ratings[request.auth.uid] >= 0 && request.resource.data.ratings[request.auth.uid] <= 10 &&
-                          // Check that only the user's own rating is being added/modified
-                          (
-                            (resource.data.ratings == null || !(request.auth.uid in resource.data.ratings.keys())) || // Adding a new rating
-                            (request.auth.uid in resource.data.ratings.keys() && request.resource.data.ratings[request.auth.uid] != resource.data.ratings[request.auth.uid]) // Modifying existing own rating
+                           (
+                            (resource.data.ratings == null || !(request.auth.uid in resource.data.ratings.keys())) || 
+                            (request.auth.uid in resource.data.ratings.keys() && request.resource.data.ratings[request.auth.uid] != resource.data.ratings[request.auth.uid]) 
                           ) &&
-                          // Ensure no other ratings are affected
-                          resource.data.ratings.keys().removeAll(request.resource.data.keys()).size() == 0 &&
+                          resource.data.ratings.keys().removeAll(request.resource.data.ratings.keys()).size() == 0 &&
                           request.resource.data.ratings.keys().removeAll(resource.data.ratings.keys()).hasOnly([request.auth.uid])
                         ) ||
                         // Règle 3: Tout utilisateur connecté peut AJOUTER des souvenirs (mediaItems)
                         (
+                          request.auth != null && 
                           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
-                          request.resource.data.mediaItems.size() >= resource.data.mediaItems.size() // Allows adding to the array
-                          // Client is responsible for setting uploaderId correctly.
-                          // For more robust validation of *each new item*, a Cloud Function would be better.
+                          request.resource.data.mediaItems.size() > resource.data.mediaItems.size()
                         )
                       );
 
+      // Suppression : Seul un admin peut supprimer un événement.
       allow delete: if isAdmin();
 
+      // Sous-collection "comments"
       match /comments/{commentId} {
-        allow read: if true; 
+        // Lecture : Tout utilisateur (connecté ou non) peut lire les commentaires.
+        allow read: if true;
+
+        // Création : Tout utilisateur connecté peut créer un commentaire.
         allow create: if request.auth != null &&
                          request.resource.data.userId == request.auth.uid &&
                          request.resource.data.text is string &&
                          request.resource.data.text.size() > 0 &&
                          request.resource.data.partyId == partyId &&
                          request.resource.data.timestamp is timestamp;
-        allow update: if false; // Or more specific rules if needed
+
+        // Mise à jour : L'utilisateur peut mettre à jour le texte de son propre commentaire, ou un admin peut tout mettre à jour.
+        allow update: if request.auth != null &&
+                         (
+                           (request.auth.uid == resource.data.userId &&
+                            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) &&
+                            request.resource.data.text is string && request.resource.data.text.size() > 0 &&
+                            request.resource.data.userId == resource.data.userId &&
+                            request.resource.data.partyId == resource.data.partyId &&
+                            request.resource.data.timestamp == resource.data.timestamp
+                           ) ||
+                           isAdmin()
+                         );
+
+        // Suppression : L'utilisateur peut supprimer son propre commentaire, ou un admin peut supprimer n'importe quel commentaire.
         allow delete: if request.auth != null &&
                          (request.auth.uid == resource.data.userId || isAdmin());
       }
     }
 
+    // Règle pour la collection "users"
     match /users/{userId} {
+      // Lecture : Tout le monde peut lire les profils utilisateurs (y compris non authentifié).
       allow read: if true;
+
+      // Création : Un utilisateur connecté peut créer son propre document de profil.
       allow create: if request.auth != null &&
                        request.auth.uid == userId &&
                        request.resource.data.email == request.auth.token.email &&
                        request.resource.data.uid == request.auth.uid &&
                        request.resource.data.createdAt is timestamp;
+
+      // Mise à jour : Un utilisateur peut mettre à jour son propre profil (certains champs), ou un admin peut tout mettre à jour.
       allow update: if request.auth != null &&
                        (
                          ( request.auth.uid == userId &&
                            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'pseudo', 'avatarUrl']) &&
-                           (!('displayName' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.displayName is string) &&
-                           (!('pseudo' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.pseudo is string) &&
-                           (!('avatarUrl' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.avatarUrl is string)
+                           (!('displayName' in request.resource.data) || request.resource.data.displayName is string) &&
+                           (!('pseudo' in request.resource.data) || request.resource.data.pseudo is string) &&
+                           (!('avatarUrl' in request.resource.data) || request.resource.data.avatarUrl is string)
                          ) ||
                          isAdmin()
                        ) &&
@@ -205,12 +228,15 @@ service cloud.firestore {
                            request.resource.data.email == resource.data.email &&
                            request.resource.data.createdAt == resource.data.createdAt
                        ));
+
+      // Suppression : Seul un admin peut supprimer les documents utilisateurs (à utiliser avec une extrême prudence).
       allow delete: if isAdmin();
     }
-
-     match /siteConfiguration/{docId} {
-        allow read: if true;
-        allow write: if isAdmin();
+    
+    // Règles pour la collection "siteConfiguration" (pour l'image Hero)
+    match /siteConfiguration/{configDocId} {
+      allow read: if true; // Tout le monde peut lire la config (ex: URL de l'image hero)
+      allow write: if isAdmin(); // Seul un admin peut modifier la config
     }
   }
 }
