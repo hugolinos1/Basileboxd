@@ -18,22 +18,21 @@ const firebaseConfig: FirebaseOptions = {
 let firebaseInitialized = false;
 let firebaseInitializationError: string | null = null;
 
+
+// Validate essential config FIRST
 if (!firebaseConfig.apiKey) {
-    firebaseInitializationError = "Clé API Firebase manquante (NEXT_PUBLIC_FIREBASE_API_KEY). Vérifiez vos variables d'environnement (.env.local) et redémarrez le serveur de développement Next.js (npm run dev). Si vous déployez, assurez-vous que cette variable est définie dans votre environnement de déploiement.";
-    console.error(`ERREUR CONFIG FIREBASE: ${firebaseInitializationError}`);
-    throw new Error(firebaseInitializationError);
+    console.error("MISSING FIREBASE API KEY: The NEXT_PUBLIC_FIREBASE_API_KEY environment variable is not set.");
+    // Throw a detailed error to guide the user.
+    firebaseInitializationError = "Firebase API key is missing. Please check your environment variables (ensure NEXT_PUBLIC_FIREBASE_API_KEY is set in .env.local) and restart the Next.js development server (npm run dev). If deploying, ensure this variable is set in your deployment environment.";
+    // Not throwing here to allow the app to partially load and show an error in FirebaseProvider
 }
-if (!firebaseConfig.projectId) {
-    const msg = "L'ID de projet Firebase (NEXT_PUBLIC_FIREBASE_PROJECT_ID) est manquant. Vérifiez .env.local.";
-    console.error(`ERREUR CONFIG FIREBASE: ${msg}`);
-    if (!firebaseInitializationError) firebaseInitializationError = msg;
-    throw new Error(msg);
+if (!firebaseConfig.projectId && !firebaseInitializationError) { // Only set if not already an API key error
+    console.warn("Firebase Project ID (NEXT_PUBLIC_FIREBASE_PROJECT_ID) is missing. Some Firebase services might not work correctly.");
+    firebaseInitializationError = "Firebase Project ID is missing. Check .env.local.";
 }
-if (!firebaseConfig.storageBucket) { 
-    const msg = "Le nom du bucket de stockage Firebase (NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET) est manquant. Vérifiez .env.local.";
-    console.error(`ERREUR CONFIG FIREBASE: ${msg}`);
-    if (!firebaseInitializationError) firebaseInitializationError = msg;
-    throw new Error(msg);
+if (!firebaseConfig.storageBucket && !firebaseInitializationError) {
+    console.warn("Firebase Storage Bucket (NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET) is missing. File uploads will likely fail.");
+    firebaseInitializationError = "Firebase Storage Bucket is missing. Check .env.local.";
 }
 
 
@@ -105,7 +104,6 @@ if (!firebaseInitializationError) {
      firebaseInitialized = false;
 }
 
-
 export { app, auth, db, storage, analytics, firebaseInitialized, firebaseInitializationError };
 
 /*
@@ -116,12 +114,16 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Helper function to check if the requester is an admin
+    // IMPORTANT: Replace 'YOUR_ADMIN_UID_HERE' with the actual UID of the admin user from Firebase Authentication.
     function isAdmin() {
-      return request.auth != null && request.auth.uid == '4aqCNYkLwgXpp5kjMnGA6V0bdL52'; // UID de l'admin
+      // MAKE SURE TO REPLACE 'YOUR_ADMIN_UID_HERE' WITH THE ACTUAL ADMIN UID
+      return request.auth != null && request.auth.uid == '4aqCNYkLwgXpp5kjMnGA6V0bdL52';
     }
 
+    // Règle pour la collection "parties" (Événements)
     match /parties/{partyId} {
-      allow read: if true; // Tout le monde peut lire les événements
+      allow read: if true; 
 
       allow create: if request.auth != null &&
                        request.resource.data.name is string &&
@@ -134,69 +136,48 @@ service cloud.firestore {
 
       allow update: if request.auth != null &&
                       (
-                        // Règle 1: Créateur ou Admin met à jour les détails principaux
+                        // Règle 1: Créateur ou Admin met à jour les détails principaux ET/OU les mediaItems ET/OU les participants
                         ( (request.auth.uid == resource.data.createdBy || isAdmin()) &&
                           request.resource.data.diff(resource.data).affectedKeys()
-                            .hasOnly(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'latitude', 'longitude', 'participants', 'participantEmails']) &&
+                            .hasOnly(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'latitude', 'longitude', 'participants', 'participantEmails', 'mediaItems']) &&
                           (!('name' in request.resource.data.diff(resource.data).affectedKeys()) || (request.resource.data.name is string && request.resource.data.name.size() > 0) ) &&
                           (!('date' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.date is timestamp ) &&
-                          request.resource.data.createdBy == resource.data.createdBy &&
-                          request.resource.data.creatorEmail == resource.data.creatorEmail
+                          request.resource.data.createdBy == resource.data.createdBy && // Cannot change creator
+                          request.resource.data.creatorEmail == resource.data.creatorEmail // Cannot change creator email
                         ) ||
-                        // Règle 2: Tout utilisateur connecté peut ajouter/mettre à jour SA PROPRE note
+                        // Règle 2: Tout utilisateur connecté peut ajouter/mettre à jour sa propre note
                         ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']) &&
                           request.resource.data.ratings[request.auth.uid] is number &&
                           request.resource.data.ratings[request.auth.uid] >= 0 && request.resource.data.ratings[request.auth.uid] <= 10 &&
-                          // S'assurer que l'utilisateur ne modifie que sa propre clé de notation
+                          // Check that only the user's own rating is being added/modified
                           (
-                            (resource.data.ratings == null || !(request.auth.uid in resource.data.ratings.keys())) || // Ajout d'une nouvelle note par l'utilisateur
-                            (request.auth.uid in resource.data.ratings.keys() && request.resource.data.ratings[request.auth.uid] != resource.data.ratings[request.auth.uid]) // Modification de sa note existante
+                            (resource.data.ratings == null || !(request.auth.uid in resource.data.ratings.keys())) || // Adding a new rating
+                            (request.auth.uid in resource.data.ratings.keys() && request.resource.data.ratings[request.auth.uid] != resource.data.ratings[request.auth.uid]) // Modifying existing own rating
                           ) &&
-                          // S'assurer qu'aucune autre note n'est affectée
-                          resource.data.ratings.keys().removeAll(request.resource.data.ratings.keys()).size() == 0 &&
+                          // Ensure no other ratings are affected
+                          resource.data.ratings.keys().removeAll(request.resource.data.keys()).size() == 0 &&
                           request.resource.data.ratings.keys().removeAll(resource.data.ratings.keys()).hasOnly([request.auth.uid])
                         ) ||
                         // Règle 3: Tout utilisateur connecté peut AJOUTER des souvenirs (mediaItems)
-                        ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
-                          ( // Gère l'ajout à un tableau existant ou l'initialisation du tableau
-                            (resource.data.mediaItems == null && request.resource.data.mediaItems.size() > 0) || // Initialisation avec un ou plusieurs items
-                            (resource.data.mediaItems != null && request.resource.data.mediaItems.size() > resource.data.mediaItems.size()) // Ajout à un tableau existant
-                          ) &&
-                          // Validation de base pour chaque NOUVEL item ajouté (ceci est simplifié pour les règles)
-                          // Idéalement, la validation plus poussée se fait côté client/fonctions Cloud.
-                          // Cette règle vérifie que les items ajoutés ont bien l'uploaderId de l'utilisateur.
-                          // Ceci est une simplification; pour une validation robuste de chaque item, voir les fonctions Cloud.
-                          // Pour l'instant, on s'assure que si mediaItems est le seul champ modifié, et que la taille augmente, c'est permis.
-                          // La validation de l'uploaderId se fait mieux dans le code client avant l'envoi ou via Cloud Function.
-                          true // Simplification: le client doit assurer l'intégrité de uploaderId pour les nouveaux items
-                        ) ||
-                        // Règle 4: Créateur ou Admin peut gérer TOUS les mediaItems (y compris suppression/modification d'items existants)
-                        ( (request.auth.uid == resource.data.createdBy || isAdmin()) &&
-                          request.resource.data.diff(resource.data).affectedKeys().hasAny(['mediaItems']) // Peut affecter mediaItems parmi d'autres champs autorisés
+                        (
+                          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
+                          request.resource.data.mediaItems.size() >= resource.data.mediaItems.size() // Allows adding to the array
+                          // Client is responsible for setting uploaderId correctly.
+                          // For more robust validation of *each new item*, a Cloud Function would be better.
                         )
                       );
 
       allow delete: if isAdmin();
 
       match /comments/{commentId} {
-        allow read: if true;
+        allow read: if true; 
         allow create: if request.auth != null &&
                          request.resource.data.userId == request.auth.uid &&
                          request.resource.data.text is string &&
                          request.resource.data.text.size() > 0 &&
                          request.resource.data.partyId == partyId &&
                          request.resource.data.timestamp is timestamp;
-        allow update: if request.auth != null &&
-                         (
-                           (request.auth.uid == resource.data.userId &&
-                            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) &&
-                            request.resource.data.text is string && request.resource.data.text.size() > 0 &&
-                            request.resource.data.userId == resource.data.userId &&
-                            request.resource.data.partyId == resource.data.partyId &&
-                            request.resource.data.timestamp == resource.data.timestamp
-                           ) ||
-                           isAdmin()
-                         );
+        allow update: if false; // Or more specific rules if needed
         allow delete: if request.auth != null &&
                          (request.auth.uid == resource.data.userId || isAdmin());
       }
@@ -227,10 +208,9 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Permettre aux administrateurs de lire/écrire la configuration du site (par exemple, heroImage)
-    match /siteConfiguration/{docId} {
-      allow read: if true; // Tout le monde peut lire la configuration du site
-      allow write: if isAdmin(); // Seul l'admin peut modifier la configuration
+     match /siteConfiguration/{docId} {
+        allow read: if true;
+        allow write: if isAdmin();
     }
   }
 }

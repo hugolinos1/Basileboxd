@@ -302,8 +302,8 @@ export default function PartiesListPage() {
                         <Image
                           src={party.coverPhotoUrl}
                           alt={`Couverture ${party.name}`}
-                          layout="fill"
-                          objectFit="cover"
+                          fill
+                          style={{ objectFit: 'cover' }}
                           className="transition-transform duration-300 group-hover:scale-105"
                           sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
                           loading="lazy"

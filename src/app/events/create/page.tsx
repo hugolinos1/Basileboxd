@@ -1,3 +1,4 @@
+// src/app/events/create/page.tsx
 'use client';
 
 import * as React from 'react';
@@ -53,7 +54,7 @@ import type { MediaItem } from '@/lib/party-utils';
 import { normalizeCityName, geocodeCity, PartyData } from '@/lib/party-utils'; 
 import { Badge } from '@/components/ui/badge';
 
-interface UserData { // Keep this specific to the page's needs if different from global
+interface UserData { 
   id: string;
   uid: string;
   email: string;
@@ -63,11 +64,11 @@ interface UserData { // Keep this specific to the page's needs if different from
 }
 
 const fileSchema = z.custom<File>((val) => {
-  if (typeof window === 'undefined') return true; // Skip validation on server
+  if (typeof window === 'undefined') return true; 
   return val instanceof File;
 }, 'Veuillez télécharger un fichier');
 
-const MAX_FILE_SIZE_COVER = 10 * 1024 * 1024; // 10MB for initial cover photo upload
+const MAX_FILE_SIZE_COVER = 10 * 1024 * 1024; 
 
 
 const formSchema = z.object({
@@ -79,9 +80,9 @@ const formSchema = z.object({
     if (typeof window === 'undefined' || !(file instanceof File)) return true; 
     return file.size <= MAX_FILE_SIZE_COVER;
   }, `La photo de couverture ne doit pas dépasser ${MAX_FILE_SIZE_COVER / 1024 / 1024}Mo.`).optional(),
-  participants: z.array(z.string()).optional(), // Stores UIDs
+  participants: z.array(z.string()).optional(), 
   media: z.array(fileSchema).optional(),
-  initialRating: z.number().min(0).max(5).step(0.5).optional(), // Assuming 0-5 scale for form
+  initialRating: z.number().min(0).max(5).step(0.5).optional(), 
   initialComment: z.string().max(1000).optional(),
 });
 
@@ -108,7 +109,7 @@ export default function CreateEventPage() {
   const [isUploadingCover, setIsUploadingCover] = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
-  const [selectedParticipants, setSelectedParticipants] = useState<UserData[]>([]); // Stores UserData objects
+  const [selectedParticipants, setSelectedParticipants] = useState<UserData[]>([]); 
 
   const coverPhotoInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
@@ -169,7 +170,7 @@ export default function CreateEventPage() {
         }
       }
     }
-  }, [user, allUsers, form]);
+  }, [user, allUsers, form, selectedParticipants]);
 
 
   const handleCoverPhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -253,11 +254,11 @@ export default function CreateEventPage() {
       console.log("[handleAddParticipant] Trying to add UID:", userId);
       console.log("[handleAddParticipant] Current allUsers UIDs for lookup:", allUsers.map(u => u.uid));
 
-      const participantData = allUsers.find(u => u.uid.toLowerCase() === userId.toLowerCase()); // Case-insensitive find
+      const participantData = allUsers.find(u => u.uid.toLowerCase() === userId.toLowerCase()); 
       if (participantData) {
-        form.setValue('participants', [...currentFormParticipantUIDs, participantData.uid]); // Use the correct UID from participantData
+        form.setValue('participants', [...currentFormParticipantUIDs, participantData.uid]); 
         setSelectedParticipants(prev => {
-          if (!prev.find(p => p.uid.toLowerCase() === participantData.uid.toLowerCase())) { // Case-insensitive check
+          if (!prev.find(p => p.uid.toLowerCase() === participantData.uid.toLowerCase())) { 
             console.log("Adding to selectedParticipants state:", participantData);
             return [...prev, participantData];
           }
@@ -280,8 +281,8 @@ export default function CreateEventPage() {
       toast({ title: "Impossible de retirer", description: "Le créateur ne peut pas être retiré de l'événement.", variant: 'warning' });
       return;
     }
-    form.setValue('participants', (form.getValues('participants') || []).filter(uid => uid.toLowerCase() !== userId.toLowerCase())); // Case-insensitive filter
-    setSelectedParticipants(prev => prev.filter(p => p.uid.toLowerCase() !== userId.toLowerCase())); // Case-insensitive filter
+    form.setValue('participants', (form.getValues('participants') || []).filter(uid => uid.toLowerCase() !== userId.toLowerCase())); 
+    setSelectedParticipants(prev => prev.filter(p => p.uid.toLowerCase() !== userId.toLowerCase())); 
     console.log("Removed participant:", userId, "New selectedParticipants:", selectedParticipants.filter(p => p.uid.toLowerCase() !== userId.toLowerCase()));
   };
 
@@ -351,10 +352,10 @@ export default function CreateEventPage() {
         creatorEmail: user.email || null,
         participants: finalParticipantUIDs,
         participantEmails: finalParticipantEmails,
-        ratings: values.initialRating && user ? { [user.uid]: values.initialRating * 2 } : {}, // Convert 0-5 to 0-10 for storage
+        ratings: values.initialRating && user ? { [user.uid]: values.initialRating * 2 } : {}, 
         createdAt: serverTimestamp(),
-        mediaItems: [], // Initialize as empty, will be updated
-        coverPhotoUrl: '', // Initialize as empty, will be updated
+        mediaItems: [], 
+        coverPhotoUrl: '', 
       };
       
       const partyDocRef = await addDoc(collection(db, 'parties'), partyDocData);
@@ -371,7 +372,6 @@ export default function CreateEventPage() {
           partyId: partyId, 
         });
       }
-
 
       let coverPhotoUrl = '';
       if (values.coverPhoto) {
@@ -556,11 +556,11 @@ export default function CreateEventPage() {
                             <FormItem>
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                   <FormControl>
-                                    <div className="contents"> {/* Using div with 'contents' to act like React.Fragment but accept props */}
+                                    <React.Fragment> {/* Ensure a single child for FormControl */}
                                       {coverPhotoPreview ? (
-                                          <React.Fragment>
+                                          <>
                                               <div className="relative w-full h-full">
-                                                  <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" layout="fill" objectFit="contain" className="rounded-md"/>
+                                                  <Image src={coverPhotoPreview} alt="Aperçu photo de couverture" fill style={{ objectFit: 'contain' }} className="rounded-md" sizes="(max-width: 768px) 100vw, 50vw"/>
                                               </div>
                                               <Button
                                                   type="button"
@@ -571,15 +571,15 @@ export default function CreateEventPage() {
                                               >
                                                   <X className="h-3 w-3" />
                                               </Button>
-                                          </React.Fragment>
+                                          </>
                                       ) : (
-                                        <React.Fragment>
+                                        <>
                                           <ImageIcon className="h-12 w-12 text-muted-foreground mb-2" />
                                           <p className="text-sm text-muted-foreground mb-2">Glissez-déposez ou cliquez pour ajouter</p>
                                            <Button type="button" variant="outline" size="sm" onClick={() => coverPhotoInputRef.current?.click()}>
                                               Ajouter une photo
                                           </Button>
-                                        </React.Fragment>
+                                        </>
                                       )}
                                        <Input
                                           ref={coverPhotoInputRef}
@@ -588,7 +588,7 @@ export default function CreateEventPage() {
                                           className="hidden"
                                           onChange={handleCoverPhotoChange}
                                       />
-                                    </div>
+                                    </React.Fragment>
                                   </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
@@ -627,7 +627,6 @@ export default function CreateEventPage() {
                             <FormItem>
                             <FormLabel>Ajouter des participants</FormLabel>
                             <FormControl>
-                              <div className="contents"> {/* Using div with 'contents' for single child requirement */}
                                 <Combobox
                                     options={comboboxOptions}
                                     onSelect={(userId) => {
@@ -638,7 +637,6 @@ export default function CreateEventPage() {
                                     emptyPlaceholder="Aucun utilisateur trouvé."
                                     triggerIcon={<UserPlus className="mr-2 h-4 w-4" />}
                                 />
-                              </div>
                             </FormControl>
                             <FormDescription>Les participants doivent avoir un compte.</FormDescription>
                             <FormMessage />
@@ -693,7 +691,7 @@ export default function CreateEventPage() {
                       render={({ field }) => (
                         <FormItem>
                            <FormControl>
-                             <div className="contents"> {/* Using div with 'contents' for single child requirement */}
+                             <React.Fragment> {/* Ensure a single child for FormControl */}
                               <Button type="button" variant="outline" onClick={() => mediaInputRef.current?.click()} className="w-full">
                                 <Upload className="mr-2 h-4 w-4" /> Importer Souvenirs (Photos, Vidéos, Sons)
                               </Button>
@@ -705,7 +703,7 @@ export default function CreateEventPage() {
                                  onChange={handleMediaFileChange}
                                  className="hidden"
                                />
-                             </div>
+                             </React.Fragment>
                            </FormControl>
                           <FormDescription className="text-center">
                             Max {MEDIA_MAX_FILE_SIZE_CONFIG.image / 1024 / 1024}Mo/Image, {MEDIA_MAX_FILE_SIZE_CONFIG.video / 1024 / 1024}Mo/Vidéo, {MEDIA_MAX_FILE_SIZE_CONFIG.audio / 1024 / 1024}Mo/Son.
@@ -781,7 +779,7 @@ export default function CreateEventPage() {
                                     <Slider
                                         defaultValue={[0]}
                                         value={[field.value || 0]}
-                                        max={5} // Scale 0-5 for display
+                                        max={5} 
                                         step={0.5}
                                         onValueChange={(value) => field.onChange(value[0])}
                                         className="w-[calc(100%-5rem)]"

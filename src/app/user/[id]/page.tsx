@@ -173,7 +173,6 @@ export default function UserProfilePage() {
                  console.log(`[UserProfilePage fetchData] User document found for ID: ${profileUserId}`, userDocSnap.data());
                 const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as Omit<UserData, 'eventCount' | 'commentCount' | 'averageRatingGiven'>;
 
-                // Initialize stats, they will be updated if subsequent queries succeed
                 let fetchedPartiesData: PartyData[] = [];
                 let fetchedCommentsData: CommentData[] = [];
 
@@ -186,8 +185,6 @@ export default function UserProfilePage() {
                     setUserParties(fetchedPartiesData);
                 } catch (partiesError: any) {
                     console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des fêtes participées: ${partiesError.message}`);
-                    // Ne pas bloquer l'affichage du profil si cette requête échoue, afficher un message partiel.
-                    // setError(prev => prev ? `${prev}\nImpossible de charger les événements.` : "Impossible de charger les événements.");
                 }
 
                 try {
@@ -211,8 +208,6 @@ export default function UserProfilePage() {
                 } catch (commentsError: any)
                  {
                     console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des commentaires: ${commentsError.message}`);
-                    // Ne pas bloquer l'affichage du profil si cette requête échoue.
-                    // setError(prev => prev ? `${prev}\nImpossible de charger les commentaires.` : "Impossible de charger les commentaires.");
                 }
                 
                 setProfileUserData({
@@ -263,7 +258,6 @@ export default function UserProfilePage() {
              if (newAvatarPreview) URL.revokeObjectURL(newAvatarPreview);
              setNewAvatarPreview(null);
         }
-        // Réinitialiser la valeur de l'input pour permettre de sélectionner à nouveau le même fichier
         if (event.target) event.target.value = '';
     };
 
@@ -327,12 +321,10 @@ export default function UserProfilePage() {
 
     const stats = useMemo(() => {
         if (!profileUserData) return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
-        // Utiliser les données de userParties et userComments pour les compteurs,
-        // car profileUserData.eventCount et .commentCount pourraient ne pas être à jour si les requêtes partielles échouent.
         return {
             eventCount: userParties.length,
             commentCount: userComments.length,
-            averageRatingGiven: profileUserData.averageRatingGiven, // Celle-ci est calculée à partir de userParties donc OK
+            averageRatingGiven: profileUserData.averageRatingGiven, 
         };
     }, [profileUserData, userParties, userComments]);
 
@@ -382,7 +374,7 @@ export default function UserProfilePage() {
         );
     }
 
-    if (error && !profileUserData) { // Afficher l'erreur seulement si profileUserData n'a pas pu être chargé du tout
+    if (error && !profileUserData) { 
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
@@ -395,9 +387,6 @@ export default function UserProfilePage() {
     }
 
     if (!profileUserData) { 
-        // Cela pourrait se produire si le fetch initial a échoué mais n'a pas défini d'erreur (improbable avec la logique actuelle)
-        // ou si l'ID de profil n'est pas valide et que le fetch n'a pas encore terminé ou a défini l'erreur.
-        // Le message d'erreur ci-dessus devrait couvrir le cas où l'utilisateur n'est pas trouvé.
         return <div className="container mx-auto px-4 py-12 text-center">Chargement du profil ou utilisateur non trouvé...</div>;
     }
 
@@ -406,7 +395,7 @@ export default function UserProfilePage() {
 
     return (
         <div className="container mx-auto max-w-6xl px-4 py-8">
-             {error && ( // Afficher un avertissement si certaines données n'ont pas pu être chargées mais que le profil de base l'a été
+             {error && ( 
                 <Alert variant="warning" className="mb-6">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Avertissement</AlertTitle>
@@ -434,7 +423,7 @@ export default function UserProfilePage() {
                                     <Input id="new-avatar-input" type="file" accept={ACCEPTED_AVATAR_TYPES.join(',')} onChange={handleNewAvatarFileChange} className="col-span-3" />
                                     {newAvatarPreview && (
                                         <div className="relative aspect-square w-32 h-32 mx-auto border rounded-full mt-2 bg-muted overflow-hidden">
-                                            <Image src={newAvatarPreview} alt="Aperçu nouvel avatar" layout="fill" objectFit="cover" />
+                                            <Image src={newAvatarPreview} alt="Aperçu nouvel avatar" fill style={{ objectFit: 'cover' }} sizes="128px" />
                                             <Button variant="destructive" size="icon" className="absolute top-0 right-0 h-6 w-6 rounded-full z-10 text-xs" onClick={() => { setNewAvatarFile(null); if(newAvatarPreview) URL.revokeObjectURL(newAvatarPreview); setNewAvatarPreview(null); }}> <X className="h-3 w-3" /> </Button>
                                         </div>
                                     )}
@@ -476,7 +465,7 @@ export default function UserProfilePage() {
                         <p className="text-xs text-muted-foreground uppercase">Commentaires</p>
                     </div>
                      <div>
-                        <p className="text-xl md:text-2xl font-bold text-primary">{(stats.averageRatingGiven / 2).toFixed(1)} ★</p> {/* Displayed 0-5 */}
+                        <p className="text-xl md:text-2xl font-bold text-primary">{(stats.averageRatingGiven / 2).toFixed(1)} ★</p> 
                         <p className="text-xs text-muted-foreground uppercase">Note Moy.</p>
                     </div>
                 </div>
@@ -503,7 +492,7 @@ export default function UserProfilePage() {
                                             <Card className="overflow-hidden h-full bg-secondary hover:border-primary/50">
                                                 <div className="aspect-video relative w-full bg-muted">
                                                    {party.coverPhotoUrl ? (
-                                                        <Image src={party.coverPhotoUrl} alt={party.name} layout="fill" objectFit="cover" className="group-hover:scale-105 transition-transform" data-ai-hint="fête evenement" />
+                                                        <Image src={party.coverPhotoUrl} alt={party.name} fill style={{ objectFit: 'cover' }} className="group-hover:scale-105 transition-transform" data-ai-hint="fête evenement" sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"/>
                                                    ) : (
                                                        <div className="flex items-center justify-center h-full"> <ImageIcon className="h-10 w-10 text-muted-foreground/50"/></div>
                                                    )}
@@ -539,14 +528,14 @@ export default function UserProfilePage() {
                                                  <Card className="overflow-hidden h-full bg-secondary hover:border-primary/50">
                                                      <div className="aspect-video relative w-full bg-muted">
                                                         {party.coverPhotoUrl ? (
-                                                             <Image src={party.coverPhotoUrl} alt={party.name} layout="fill" objectFit="cover" className="group-hover:scale-105 transition-transform" data-ai-hint="fête populaire" />
+                                                             <Image src={party.coverPhotoUrl} alt={party.name} fill style={{ objectFit: 'cover' }} className="group-hover:scale-105 transition-transform" data-ai-hint="fête populaire" sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"/>
                                                         ) : (
                                                             <div className="flex items-center justify-center h-full"> <ImageIcon className="h-10 w-10 text-muted-foreground/50"/></div>
                                                         )}
                                                           {overallAvg > 0 && (
                                                               <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white text-xs font-semibold px-2 py-1 rounded-full flex items-center space-x-1">
                                                                  <Star className="h-3 w-3 text-yellow-400 fill-current" />
-                                                                 <span>{(overallAvg / 2).toFixed(1)}</span> {/* Convert 0-10 to 0-5 */}
+                                                                 <span>{(overallAvg / 2).toFixed(1)}</span> 
                                                              </div>
                                                           )}
                                                      </div>

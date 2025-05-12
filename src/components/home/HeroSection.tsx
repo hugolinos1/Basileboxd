@@ -1,3 +1,4 @@
+// src/components/home/HeroSection.tsx
 'use client';
 
 import Image from 'next/image';
@@ -9,7 +10,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { Skeleton } from '@/components/ui/skeleton';
 
-const DEFAULT_HERO_IMAGE_URL = "https://i.ibb.co/NnTT13h0/Snapchat-1715506731.jpg"; // Votre image actuelle comme secours
+const DEFAULT_HERO_IMAGE_URL = "https://i.ibb.co/NnTT13h0/Snapchat-1715506731.jpg";
 
 export function HeroSection() {
   const [heroImageUrl, setHeroImageUrl] = useState<string | null>(null);
@@ -34,7 +35,7 @@ export function HeroSection() {
         }
       } catch (error) {
         console.error("Error fetching hero image URL:", error);
-        setHeroImageUrl(DEFAULT_HERO_IMAGE_URL); // Fallback on error
+        setHeroImageUrl(DEFAULT_HERO_IMAGE_URL);
       } finally {
         setLoadingImage(false);
       }
@@ -53,15 +54,16 @@ export function HeroSection() {
         <Image
           src={currentImage}
           alt="Groupe de jeunes s'amusant à une fête ou un concert"
-          layout="fill"
-          objectFit="cover"
+          fill
+          style={{ objectFit: 'cover' }}
           quality={85}
           priority
           className="absolute inset-0 z-0"
           data-ai-hint="fête jeunes soirée"
+          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1600px"
           onError={() => {
             console.warn(`Error loading hero image: ${currentImage}. Falling back to default.`);
-            setHeroImageUrl(DEFAULT_HERO_IMAGE_URL); // Fallback if the fetched URL is broken
+            setHeroImageUrl(DEFAULT_HERO_IMAGE_URL);
           }}
           unoptimized={currentImage.includes('i.ibb.co') || currentImage.includes('localhost') || !currentImage.startsWith('https')}
         />
@@ -80,7 +82,7 @@ export function HeroSection() {
             <div className="flex space-x-3">
               <Link href="/events/create" passHref>
                 <Button variant="default" size="lg" className="bg-white text-black hover:bg-gray-200">
-                  <PlusCircle className="mr-2 h-5 w-5 fill-black" />
+                  <PlusCircle className="mr-2 h-5 w-5 fill-primary" />
                   Créer un Event
                 </Button>
               </Link>

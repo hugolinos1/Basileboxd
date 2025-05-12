@@ -38,12 +38,12 @@ import { Progress } from '@/components/ui/progress';
 // Import centralized uploader and helpers
 import {
   uploadFile,
-  getFileType as getMediaFileType, // Renamed to avoid conflict
+  getFileType as getMediaFileType, 
   ACCEPTED_MEDIA_TYPES,
   ACCEPTED_COVER_PHOTO_TYPES,
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
-  ACCEPTED_AVATAR_TYPES, // Ensure this is exported from media-uploader
+  ACCEPTED_AVATAR_TYPES, 
   COMPRESSED_AVATAR_MAX_SIZE_MB
 } from '@/services/media-uploader';
 import { coverPhotoSchema, avatarSchema } from '@/services/validation-schemas'; 
@@ -210,8 +210,7 @@ export default function PartyDetailsPage() {
   const isCreator = useMemo(() => currentUser && party && currentUser.uid === party.createdBy, [currentUser, party]);
   const canManageParty = useMemo(() => currentUser && party && (currentUser.uid === party.createdBy || isAdmin), [currentUser, party, isAdmin]);
 
-  // Moved hooks before early returns
-  const partyDate = party ? getDateFromTimestamp(party.date) : null;
+  const partyDate = useMemo(() => party ? getDateFromTimestamp(party.date) : null, [party]);
 
   const comboboxOptions = useMemo(() => {
     if (!allUsers || !party || !party.participants) {
@@ -446,8 +445,12 @@ export default function PartyDetailsPage() {
     } catch (commentError: any) {
         console.error('Erreur commentaire/réponse:', commentError);
         let errorMessage = commentError.message || 'Impossible d\'ajouter le commentaire/réponse.';
-         if (commentError.code === 'invalid-argument' && commentError.message?.includes('serverTimestamp()')) {
-            errorMessage = "Erreur de timestamp serveur. Utilisation de Timestamp.now() pour le client.";
+         if (commentError.code === 'invalid-argument') {
+             if (commentError.message?.includes('Unsupported field value')) {
+                errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
+            } else if (commentError.message?.includes('serverTimestamp')) { 
+                errorMessage = "Erreur de timestamp serveur. Réessayez.";
+            }
         } else if (commentError.code === 'permission-denied') {
             errorMessage = "Permission refusée. Vous ne pouvez peut-être pas commenter/répondre.";
         }
@@ -496,9 +499,13 @@ export default function PartyDetailsPage() {
     } catch (replyError: any) {
       console.error('Erreur lors de l\'ajout de la réponse:', replyError);
       let errorMessage = replyError.message || 'Impossible d\'ajouter la réponse.';
-        if (replyError.code === 'invalid-argument' && replyError.message?.includes('serverTimestamp()')) {
-           errorMessage = "Erreur de timestamp serveur. Utilisation de Timestamp.now() pour le client.";
-       }
+        if (replyError.code === 'invalid-argument') {
+            if (replyError.message?.includes('Unsupported field value')) {
+                errorMessage = "Une valeur invalide a été envoyée. Veuillez réessayer.";
+            } else if (replyError.message?.includes('serverTimestamp')) {
+                errorMessage = "Erreur de timestamp serveur. Réessayez.";
+            }
+        }
       toast({ title: 'Erreur Réponse', description: errorMessage, variant: 'destructive' });
     } finally {
       setIsSubmittingComment(false);
@@ -573,7 +580,7 @@ export default function PartyDetailsPage() {
                         type: getMediaFileType(file),
                         uploaderId: currentUser.uid,
                         uploaderEmail: currentUser.email || undefined,
-                        uploadedAt: Timestamp.now(), // Use Timestamp.now() for client-side timestamping
+                        uploadedAt: Timestamp.now(), 
                         fileName: file.name,
                       } as MediaItem; 
                 }
@@ -803,15 +810,12 @@ export default function PartyDetailsPage() {
         setIsDeletingSouvenir(true);
         try {
             const partyDocRef = doc(db, 'parties', party.id);
-            // Ensure mediaItemToRemove is the exact object reference from party.mediaItems
             const mediaItemToRemove = party.mediaItems?.find(item => item.id === souvenirToDelete.id);
 
             if (!mediaItemToRemove) {
                  toast({ title: "Erreur", description: "Le souvenir à supprimer n'a pas été trouvé dans la liste actuelle.", variant: "destructive" });
                  setIsDeletingSouvenir(false);
-                 setShowDeleteSouvenirDialog(false); // Ensure dialog closes
-                 // Optionally, re-fetch party data if state might be stale
-                 // fetchPartyData(); // Or trigger a snapshot update
+                 setShowDeleteSouvenirDialog(false); 
                  return;
             }
             
@@ -829,9 +833,7 @@ export default function PartyDetailsPage() {
         }
     };
 
-
   const showSkeleton = pageLoading || userLoading;
-
 
   const renderComment = (cmt: CommentWithReplies, level = 0) => {
     const commentDate = getDateFromTimestamp(cmt.timestamp);
@@ -922,7 +924,7 @@ export default function PartyDetailsPage() {
      let mediaElement: JSX.Element;
      if (item.type === 'video') { mediaElement = ( <div className="aspect-video bg-black rounded-lg overflow-hidden relative shadow-md"> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement vidéo</div>} <ReactPlayer url={item.url} controls width="100%" height="100%" onError={onError} className="absolute top-0 left-0" config={{ file: { attributes: { controlsList: 'nodownload' } } }} /> </div> ); }
      else if (item.type === 'audio') { mediaElement = ( <div className="w-full bg-card p-3 rounded-lg shadow"> <ReactPlayer url={item.url} controls width="100%" height="40px" onError={onError}/> {playerError && <p className="text-destructive text-xs mt-1">Erreur chargement audio</p>} </div> ); }
-     else if (item.type === 'image') { mediaElement = ( <div className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={item.url} alt={`Souvenir ${item.fileName || item.id}`} layout="fill" objectFit="cover" className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="fête souvenir photo" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
+     else if (item.type === 'image') { mediaElement = ( <div className="relative aspect-square w-full overflow-hidden rounded-lg shadow-md group"> <Image src={item.url} alt={`Souvenir ${item.fileName || item.id}`} fill style={{ objectFit: 'cover' }} className="transition-transform duration-300 group-hover:scale-105" loading="lazy" onError={onError} data-ai-hint="fête souvenir photo" sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw" /> {playerError && <div className="absolute inset-0 flex items-center justify-center bg-muted text-destructive-foreground p-4 text-center">Erreur chargement image</div>} </div> ); }
      else { mediaElement = ( <div className="bg-secondary rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground shadow"> <FileIcon className="h-4 w-4" /> <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate"> {item.fileName || `Média ${item.id}`} </a> </div> );}
 
      return (
@@ -942,7 +944,6 @@ export default function PartyDetailsPage() {
          </div>
      );
    };
-
 
   if (showSkeleton) {
     return (
@@ -1012,14 +1013,13 @@ export default function PartyDetailsPage() {
 
   if (!party) { return <div className="container mx-auto px-4 py-12 text-center">Fête non trouvée.</div>; }
 
-
   return (
     <div className="container mx-auto px-4 py-8 md:py-12">
       <Card className="bg-card border border-border overflow-hidden shadow-lg">
         <CardHeader className="p-0 relative border-b border-border/50">
            <div className="relative h-48 md:h-64 lg:h-80 w-full group">
                {party.coverPhotoUrl ? (
-                   <Image src={party.coverPhotoUrl} alt={`Couverture ${party.name}`} fill style={{ objectFit: 'cover' }} quality={80} priority data-ai-hint="fête couverture événement" />
+                   <Image src={party.coverPhotoUrl} alt={`Couverture ${party.name}`} fill style={{ objectFit: 'cover' }} quality={80} priority data-ai-hint="fête couverture événement" sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1600px"/>
                ) : (
                    <div className="absolute inset-0 bg-gradient-to-br from-secondary via-muted to-secondary flex items-center justify-center"> <ImageIconLucide className="h-16 w-16 text-muted-foreground/50" /> </div>
                )}
@@ -1046,7 +1046,7 @@ export default function PartyDetailsPage() {
                                   className="col-span-3" />
                                  {newCoverPreview && (
                                      <div className="relative aspect-video w-full border rounded mt-2 bg-muted">
-                                         <Image src={newCoverPreview} alt="Aperçu nouvelle couverture" fill style={{ objectFit: 'contain' }} />
+                                         <Image src={newCoverPreview} alt="Aperçu nouvelle couverture" fill style={{ objectFit: 'contain' }} sizes="(max-width: 425px) 100vw, 50vw" />
                                           <Button variant="destructive" size="icon" className="absolute -top-2 -right-2 h-5 w-5 rounded-full z-10" onClick={() => { setNewCoverFile(null); if(newCoverPreview) URL.revokeObjectURL(newCoverPreview); setNewCoverPreview(null); if(coverPhotoInputRef.current) coverPhotoInputRef.current.value = ''; }}> <X className="h-3 w-3" /> </Button>
                                      </div>
                                  )}
@@ -1241,7 +1241,7 @@ export default function PartyDetailsPage() {
                                 )}
                                 <Textarea
                                     ref={commentInputRef} 
-                                    placeholder={replyingToCommentInfo ? `Votre réponse à ${replyingToCommentInfo.userEmail}...` : "Votre commentaire..."} 
+                                    placeholder={replyingToCommentInfo ? "Votre réponse..." : "Votre commentaire..."} 
                                     value={replyingToCommentInfo ? replyText : comment}
                                     onChange={(e) => replyingToCommentInfo ? setReplyText(e.target.value) : setComment(e.target.value)}
                                     className="w-full mb-2 bg-input border-border focus:bg-background focus:border-primary"
@@ -1358,9 +1358,9 @@ export default function PartyDetailsPage() {
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                    <AlertDialogCancel onClick={() => setSouvenirToDelete(null)} disabled={isDeletingSouvenir}>Annuler</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmDeleteSouvenir} disabled={isDeletingSouvenir || !currentUser} className="bg-destructive hover:bg-destructive/90">
-                        {isDeletingSouvenir ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
+                    <AlertDialogCancel onClick={() => setSouvenirToDelete(null)} disabled={isDeleting}>Annuler</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmDeleteSouvenir} disabled={isDeleting || !currentUser} className="bg-destructive hover:bg-destructive/90">
+                        {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
                         Supprimer
                     </AlertDialogAction>
                 </AlertDialogFooter>
@@ -1374,8 +1374,3 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
-
-
-
-
-

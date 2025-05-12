@@ -15,8 +15,8 @@ import { ACCEPTED_COVER_PHOTO_TYPES, MAX_FILE_SIZE } from '@/services/media-uplo
 import { useFirebase } from '@/context/FirebaseContext';
 import { Skeleton } from '@/components/ui/skeleton';
 
-const HERO_IMAGE_STORAGE_PATH = 'siteConfiguration/heroImage'; // Path for the image in Storage
-const HERO_SETTINGS_DOC_PATH = 'siteConfiguration/heroSettings'; // Path for the Firestore document storing the URL
+const HERO_IMAGE_STORAGE_PATH = 'siteConfiguration/heroImage';
+const HERO_SETTINGS_DOC_PATH = 'siteConfiguration/heroSettings';
 const DEFAULT_HERO_IMAGE_URL = "https://i.ibb.co/NnTT13h0/Snapchat-1715506731.jpg";
 
 export function AdminHeroImageManagement() {
@@ -84,38 +84,31 @@ export function AdminHeroImageManagement() {
     }
     setIsUploading(true);
 
-    // Attempt to delete the old image first if it's not the default one
     if (currentHeroImageUrl && currentHeroImageUrl !== DEFAULT_HERO_IMAGE_URL) {
         try {
-            // Extract the path from the URL. This is a common pattern, but might need adjustment based on your URL format.
             const oldImagePath = new URL(currentHeroImageUrl).pathname.split('/o/')[1].split('?')[0];
-            if (oldImagePath && oldImagePath !== HERO_IMAGE_STORAGE_PATH) { // Avoid deleting the "folder" itself
+            if (oldImagePath && oldImagePath !== HERO_IMAGE_STORAGE_PATH) { 
                  await deleteObject(ref(storage, decodeURIComponent(oldImagePath)));
                  console.log("Ancienne image de la page d'accueil supprimée de Storage.");
             }
         } catch (deleteError: any) {
-            // Log error but continue with upload, as the old image might not exist or path extraction failed
             console.warn("Avertissement lors de la suppression de l'ancienne image:", deleteError.message);
-             // If it's a "object-not-found" error, it's fine, just means it was already deleted or never existed at that path.
             if (deleteError.code !== 'storage/object-not-found') {
                  toast({ title: "Avertissement", description: "Impossible de supprimer l'ancienne image de fond, mais la nouvelle sera téléversée.", variant: "default" });
             }
         }
     }
 
-
     const fileExtension = newHeroImageFile.name.split('.').pop();
     const newImageFileName = `heroImage-${Date.now()}.${fileExtension}`;
-    const newImageStoragePath = `${HERO_IMAGE_STORAGE_PATH}/${newImageFileName}`; // e.g. siteConfiguration/heroImage/heroImage-timestamp.jpg
+    const newImageStoragePath = `${HERO_IMAGE_STORAGE_PATH}/${newImageFileName}`;
     const storageRefInstance = ref(storage, newImageStoragePath);
 
     try {
       const uploadTask = uploadBytesResumable(storageRefInstance, newHeroImageFile);
 
       uploadTask.on('state_changed',
-        (snapshot) => {
-          // Optional: Manage progress
-        },
+        (snapshot) => {},
         (error) => {
           console.error("Upload error:", error);
           toast({ title: "Échec du téléversement", description: error.message, variant: "destructive" });
@@ -123,7 +116,6 @@ export function AdminHeroImageManagement() {
         },
         async () => {
           const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          // Use setDoc to overwrite or create the document with the new URL.
           await setDoc(doc(db, HERO_SETTINGS_DOC_PATH), { heroImageUrl: downloadURL });
           setCurrentHeroImageUrl(downloadURL);
           toast({ title: "Image de fond mise à jour !" });
@@ -148,11 +140,10 @@ export function AdminHeroImageManagement() {
     }
     setIsUploading(true); 
     try {
-      // If currentHeroImageUrl is not the default, try to delete it from Storage
       if (currentHeroImageUrl && currentHeroImageUrl !== DEFAULT_HERO_IMAGE_URL) {
         try {
           const imagePath = new URL(currentHeroImageUrl).pathname.split('/o/')[1].split('?')[0];
-           if (imagePath && imagePath.startsWith(HERO_IMAGE_STORAGE_PATH)) { // Make sure we are deleting within the designated path
+           if (imagePath && imagePath.startsWith(HERO_IMAGE_STORAGE_PATH)) { 
              await deleteObject(ref(storage, decodeURIComponent(imagePath)));
              console.log("Image de fond actuelle supprimée de Storage.");
            }
@@ -163,7 +154,6 @@ export function AdminHeroImageManagement() {
            }
         }
       }
-      // Update Firestore to use the default URL
       await setDoc(doc(db, HERO_SETTINGS_DOC_PATH), { heroImageUrl: DEFAULT_HERO_IMAGE_URL }); 
       setCurrentHeroImageUrl(DEFAULT_HERO_IMAGE_URL);
       toast({ title: "Image de fond réinitialisée à la valeur par défaut." });
@@ -174,7 +164,6 @@ export function AdminHeroImageManagement() {
         setIsUploading(false);
     }
   };
-
 
   return (
     <Card className="bg-card border-border">
@@ -195,9 +184,9 @@ export function AdminHeroImageManagement() {
                 fill 
                 style={{ objectFit: 'cover' }} 
                 priority 
-                unoptimized={currentHeroImageUrl.includes('i.ibb.co') || currentHeroImageUrl.includes('localhost') || !currentHeroImageUrl.startsWith('https')} 
                 data-ai-hint="accueil fête concert"
                 sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                unoptimized={currentHeroImageUrl.includes('i.ibb.co') || currentHeroImageUrl.includes('localhost') || !currentHeroImageUrl.startsWith('https')} 
               />
             </div>
           ) : (
