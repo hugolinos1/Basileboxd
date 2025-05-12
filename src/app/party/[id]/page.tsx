@@ -1,4 +1,3 @@
-
 // src/app/party/[id]/page.tsx
 'use client';
 
@@ -29,7 +28,6 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
-  AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle as AlertDialogUITitle, 
 } from "@/components/ui/alert-dialog";
@@ -212,60 +210,6 @@ export default function PartyDetailsPage() {
 
   const partyDate = useMemo(() => party ? getDateFromTimestamp(party.date) : null, [party]);
 
-  const comboboxOptions = useMemo(() => {
-    if (!allUsers || !party || !party.participants) {
-        return [];
-    }
-    return allUsers
-        .filter(u => !party.participants.map(pUid => pUid.toLowerCase()).includes(u.uid.toLowerCase()))
-        .map(u => ({
-            value: u.uid,
-            label: u.pseudo || u.displayName || u.email || u.uid,
-        }));
-  }, [allUsers, party]);
-
-  const organizedComments = useMemo(() => {
-    if (!commentsData) return [];
-    const commentsMap = new Map<string, CommentWithReplies>();
-    const topLevelComments: CommentWithReplies[] = [];
-
-    const sortedForProcessing = [...commentsData].sort((a, b) => {
-        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
-        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
-        return timeA - timeB; 
-    });
-
-    sortedForProcessing.forEach(commentItem => { 
-      if (!commentItem.id) {
-          console.warn("Commentaire sans ID rencontré lors de l'organisation:", commentItem);
-          return; 
-      }
-      const commentWithReplies: CommentWithReplies = { ...commentItem, replies: [] } as CommentWithReplies;
-      commentsMap.set(commentItem.id, commentWithReplies);
-
-      if (commentItem.parentId && commentsMap.has(commentItem.parentId)) {
-        const parentComment = commentsMap.get(commentItem.parentId)!;
-        commentWithReplies.parentAuthorEmail = parentComment.email; 
-        parentComment.replies.push(commentWithReplies);
-      } else {
-        topLevelComments.push(commentWithReplies);
-      }
-    });
-    
-    const sortRepliesDesc = (replies: CommentWithReplies[]) => {
-        replies.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
-        replies.forEach(reply => { if(reply.replies.length > 0) sortRepliesDesc(reply.replies)});
-    }
-    topLevelComments.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
-    topLevelComments.forEach(commentItem => { 
-      if(commentItem.replies.length > 0) sortRepliesDesc(commentItem.replies);
-    });
-
-    return topLevelComments;
-  }, [commentsData]);
-
-
-  // --- Effects ---
   useEffect(() => {
     if (!firebaseInitialized || userLoading) {
        console.log("[PartyDetailsPage] En attente de l'init/auth Firebase...");
@@ -835,6 +779,47 @@ export default function PartyDetailsPage() {
 
   const showSkeleton = pageLoading || userLoading;
 
+  const organizedComments = useMemo(() => {
+    if (!commentsData) return [];
+    const commentsMap = new Map<string, CommentWithReplies>();
+    const topLevelComments: CommentWithReplies[] = [];
+
+    const sortedForProcessing = [...commentsData].sort((a, b) => {
+        const timeA = getDateFromTimestamp(a.timestamp)?.getTime() || 0;
+        const timeB = getDateFromTimestamp(b.timestamp)?.getTime() || 0;
+        return timeA - timeB; 
+    });
+
+    sortedForProcessing.forEach(commentItem => { 
+      if (!commentItem.id) {
+          console.warn("Commentaire sans ID rencontré lors de l'organisation:", commentItem);
+          return; 
+      }
+      const commentWithReplies: CommentWithReplies = { ...commentItem, replies: [] } as CommentWithReplies;
+      commentsMap.set(commentItem.id, commentWithReplies);
+
+      if (commentItem.parentId && commentsMap.has(commentItem.parentId)) {
+        const parentComment = commentsMap.get(commentItem.parentId)!;
+        commentWithReplies.parentAuthorEmail = parentComment.email; 
+        parentComment.replies.push(commentWithReplies);
+      } else {
+        topLevelComments.push(commentWithReplies);
+      }
+    });
+    
+    const sortRepliesDesc = (replies: CommentWithReplies[]) => {
+        replies.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
+        replies.forEach(reply => { if(reply.replies.length > 0) sortRepliesDesc(reply.replies)});
+    }
+    topLevelComments.sort((a,b) => (getDateFromTimestamp(b.timestamp)?.getTime() || 0) - (getDateFromTimestamp(a.timestamp)?.getTime() || 0));
+    topLevelComments.forEach(commentItem => { 
+      if(commentItem.replies.length > 0) sortRepliesDesc(commentItem.replies);
+    });
+
+    return topLevelComments;
+  }, [commentsData]);
+
+
   const renderComment = (cmt: CommentWithReplies, level = 0) => {
     const commentDate = getDateFromTimestamp(cmt.timestamp);
     const showReplyForm = replyingToCommentId === cmt.id;
@@ -944,6 +929,20 @@ export default function PartyDetailsPage() {
          </div>
      );
    };
+
+
+  const comboboxOptions = useMemo(() => {
+    if (!allUsers || !party || !party.participants) {
+        return [];
+    }
+    return allUsers
+        .filter(u => !party.participants.map(pUid => pUid.toLowerCase()).includes(u.uid.toLowerCase()))
+        .map(u => ({
+            value: u.uid,
+            label: u.pseudo || u.displayName || u.email || u.uid,
+        }));
+  }, [allUsers, party]);
+
 
   if (showSkeleton) {
     return (
@@ -1358,9 +1357,9 @@ export default function PartyDetailsPage() {
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                    <AlertDialogCancel onClick={() => setSouvenirToDelete(null)} disabled={isDeleting}>Annuler</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmDeleteSouvenir} disabled={isDeleting || !currentUser} className="bg-destructive hover:bg-destructive/90">
-                        {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
+                    <AlertDialogCancel onClick={() => setSouvenirToDelete(null)} disabled={isDeletingSouvenir}>Annuler</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmDeleteSouvenir} disabled={isDeletingSouvenir || !currentUser} className="bg-destructive hover:bg-destructive/90">
+                        {isDeletingSouvenir ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
                         Supprimer
                     </AlertDialogAction>
                 </AlertDialogFooter>
@@ -1374,3 +1373,4 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
