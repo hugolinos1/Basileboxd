@@ -1,47 +1,193 @@
+Okay, d'après les logs, le problème est très clair maintenant !
+
+Regardez cette ligne :
+`page.tsx:215 [UserProfilePage fetchData] Erreur lors de la récupération des commentaires: Missing or insufficient permissions. FirebaseError: Missing or insufficient permissions.`
+
+Cela signifie que :
+1.  La récupération des informations de base de l'utilisateur (`users/2MhVLopnYRYRt9mergiwYy0dx893`) fonctionne.
+2.  La récupération des événements auxquels l'utilisateur a participé fonctionne.
+3.  La récupération des commentaires de cet utilisateur *échoue* avec une erreur de permissions.
+
+Le problème se situe donc très probablement dans vos règles de sécurité Firestore concernant la lecture de la sous-collection `comments` via une requête `collectionGroup`.
+
+**Voici vos règles actuelles (partie pertinente) :**
+
+```
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ... (règles pour isAdmin et parties) ...
+
+    match /parties/{partyId} {
+      // ... (règles pour parties) ...
+
+      match /comments/{commentId} { // <--- CETTE RÈGLE EST TROP SPÉCIFIQUE POUR collectionGroup
+        allow read: if true; 
+        // ... (autres règles pour comments)
+      }
+    }
+
+    // ... (règles pour users) ...
+  }
+}
+```
+
+**Le Problème :**
+
+Votre requête `collectionGroup(db, 'comments')` interroge *tous* les documents de *toutes* les collections nommées `comments`, où qu'elles se trouvent dans votre base de données.
+Cependant, votre règle `allow read: if true;` pour les commentaires est *imbriquée* sous `match /parties/{partyId}`. Cela signifie que cette règle de lecture pour les commentaires ne s'applique que si vous accédez aux commentaires via le chemin complet `parties/{partyId}/comments/{commentId}`.
+
+Pour une requête `collectionGroup`, vous avez besoin d'une règle qui s'applique au niveau du groupe de collections lui-même.
+
+**Solution : Modifier les règles de sécurité Firestore**
+
+Vous devez ajouter une règle spécifique pour le `collectionGroup` 'comments' au niveau racine de vos `documents`.
+
+Voici les règles modifiées :
+
+```
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Rules for the 'parties' collection
-    match /parties/{partyId} {
-      // Allow any authenticated user to read event details
-      allow read: if request.auth != null;
-
-      // Allow any authenticated user to create an event, ensuring they set themselves as creator
-      allow create: if request.auth != null
-                    && request.resource.data.name is string // Example validation
-                    && request.resource.data.date is timestamp // Example validation
-                    && request.resource.data.createdBy == request.auth.uid; // Creator must be the authenticated user
-
-      // Allow updates under specific conditions
-      allow update: if request.auth != null && (
-                      // Condition 1: Allow ANY authenticated user to update ONLY 'ratings' or 'comments'
-                      (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings', 'comments'])) ||
-                      // Condition 2: Allow the CREATOR to update other specific fields, but NOT change the creator
-                      (request.auth.uid == resource.data.createdBy &&
-                       request.resource.data.diff(resource.data).affectedKeys().hasAny(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'participantEmails', 'participants', 'mediaUrls']) &&
-                       request.resource.data.createdBy == resource.data.createdBy // Ensure creator ID cannot be changed
-                      )
-                    );
-
-      // Disallow client-side deletion for now
-      allow delete: if false;
+    // Fonction utilitaire pour vérifier si l'utilisateur est un administrateur
+    function isAdmin() {
+      // ASSUREZ-VOUS D'AVOIR REMPLACÉ '4aqCNYkLwgXpp5kjMnGA6V0bdL52' PAR L'UID RÉEL DE VOTRE ADMIN
+      return request.auth != null && request.auth.uid == '4aqCNYkLwgXpp5kjMnGA6V0bdL52';
     }
 
-    // Rules for the 'users' collection (Important for fetching user profiles)
+    // Règle pour la collection "parties" (Événements)
+    match /parties/{partyId} {
+      allow read: if true; 
+
+      allow create: if request.auth != null &&
+                       request.resource.data.name is string &&
+                       request.resource.data.name.size() > 0 &&
+                       request.resource.data.date is timestamp &&
+                       request.resource.data.createdBy == request.auth.uid &&
+                       request.resource.data.creatorEmail == request.auth.token.email &&
+                       request.resource.data.participants is list &&
+                       request.auth.uid in request.resource.data.participants;
+
+      allow update: if request.auth != null &&
+                      (
+                        ( (request.auth.uid == resource.data.createdBy || isAdmin()) &&
+                          request.resource.data.diff(resource.data).affectedKeys()
+                            .hasOnly(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'latitude', 'longitude', 'participants', 'participantEmails', 'mediaItems']) &&
+                          (!('name' in request.resource.data.diff(resource.data).affectedKeys()) || (request.resource.data.name is string && request.resource.data.name.size() > 0) ) &&
+                          (!('date' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.date is timestamp ) &&
+                          request.resource.data.createdBy == resource.data.createdBy &&
+                          request.resource.data.creatorEmail == resource.data.creatorEmail
+                        ) ||
+                        ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']) &&
+                          request.resource.data.ratings[request.auth.uid] is number &&
+                          request.resource.data.ratings[request.auth.uid] >= 0 && request.resource.data.ratings[request.auth.uid] <= 10 &&
+                          (resource.data.ratings == null || resource.data.ratings.keys().removeAll(request.resource.data.ratings.keys()).size() == 0) &&
+                           request.resource.data.ratings.keys().removeAll(request.resource.data.ratings == null ? [] : resource.data.ratings.keys()).hasOnly([request.auth.uid])
+                        ) ||
+                        ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
+                          request.resource.data.mediaItems.size() >= (resource.data.mediaItems == null ? 0 : resource.data.mediaItems.size()) &&
+                          ( request.resource.data.mediaItems.size() == 0 || request.resource.data.mediaItems[request.resource.data.mediaItems.size() -1].uploaderId == request.auth.uid )
+                        )
+                      );
+
+      allow delete: if isAdmin();
+
+      // Règles pour la SOUS-COLLECTION "comments" D'UNE "party" spécifique
+      // Utile pour les opérations directes sur /parties/{partyId}/comments/{commentId}
+      match /comments/{commentId} {
+        allow read: if true; 
+
+        allow create: if request.auth != null &&
+                         request.resource.data.userId == request.auth.uid &&
+                         request.resource.data.text is string &&
+                         request.resource.data.text.size() > 0 &&
+                         request.resource.data.partyId == partyId &&
+                         request.resource.data.timestamp is timestamp;
+
+        allow update: if request.auth != null &&
+                         (
+                           (request.auth.uid == resource.data.userId &&
+                            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) &&
+                            request.resource.data.text is string && request.resource.data.text.size() > 0 &&
+                            request.resource.data.userId == resource.data.userId &&
+                            request.resource.data.partyId == resource.data.partyId &&
+                            request.resource.data.timestamp == resource.data.timestamp
+                           ) ||
+                           isAdmin()
+                         );
+
+        allow delete: if request.auth != null &&
+                         (request.auth.uid == resource.data.userId || isAdmin());
+      }
+    }
+
+    // Règle pour la collection "users"
     match /users/{userId} {
-       // Allow any authenticated user to read user profiles
-       allow read: if request.auth != null;
+      allow read: if true;
+      allow create: if request.auth != null &&
+                       request.auth.uid == userId &&
+                       request.resource.data.email == request.auth.token.email &&
+                       request.resource.data.uid == request.auth.uid &&
+                       request.resource.data.createdAt is timestamp;
 
-       // Allow a user to update ONLY their own profile, prevent changing critical fields
-       allow update: if request.auth != null && request.auth.uid == userId
-                     && !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['uid', 'email', 'createdAt'])); // Prevent changing uid, email, createdAt
+      allow update: if request.auth != null &&
+                       (
+                         ( request.auth.uid == userId &&
+                           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'pseudo', 'avatarUrl']) &&
+                           (!('displayName' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.displayName is string) &&
+                           (!('pseudo' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.pseudo is string) &&
+                           (!('avatarUrl' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.avatarUrl is string)
+                         ) ||
+                         isAdmin()
+                       ) &&
+                       (isAdmin() || (
+                           request.resource.data.uid == resource.data.uid &&
+                           request.resource.data.email == resource.data.email &&
+                           request.resource.data.createdAt == resource.data.createdAt
+                       ));
+      allow delete: if isAdmin();
+    }
 
-       // Allow user creation only if the UID matches the authenticated user (prevents arbitrary creation)
-       allow create: if request.auth != null && request.auth.uid == userId;
-
-       // Disallow client-side deletion of user profiles
-       allow delete: if false;
+    // NOUVELLE RÈGLE pour le COLLECTION GROUP "comments"
+    // Cette règle s'applique à toutes les collections nommées "comments"
+    // où qu'elles soient dans la base de données.
+    match /{document=**}/comments/{commentId} {
+      // Autoriser la lecture si l'utilisateur est authentifié OU si l'administrateur effectue la requête
+      // ou si vous voulez que les commentaires soient publics pour tous (if true)
+      allow read: if request.auth != null || isAdmin();
+      // Les opérations d'écriture (create, update, delete) sur le collectionGroup
+      // sont généralement plus restrictives ou gérées par les règles imbriquées spécifiques (comme ci-dessus).
+      // Si vous avez besoin d'écrire/modifier via une requête collectionGroup,
+      // vous devrez ajouter des conditions ici.
+      // Pour l'instant, on se concentre sur la lecture.
+      allow write: if false; // Empêche les écritures directes sur le groupe de collections par défaut
     }
   }
 }
+```
+
+**Explication des changements clés :**
+
+1.  **`function isAdmin()` :** J'ai confirmé que votre UID admin (`4aqCNYkLwgXpp5kjMnGA6V0bdL52`) est bien utilisé.
+2.  **Nouvelle règle `match /{document=**}/comments/{commentId}` :**
+    *   `/{document=**}` est un joker multi-segments qui signifie "n'importe quel document à n'importe quel niveau".
+    *   Cette règle s'applique donc spécifiquement aux requêtes `collectionGroup('comments')`.
+    *   `allow read: if request.auth != null || isAdmin();`:
+        *   Ceci autorise la lecture de n'importe quel commentaire à travers le `collectionGroup` si l'utilisateur est authentifié OU s'il est l'administrateur.
+        *   Si vous voulez que les commentaires soient lisibles par absolument tout le monde (même non authentifié), vous pourriez changer ceci en `allow read: if true;`.
+    *   `allow write: if false;`: J'ai mis `write` à `false` ici car les écritures (création, mise à jour, suppression) de commentaires sont généralement gérées par les règles plus spécifiques imbriquées sous `/parties/{partyId}/comments/{commentId}` qui vérifient que l'utilisateur est le propriétaire du commentaire ou un admin. Écrire directement sur un `collectionGroup` est moins courant et nécessite des règles très prudentes.
+
+**Actions à effectuer :**
+
+1.  **Mettez à jour vos règles Firestore** dans la console Firebase avec le code ci-dessus.
+2.  **Publiez les règles.**
+3.  **Attendez quelques minutes** pour que les règles se propagent.
+4.  **Testez à nouveau l'affichage de la page de profil utilisateur.**
+
+Si vous rencontrez toujours des problèmes, il faudra vérifier :
+
+*   **L'index composite pour la requête `collectionGroup` :** Assurez-vous qu'il existe bien un index pour le groupe de collections `comments` avec les champs `userId` (croissant) ET `timestamp` (décroissant). Le message d'erreur précédent vous donnait un lien pour le créer.
+*   **La requête exacte dans `src/app/user/[id]/page.tsx` :** Confirmez que la requête pour récupérer les commentaires est bien `query(collectionGroup(db, 'comments'), where('userId', '==', profileUserId), orderBy('timestamp', 'desc'))`.
+
+Normalement, l'ajout de la règle `match /{document=**}/comments/{commentId}` devrait résoudre le problème de permission pour la lecture des commentaires via un `collectionGroup`.
