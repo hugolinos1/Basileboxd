@@ -1,43 +1,31 @@
-Ces règles de sécurité Firestore sont bien structurées et couvrent la plupart de vos besoins. Voici une analyse détaillée et quelques ajustements pour s'assurer qu'elles correspondent parfaitement à vos exigences, notamment pour la gestion des "Souvenirs" (mediaItems) et la clarté générale.
+OK, j'ai analysé le problème et vos règles Firestore. L'erreur "Missing or insufficient permissions" lorsque vous essayez de noter un événement dont vous n'êtes pas propriétaire, combinée à l'erreur `400 (Bad Request)` sur la requête Firestore, indique très probablement que les conditions de votre règle de mise à jour pour les "ratings" ne sont pas correctement satisfaites par l'opération que le client tente d'effectuer.
 
-**Points Positifs des Règles Actuelles :**
+Le code client dans `handleRateParty` effectue une mise à jour de chemin de champ spécifique :
+```typescript
+await updateDoc(partyDocRef, {
+    [`ratings.${user.uid}`]: newRating
+});
+```
+Cela signifie qu'il essaie de modifier uniquement la clé `ratings.VOTRE_PROPRE_UID` dans le document.
 
-*   **Fonction `isAdmin()` :** Correctement définie pour identifier l'administrateur via son UID.
-*   **Lecture des événements et profils utilisateurs :** `allow read: if true;` permet à tout le monde (connecté ou non) de voir les événements et les profils, ce qui correspond à "un user connecté doit pouvoir tout consulter" et permet aussi un affichage public si désiré.
-*   **Création d'événements :** Un utilisateur connecté peut créer un événement, et son `createdBy` est correctement assigné. Les validations de base (nom, date) sont bonnes.
-*   **Mise à jour des événements par le créateur/admin :** La règle permet au créateur ou à l'admin de modifier les champs principaux.
-*   **Notation des événements :** Tout utilisateur connecté peut ajouter ou modifier sa propre note. La logique pour s'assurer qu'un utilisateur ne modifie que sa propre note est bien implémentée.
-*   **Suppression des événements :** Seul l'admin peut supprimer un événement.
-*   **Gestion des commentaires :**
-    *   Lecture : Tout utilisateur connecté peut lire.
-    *   Création : Tout utilisateur connecté peut créer un commentaire avec de bonnes validations.
-    *   Mise à jour : Le créateur du commentaire peut modifier le texte, et l'admin peut tout modifier.
-    *   Suppression : Le créateur du commentaire ou l'admin peut supprimer.
-*   **Gestion des profils utilisateurs :**
-    *   Création : L'utilisateur crée son propre profil.
-    *   Mise à jour : L'utilisateur met à jour son propre profil (champs limités), ou l'admin peut tout mettre à jour. La protection contre la modification de champs critiques (uid, email, createdAt) par l'utilisateur est bien présente.
-    *   Suppression : Seul l'admin peut supprimer un utilisateur.
+Votre règle actuelle pour la mise à jour des "ratings" (Règle 2) est :
+```javascript
+// Règle 2: Tout utilisateur connecté peut ajouter/mettre à jour sa propre note
+( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']) && // Condition A
+  request.resource.data.ratings[request.auth.uid] is number &&                        // Condition B
+  request.resource.data.ratings[request.auth.uid] >= 0 && request.resource.data.ratings[request.auth.uid] <= 10 && // Condition C
+  resource.data.ratings.keys().removeAll(request.resource.data.ratings.keys()).size() == 0 &&                 // Condition D
+  request.resource.data.ratings.keys().removeAll(resource.data.ratings.keys()).hasOnly([request.auth.uid])    // Condition E
+)
+```
+Le problème principal se situe probablement dans la **Condition A** : `request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings'])`.
+Lorsque vous effectuez une mise à jour de chemin de champ comme `ratings.USER_UID`, la fonction `affectedKeys()` peut retourner `['ratings.USER_UID']` ou un ensemble incluant cette clé spécifique, mais pas *seulement* `['ratings']` comme si vous mettiez à jour l'ensemble de la carte `ratings`. Si `affectedKeys()` ne retourne pas *exactement et uniquement* `['ratings']`, cette condition échoue et toute la Règle 2 pour la notation est rejetée.
 
-**Points à Améliorer/Clarifier par Rapport à vos Besoins :**
+**Solution : Modifier la règle de mise à jour des "ratings"**
 
-1.  **Gestion des Souvenirs (`mediaItems`) :**
-    *   **Besoin :** "un user doit pouvoir consulter et modifier tous les éléments qu'il a créé (Souvenir)" ET "un user connecté doit pouvoir poster un souvenir ... sur tous les Events". ET "l'Admin doit pouvoir afficher et modifier tous les objets (Souvenirs)".
-    *   **Problème Actuel :** La règle `Règle 3` dans `allow update` pour `/parties/{partyId}`:
-        ```
-        ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
-          request.resource.data.mediaItems.size() >= resource.data.mediaItems.size()
-        )
-        ```
-        Cette règle permet à n'importe quel utilisateur connecté d'**ajouter** des souvenirs (car `mediaItems.size()` augmente). Cependant, elle **n'autorise pas la suppression ou la modification d'un souvenir existant** par son créateur (uploaderId) ou par l'admin de l'événement. De plus, la règle principale de mise à jour pour le créateur/admin (`Règle 1`) ne liste pas `mediaItems` dans `hasOnly`, ce qui signifie qu'ils ne pourraient pas non plus modifier les souvenirs par cette voie si d'autres champs sont également mis à jour.
+Nous allons simplifier et rendre plus précise la règle pour autoriser explicitement la mise à jour du champ de notation spécifique de l'utilisateur.
 
-2.  **Modification des Participants par le Créateur de l'Événement :**
-    *   **Besoin :** "un user doit pouvoir consulter et modifier tous les éléments qu'il a créé (Participants)".
-    *   **Règle Actuelle :** Le champ `participants` est inclus dans la `Règle 1` de la mise à jour des `parties`. Cela signifie que le créateur de l'événement (ou un admin) peut modifier la liste des participants.
-    *   **Cela semble correct et correspond au besoin.**
-
-**Règles Modifiées Proposées :**
-
-Voici une version ajustée des règles, en se concentrant sur une meilleure gestion des `mediaItems` et en maintenant la clarté. J'ai utilisé votre UID d'admin.
+Voici les règles modifiées. Portez une attention particulière à la section `// Règle 2` sous `match /parties/{partyId}` :
 
 ```firestore
 rules_version = '2';
@@ -47,12 +35,12 @@ service cloud.firestore {
 
     // Fonction utilitaire pour vérifier si l'utilisateur est un administrateur
     function isAdmin() {
-      return request.auth != null && request.auth.uid == '4aqCNYkLwgXpp5kjMnGA6V0bdL52';
+      return request.auth != null && request.auth.uid == '4aqCNYkLwgXpp5kjMnGA6V0bdL52'; // UID Admin confirmé
     }
 
     // Règle pour la collection "parties" (Événements)
     match /parties/{partyId} {
-      allow read: if true; // Ou request.auth != null; si non public
+      allow read: if true;
 
       allow create: if request.auth != null &&
                        request.resource.data.name is string &&
@@ -67,46 +55,37 @@ service cloud.firestore {
                       (
                         // Règle 1: Créateur ou Admin met à jour les détails principaux ET/OU les mediaItems ET/OU les participants
                         ( (request.auth.uid == resource.data.createdBy || isAdmin()) &&
-                          // Champs autorisés pour la mise à jour principale par le créateur/admin
-                          // On permet la modification de mediaItems ici directement.
                           request.resource.data.diff(resource.data).affectedKeys()
                             .hasOnly(['name', 'description', 'date', 'location', 'coverPhotoUrl', 'latitude', 'longitude', 'participants', 'participantEmails', 'mediaItems']) &&
-                          // Validations pour les champs mis à jour si présents
                           (!('name' in request.resource.data.diff(resource.data).affectedKeys()) || (request.resource.data.name is string && request.resource.data.name.size() > 0) ) &&
                           (!('date' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.date is timestamp ) &&
-                          // Empêcher la modification des champs sensibles par cette voie
                           request.resource.data.createdBy == resource.data.createdBy &&
                           request.resource.data.creatorEmail == resource.data.creatorEmail
                         ) ||
-                        // Règle 2: Tout utilisateur connecté peut ajouter/mettre à jour sa propre note
-                        ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings']) &&
+                        // Règle 2: MODIFIÉE - Tout utilisateur connecté peut ajouter/mettre à jour sa propre note.
+                        // Cette règle gère spécifiquement la mise à jour du champ `ratings.USER_UID`.
+                        (
+                          request.resource.data.diff(resource.data).affectedKeys().toSet().hasOnly(['ratings.' + request.auth.uid]) &&
                           request.resource.data.ratings[request.auth.uid] is number &&
-                          request.resource.data.ratings[request.auth.uid] >= 0 && request.resource.data.ratings[request.auth.uid] <= 10 &&
-                          resource.data.ratings.keys().removeAll(request.resource.data.ratings.keys()).size() == 0 &&
-                          request.resource.data.ratings.keys().removeAll(resource.data.ratings.keys()).hasOnly([request.auth.uid])
+                          request.resource.data.ratings[request.auth.uid] >= 0 && request.resource.data.ratings[request.auth.uid] <= 10
                         ) ||
                         // Règle 3: Tout utilisateur connecté peut AJOUTER des souvenirs (mediaItems)
-                        // Cette règle est spécifique à l'ajout pour éviter des écritures trop larges par des non-créateurs.
-                        // La modification/suppression par le créateur/admin est gérée par la Règle 1.
                         ( request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mediaItems']) &&
-                          request.resource.data.mediaItems.size() > resource.data.mediaItems.size() && // Strictement pour l'ajout
-                          // Validation de base que les nouveaux items ont un uploaderId correspondant à l'utilisateur actuel
-                          // Ceci est une simplification. Une validation complète de chaque item ajouté est complexe en règles.
-                          request.resource.data.mediaItems[resource.data.mediaItems.size()].uploaderId == request.auth.uid
+                          request.resource.data.mediaItems.size() > resource.data.mediaItems.size() &&
+                          request.resource.data.mediaItems[resource.data.mediaItems.size() -1].uploaderId == request.auth.uid // Vérifie le dernier item ajouté
                         )
                       );
 
       allow delete: if isAdmin();
 
       match /comments/{commentId} {
-        allow read: if true; // Ou request.auth != null;
-
+        allow read: if true;
         allow create: if request.auth != null &&
                          request.resource.data.userId == request.auth.uid &&
                          request.resource.data.text is string &&
                          request.resource.data.text.size() > 0 &&
                          request.resource.data.partyId == partyId &&
-                         request.resource.data.timestamp is timestamp; // serverTimestamp sera évalué correctement
+                         request.resource.data.timestamp is timestamp; // Firestore se chargera de la conversion serverTimestamp
 
         allow update: if request.auth != null &&
                          (
@@ -119,7 +98,6 @@ service cloud.firestore {
                            ) ||
                            isAdmin()
                          );
-
         allow delete: if request.auth != null &&
                          (request.auth.uid == resource.data.userId || isAdmin());
       }
@@ -143,36 +121,34 @@ service cloud.firestore {
                          ) ||
                          isAdmin()
                        ) &&
-                       (isAdmin() || (
+                       (isAdmin() || ( // Empêche les utilisateurs non-admin de modifier les champs critiques
                            request.resource.data.uid == resource.data.uid &&
                            request.resource.data.email == resource.data.email &&
                            request.resource.data.createdAt == resource.data.createdAt
                        ));
-
       allow delete: if isAdmin();
     }
   }
 }
 ```
 
-**Changements Clés dans les Règles Proposées :**
+**Changements clés dans la Règle 2 (Mise à jour des "ratings") :**
 
-1.  **`isAdmin()` :** J'ai déplacé la fonction `isAdmin()` au début du bloc `match /databases/{database}/documents { ... }` pour une meilleure organisation. Son fonctionnement reste le même. **Assurez-vous d'avoir remplacé `'YOUR_ADMIN_UID_HERE'` par votre UID réel: `'4aqCNYkLwgXpp5kjMnGA6V0bdL52'`**. Je l'ai fait dans ces règles.
-2.  **Mise à jour de `parties/{partyId}` (Règle 1) :**
-    *   J'ai ajouté `mediaItems` à la liste `hasOnly` pour la `Règle 1`. Cela permet au créateur de l'événement ou à un admin de modifier complètement le tableau `mediaItems` (ajouter, supprimer, réorganiser).
-    *   J'ai ajusté les validations des champs (`name`, `date`) pour qu'elles ne s'appliquent que si ces champs sont effectivement en cours de modification (en utilisant `!('fieldName' in request.resource.data.diff(resource.data).affectedKeys()) || ...`). Cela rend la règle plus flexible si l'admin/créateur ne modifie que les `mediaItems` sans toucher au nom ou à la date.
-3.  **Mise à jour de `parties/{partyId}` (Règle 3 - Ajout de Souvenirs) :**
-    *   J'ai rendu la condition `request.resource.data.mediaItems.size() > resource.data.mediaItems.size()` plus stricte pour s'assurer qu'il s'agit bien d'un ajout.
-    *   J'ai ajouté une validation de base : `request.resource.data.mediaItems[resource.data.mediaItems.size()].uploaderId == request.auth.uid`. Cela vérifie que le dernier élément ajouté au tableau (le nouveau souvenir) a bien `uploaderId` qui correspond à l'utilisateur qui effectue l'action. C'est une simplification, car valider la structure complète de chaque nouvel objet dans un tableau via les règles est complexe. La validation côté client ou via des Cloud Functions reste recommandée pour la structure interne des objets `MediaItem`.
+1.  `request.resource.data.diff(resource.data).affectedKeys().toSet().hasOnly(['ratings.' + request.auth.uid])`:
+    *   C'est le changement crucial. Nous vérifions maintenant que la *seule* clé affectée dans l'ensemble du document lors de cette opération est le chemin direct vers la note de l'utilisateur actuel (par exemple, `ratings.USER_UID_123`).
+    *   `.toSet()` est ajouté car `affectedKeys()` retourne une liste, et `hasOnly()` fonctionne mieux avec des ensembles (sets) pour une comparaison exacte des éléments sans tenir compte de l'ordre.
 
-**Important :**
+**Correction dans la Règle 3 (Ajout de souvenirs) :**
 
-*   **UID de l'Admin :** **Vérifiez à nouveau que vous avez bien remplacé `'4aqCNYkLwgXpp5kjMnGA6V0bdL52'` par l'UID correct de votre compte administrateur dans la fonction `isAdmin()`.** Une simple faute de frappe ici rendra toutes les logiques d'admin inopérantes.
-*   **Testez Rigoureusement :** Utilisez le Simulateur de Règles Firebase pour tester *tous* les scénarios décrits dans vos besoins :
-    *   Admin modifiant/supprimant un souvenir.
-    *   Utilisateur lambda ajoutant un souvenir à un événement qu'il n'a pas créé.
-    *   Créateur de l'événement modifiant/supprimant un souvenir de son propre événement.
-    *   Toutes les autres opérations (création d'event, notation, commentaires, etc.).
-*   **Déploiement :** N'oubliez pas de "Publier" vos règles après modification et d'attendre quelques minutes pour qu'elles se propagent.
+J'ai aussi légèrement ajusté la Règle 3 pour la validation de `mediaItems` pour être un peu plus robuste lors de la vérification du `uploaderId` du nouvel élément.
 
-Ces règles devraient mieux correspondre à vos besoins. Si vous rencontrez toujours des problèmes après avoir appliqué ces changements et testé, veuillez fournir les messages d'erreur exacts et les scénarios de test du simulateur qui échouent.
+`request.resource.data.mediaItems[resource.data.mediaItems.size() -1].uploaderId == request.auth.uid`
+*   Cela suppose que `arrayUnion` ajoute le nouvel élément à la fin. Pour accéder au nouvel élément ajouté, nous utilisons `resource.data.mediaItems.size() - 1` comme index sur `request.resource.data.mediaItems`. (Note: `resource.data.mediaItems.size()` ici se réfère à la taille de l'array *avant* l'ajout de l'élément par `arrayUnion`.)
+
+**Prochaines Étapes :**
+
+1.  **Appliquez ces règles** à votre console Firebase.
+2.  **Attendez quelques minutes** pour que les règles se propagent.
+3.  **Testez à nouveau** la fonctionnalité de notation avec un utilisateur qui n'est pas le créateur de l'événement.
+
+Si vous rencontrez toujours des problèmes, les logs de la console du navigateur (en particulier les erreurs détaillées de Firestore) et les résultats du simulateur de règles pour l'opération de mise à jour spécifique seront essentiels pour un débogage plus approfondi.
