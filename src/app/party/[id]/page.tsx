@@ -29,6 +29,7 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogHeader,
+  AlertDialogFooter,
   AlertDialogTitle as AlertDialogUITitle, 
 } from "@/components/ui/alert-dialog";
 import { Input } from '@/components/ui/input';
@@ -375,7 +376,7 @@ export default function PartyDetailsPage() {
         email: currentUser.email || 'anonyme',
         avatar: currentUser.photoURL ?? null,
         text: comment.trim(),
-        timestamp: Timestamp.now(),
+        timestamp: Timestamp.now(), // Use Timestamp.now() for client-side timestamp
         partyId: party.id,
         ...(replyingToCommentInfo && { parentId: replyingToCommentInfo.id }),
       };
@@ -431,7 +432,7 @@ export default function PartyDetailsPage() {
         email: currentUser.email || 'anonyme',
         avatar: currentUser.photoURL ?? null,
         text: replyText.trim(),
-        timestamp: Timestamp.now(), 
+        timestamp: Timestamp.now(), // Use Timestamp.now() for client-side timestamp
         partyId: party.id,
         parentId: parentCommentId,
       };
@@ -524,7 +525,7 @@ export default function PartyDetailsPage() {
                         type: getMediaFileType(file),
                         uploaderId: currentUser.uid,
                         uploaderEmail: currentUser.email || undefined,
-                        uploadedAt: Timestamp.now(), 
+                        uploadedAt: Timestamp.now(), // Use Timestamp.now() for client-side timestamp
                         fileName: file.name,
                       } as MediaItem; 
                 }
@@ -1373,4 +1374,5 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
 
