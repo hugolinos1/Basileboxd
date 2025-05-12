@@ -42,7 +42,8 @@ import {
   MAX_FILE_SIZE,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
   ACCEPTED_AVATAR_TYPES, 
-  COMPRESSED_AVATAR_MAX_SIZE_MB
+  COMPRESSED_AVATAR_MAX_SIZE_MB,
+  ACCEPTED_COVER_PHOTO_TYPES // Added this import
 } from '@/services/media-uploader';
 import { coverPhotoSchema, avatarSchema } from '@/services/validation-schemas'; 
 import { Skeleton } from '@/components/ui/skeleton'; 
@@ -310,7 +311,7 @@ export default function PartyDetailsPage() {
         try {
             const usersCollectionRef = collection(db, 'users');
             const usersSnapshot = await getDocs(usersCollectionRef);
-            const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
+            const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, uid: doc.data().uid, email: doc.data().email, displayName: doc.data().displayName, pseudo: doc.data().pseudo, avatarUrl: doc.data().avatarUrl } as UserProfile));
             setAllUsers(fetchedUsers);
              console.log("[PartyDetailsPage - fetchAllUsers] Utilisateurs récupérés:", fetchedUsers.length);
         } catch (error) {
@@ -375,7 +376,7 @@ export default function PartyDetailsPage() {
         email: currentUser.email || 'anonyme',
         avatar: currentUser.photoURL ?? null,
         text: comment.trim(),
-        timestamp: Timestamp.now(), // Utilisation de Timestamp.now() côté client
+        timestamp: Timestamp.now(), 
         partyId: party.id,
         ...(replyingToCommentInfo && { parentId: replyingToCommentInfo.id }),
       };
@@ -431,7 +432,7 @@ export default function PartyDetailsPage() {
         email: currentUser.email || 'anonyme',
         avatar: currentUser.photoURL ?? null,
         text: replyText.trim(),
-        timestamp: Timestamp.now(), // Utilisation de Timestamp.now() côté client
+        timestamp: Timestamp.now(), 
         partyId: party.id,
         parentId: parentCommentId,
       };
@@ -524,7 +525,7 @@ export default function PartyDetailsPage() {
                         type: getMediaFileType(file),
                         uploaderId: currentUser.uid,
                         uploaderEmail: currentUser.email || undefined,
-                        uploadedAt: Timestamp.now(), // Utilisation de Timestamp.now() côté client
+                        uploadedAt: Timestamp.now(), 
                         fileName: file.name,
                       } as MediaItem; 
                 }
@@ -1376,6 +1377,7 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
 
 
 
