@@ -29,6 +29,7 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
+  AlertDialogHeader, // Added AlertDialogHeader
   AlertDialogTitle as AlertDialogUITitle, 
 } from "@/components/ui/alert-dialog";
 import { Input } from '@/components/ui/input';
@@ -1376,6 +1377,7 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
 
 
 
