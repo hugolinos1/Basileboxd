@@ -28,7 +28,6 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
-  AlertDialogHeader,
   AlertDialogFooter,
   AlertDialogTitle as AlertDialogUITitle, 
 } from "@/components/ui/alert-dialog";
@@ -376,7 +375,7 @@ export default function PartyDetailsPage() {
         email: currentUser.email || 'anonyme',
         avatar: currentUser.photoURL ?? null,
         text: comment.trim(),
-        timestamp: Timestamp.now(), // Use Timestamp.now() for client-side timestamp
+        timestamp: Timestamp.now(),
         partyId: party.id,
         ...(replyingToCommentInfo && { parentId: replyingToCommentInfo.id }),
       };
@@ -432,7 +431,7 @@ export default function PartyDetailsPage() {
         email: currentUser.email || 'anonyme',
         avatar: currentUser.photoURL ?? null,
         text: replyText.trim(),
-        timestamp: Timestamp.now(), // Use Timestamp.now() for client-side timestamp
+        timestamp: Timestamp.now(),
         partyId: party.id,
         parentId: parentCommentId,
       };
@@ -525,7 +524,7 @@ export default function PartyDetailsPage() {
                         type: getMediaFileType(file),
                         uploaderId: currentUser.uid,
                         uploaderEmail: currentUser.email || undefined,
-                        uploadedAt: Timestamp.now(), // Use Timestamp.now() for client-side timestamp
+                        uploadedAt: Timestamp.now(),
                         fileName: file.name,
                       } as MediaItem; 
                 }
@@ -568,6 +567,9 @@ export default function PartyDetailsPage() {
                 userFriendlyError = "Permission refusée. Vous ne pouvez pas ajouter de souvenirs à cet événement.";
             } else if (error.message && error.message.includes("arrayUnion() called with invalid data")) {
                 userFriendlyError = "Données invalides pour l'ajout de souvenirs. Vérifiez les horodatages.";
+                 if (error.message?.includes('serverTimestamp()')) {
+                    userFriendlyError += " N'utilisez pas serverTimestamp() dans un arrayUnion.";
+                }
             }
             toast({ title: 'Erreur Firestore', description: userFriendlyError, variant: 'destructive' });
         } finally {
@@ -1374,5 +1376,6 @@ export default function PartyDetailsPage() {
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
 
 
