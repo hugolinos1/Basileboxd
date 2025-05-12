@@ -2,13 +2,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, collectionGroup } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle as AlertUITitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
-import { BarChart3, Users, Image as ImageIcon, CalendarCheck2, Star, MapPin, AlertTriangle, Loader2 } from 'lucide-react';
+import { BarChart3, Users, Image as ImageIcon, CalendarCheck2, Star, MapPin, AlertTriangle, Loader2, MessageSquare } from 'lucide-react';
 import type { PartyData as SharedPartyData } from '@/lib/party-utils';
 import { StatCard } from '@/components/stats/StatCard';
 import { GlobalRatingDistributionChart } from '@/components/stats/GlobalRatingDistributionChart';
@@ -33,6 +33,7 @@ interface StatsData {
   numberOfEvents: number;
   numberOfUsers: number;
   numberOfSouvenirs: number;
+  numberOfComments: number; // Added
   averageGlobalRating: number;
   allParties: PartyData[]; 
 }
@@ -60,14 +61,18 @@ export default function StatisticsPage() {
       try {
         const partiesCollectionRef = collection(db, 'parties');
         const usersCollectionRef = collection(db, 'users');
+        const commentsCollectionGroupRef = collectionGroup(db, 'comments');
 
-        const [partiesSnapshot, usersSnapshot] = await Promise.all([
+
+        const [partiesSnapshot, usersSnapshot, commentsSnapshot] = await Promise.all([
           getDocs(query(partiesCollectionRef, orderBy('createdAt', 'desc'))),
           getDocs(usersCollectionRef),
+          getDocs(commentsCollectionGroupRef) // Fetch all comments
         ]);
 
         const fetchedParties: PartyData[] = partiesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PartyData));
         const numberOfUsers = usersSnapshot.size;
+        const numberOfComments = commentsSnapshot.size; // Total number of comments
 
         let numberOfSouvenirs = 0;
         let totalRatingSum = 0;
@@ -91,6 +96,7 @@ export default function StatisticsPage() {
           numberOfEvents: fetchedParties.length,
           numberOfUsers: numberOfUsers,
           numberOfSouvenirs: numberOfSouvenirs,
+          numberOfComments: numberOfComments, // Set the new stat
           averageGlobalRating: averageGlobalRating,
           allParties: fetchedParties,
         });
@@ -111,7 +117,7 @@ export default function StatisticsPage() {
       <div className="container mx-auto px-4 py-12">
         <Skeleton className="h-8 w-1/3 mb-8 bg-muted" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {Array.from({ length: 4 }).map((_, i) => (
+          {Array.from({ length: 5 }).map((_, i) => ( // Increased to 5 for the new card
             <Card key={i} className="bg-card border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <Skeleton className="h-6 w-1/2" />
@@ -160,10 +166,11 @@ export default function StatisticsPage() {
         </h1>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-10"> {/* Updated to 5 columns for lg screens */}
         <StatCard title="Nombre d'Events" value={stats.numberOfEvents} icon={CalendarCheck2} />
         <StatCard title="Nombre de Membres" value={stats.numberOfUsers} icon={Users} />
         <StatCard title="Nombre de Souvenirs" value={stats.numberOfSouvenirs} icon={ImageIcon} />
+        <StatCard title="Nombre de Commentaires" value={stats.numberOfComments} icon={MessageSquare} /> {/* New StatCard */}
         <StatCard title="Note Moyenne Globale" value={`${stats.averageGlobalRating.toFixed(1)} / 5`} icon={Star} />
       </div>
 
@@ -188,7 +195,7 @@ export default function StatisticsPage() {
             <CardDescription>Visualisation géographique des événements.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] md:h-[350px] p-0 rounded-b-lg overflow-hidden flex items-center justify-center bg-muted"> 
-            {stats.allParties.length > 0 ? (
+            {stats.allParties.length > 0 && stats.allParties.some(p => p.latitude && p.longitude) ? (
                 <EventMapWithNoSSR parties={stats.allParties} /> 
             ) : (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground bg-muted">
@@ -203,3 +210,4 @@ export default function StatisticsPage() {
     </div>
   );
 }
+
