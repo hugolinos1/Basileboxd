@@ -19,7 +19,7 @@ service cloud.firestore {
       // Allow authenticated users to create events with basic data validation
       allow create: if request.auth != null &&
                        request.resource.data.name is string &&
-                       request.resource.data.name.size() > 0 &&
+                       request.reso²urce.data.name.size() > 0 &&
                        request.resource.data.date is timestamp &&
                        request.resource.data.createdBy == request.auth.uid &&
                        request.resource.data.creatorEmail == request.auth.token.email &&
