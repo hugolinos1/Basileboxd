@@ -1,10 +1,9 @@
-
 // src/app/user/[id]/page.tsx
 'use client';
 
 import { useEffect, useState, useMemo, ChangeEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc, collection, query, where, getDocs, orderBy, Timestamp, updateDoc, collectionGroup } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, orderBy, Timestamp, updateDoc, collectionGroup, FirestoreError } from 'firebase/firestore';
 import { db, storage } from '@/config/firebase';
 import { useFirebase } from '@/context/FirebaseContext';
 import Image from 'next/image';
@@ -41,9 +40,9 @@ interface UserData {
     pseudo?: string;
     avatarUrl?: string;
     createdAt?: FirestoreTimestamp | Timestamp | Date;
-    eventCount: number;
-    commentCount: number;
-    averageRatingGiven: number;
+    eventCount?: number;      // Made optional, will be derived
+    commentCount?: number;    // Made optional, will be derived
+    averageRatingGiven?: number; // Made optional, will be derived
 }
 
 type PartyData = SharedPartyData & { id: string, createdBy: string };
@@ -174,7 +173,8 @@ export default function UserProfilePage() {
                     return;
                 }
                  console.log(`[UserProfilePage fetchData] User document found for ID: ${profileUserId}`, userDocSnap.data());
-                const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as Omit<UserData, 'eventCount' | 'commentCount' | 'averageRatingGiven'>;
+                const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as UserData; // No longer expect stats fields here
+                setProfileUserData(fetchedUser);
 
                 let fetchedPartiesData: PartyData[] = [];
                 let fetchedCommentsData: CommentData[] = [];
@@ -189,6 +189,7 @@ export default function UserProfilePage() {
                     setUserParties(fetchedPartiesData);
                 } catch (partiesError: any) {
                     console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des fêtes participées: ${partiesError.message}`, partiesError);
+                    setError(`Erreur lors de la récupération des fêtes participées: ${partiesError.message}`);
                 }
 
                 try {
@@ -213,16 +214,9 @@ export default function UserProfilePage() {
                 } catch (commentsError: any)
                  {
                     console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des commentaires: ${commentsError.message}`, commentsError);
+                    setError(`Erreur lors de la récupération des commentaires: ${commentsError.message}`);
                 }
                 
-                setProfileUserData({
-                    ...fetchedUser,
-                    eventCount: fetchedPartiesData.length,
-                    commentCount: fetchedCommentsData.length,
-                    averageRatingGiven: calculateAverageRatingGiven(fetchedPartiesData, profileUserId),
-                });
-
-
             } catch (err: any) {
                 console.error("[UserProfilePage fetchData] Erreur majeure lors de la récupération des données utilisateur:", err);
                  let userFriendlyError = err.message || "Impossible de charger le profil.";
@@ -240,7 +234,7 @@ export default function UserProfilePage() {
             }
         };
         fetchData();
-    }, [profileUserId, firebaseInitialized, authLoading, initializationFailed, initializationErrorMessage, currentUser]); // Added currentUser to dependencies
+    }, [profileUserId, firebaseInitialized, authLoading, initializationFailed, initializationErrorMessage, currentUser]);
 
     const handleNewAvatarFileChange = (event: ChangeEvent<HTMLInputElement>) => {
         const isBrowser = typeof window !== 'undefined';
@@ -267,10 +261,11 @@ export default function UserProfilePage() {
     };
 
     const handleUpdateAvatar = async () => {
-        console.log("[handleUpdateAvatar] Initiating. Current User UID:", currentUser?.uid);
-        console.log("[handleUpdateAvatar] Profile User ID being updated:", profileUserId);
-        console.log("[handleUpdateAvatar] New Avatar File selected:", !!newAvatarFile);
-        console.log("[handleUpdateAvatar] Firestore DB instance available:", !!db);
+        console.log("[handleUpdateAvatar] Current User UID:", currentUser?.uid);
+        console.log("[handleUpdateAvatar] Profile User ID:", profileUserId);
+        console.log("[handleUpdateAvatar] New Avatar File:", !!newAvatarFile);
+        console.log("[handleUpdateAvatar] DB instance:", db);
+        console.log("[handleUpdateAvatar] Profile User Data:", profileUserData);
 
 
         if (!currentUser || !newAvatarFile || !db || !profileUserId) { 
@@ -323,13 +318,13 @@ export default function UserProfilePage() {
 
 
     const stats = useMemo(() => {
-        if (!profileUserData) return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
+        if (!profileUserData || !userParties || !userComments) return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
         return {
             eventCount: userParties.length,
             commentCount: userComments.length,
-            averageRatingGiven: profileUserData.averageRatingGiven, 
+            averageRatingGiven: calculateAverageRatingGiven(userParties, profileUserId), 
         };
-    }, [profileUserData, userParties, userComments]);
+    }, [profileUserData, userParties, userComments, profileUserId]);
 
      const ratingDistributionGiven = useMemo(() => {
         if (!userParties || !profileUserId) return [];
@@ -378,7 +373,7 @@ export default function UserProfilePage() {
         );
     }
 
-    if (error && !profileUserData) { // Si une erreur s'est produite ET que profileUserData est null
+    if (error && !profileUserData) { 
         console.error(`[UserProfilePage Render] Affichage de l'alerte d'erreur. Erreur: ${error}. ProfileUserId: ${profileUserId}`);
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
@@ -401,7 +396,7 @@ export default function UserProfilePage() {
 
     return (
         <div className="container mx-auto max-w-6xl px-4 py-8">
-             {error && ( // Afficher une alerte si une erreur s'est produite mais que profileUserData existe (par ex. erreur de chargement des commentaires)
+             {error && ( 
                 <Alert variant="warning" className="mb-6">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertUITitle>Avertissement</AlertUITitle>
@@ -613,4 +608,3 @@ export default function UserProfilePage() {
         </div>
     );
 }
-
