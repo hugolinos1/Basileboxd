@@ -12,7 +12,7 @@ import Link from 'next/link';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle as AlertUITitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Star, MessageSquare, CalendarDays, Edit2, Loader2, AlertTriangle, ImageIcon, Users, Edit3, Upload, X } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -56,7 +56,7 @@ const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date |
     try {
         if (timestamp instanceof Timestamp) return timestamp.toDate();
         if (timestamp instanceof Date) return timestamp; // Already a Date object
-        if (typeof timestamp === 'object' && 'seconds' in timestamp && typeof timestamp.seconds === 'number') {
+        if (typeof timestamp === 'object' && 'seconds' in timestamp && typeof (timestamp as any).seconds === 'number') {
             const date = new Date(timestamp.seconds * 1000);
             return isNaN(date.getTime()) ? null : date;
         }
@@ -81,7 +81,7 @@ const calculateRatingDistribution = (parties: PartyData[], userId: string): { ra
     parties.forEach(party => {
         const userRating = party.ratings?.[userId];
         if (userRating !== undefined) {
-             const index = Math.round(userRating * 2) - 1; // Convert 0-10 to 0-9 index for 0.5 steps
+             const index = Math.round(userRating * 2) - 1; 
              if (index >= 0 && index < 10) {
                 counts[index].votes++;
             }
@@ -132,6 +132,7 @@ export default function UserProfilePage() {
     }, [currentUser, profileUserId, isAdmin, profileUserData]);
 
     useEffect(() => {
+        console.log(`[UserProfilePage useEffect] Initializing. profileUserId: ${profileUserId}, firebaseInitialized: ${firebaseInitialized}, authLoading: ${authLoading}, db available: ${!!db}`);
         if (initializationFailed) {
             setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
             setLoading(false);
@@ -148,12 +149,14 @@ export default function UserProfilePage() {
             return;
         }
         if (!db) {
-            setError("Base de données indisponible.");
+            setError("Base de données indisponible. Vérifiez la configuration Firebase.");
             setLoading(false);
+            console.error("[UserProfilePage useEffect] Firestore 'db' instance is null.");
             return;
         }
 
         console.log(`[UserProfilePage useEffect] Fetching data for profileUserId: ${profileUserId}`);
+        console.log(`[UserProfilePage useEffect] Current authenticated user UID: ${currentUser?.uid}`);
 
         const fetchData = async () => {
             setLoading(true);
@@ -177,6 +180,7 @@ export default function UserProfilePage() {
                 let fetchedCommentsData: CommentData[] = [];
 
                 try {
+                    console.log(`[UserProfilePage fetchData] Querying 'parties' where 'participants' array-contains '${profileUserId}'`);
                     const partiesRef = collection(db, 'parties');
                     const participatedPartiesQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
                     const participatedPartiesSnapshot = await getDocs(participatedPartiesQuery);
@@ -184,10 +188,11 @@ export default function UserProfilePage() {
                     fetchedPartiesData = participatedPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
                     setUserParties(fetchedPartiesData);
                 } catch (partiesError: any) {
-                    console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des fêtes participées: ${partiesError.message}`);
+                    console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des fêtes participées: ${partiesError.message}`, partiesError);
                 }
 
                 try {
+                    console.log(`[UserProfilePage fetchData] Querying 'comments' collectionGroup where 'userId' == '${profileUserId}' ordered by 'timestamp' desc`);
                     const commentsCollectionRef = collectionGroup(db, 'comments');
                     const commentsQuery = query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'));
                     const commentsSnapshot = await getDocs(commentsQuery);
@@ -207,7 +212,7 @@ export default function UserProfilePage() {
                     setUserComments(fetchedCommentsData);
                 } catch (commentsError: any)
                  {
-                    console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des commentaires: ${commentsError.message}`);
+                    console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des commentaires: ${commentsError.message}`, commentsError);
                 }
                 
                 setProfileUserData({
@@ -226,7 +231,7 @@ export default function UserProfilePage() {
                       console.error("FIREBASE PERMISSION ERROR: Details -", err);
                  } else if (err.message?.includes('collectionGroup') && err.message?.includes('index')) {
                      userFriendlyError = "Index Firestore manquant pour la requête collectionGroup sur 'comments'. Veuillez créer cet index dans votre console Firebase.";
-                     console.error("INDEX REQUIRED for collectionGroup query on 'comments': The query requires an index. You can create it here: ... (Firebase should provide a link in the detailed error in browser console or Firebase console)");
+                     console.error("INDEX REQUIRED for collectionGroup query on 'comments'. Error:", err);
                  }
                 setError(userFriendlyError);
             } finally {
@@ -235,7 +240,7 @@ export default function UserProfilePage() {
             }
         };
         fetchData();
-    }, [profileUserId, firebaseInitialized, authLoading, initializationFailed, initializationErrorMessage]);
+    }, [profileUserId, firebaseInitialized, authLoading, initializationFailed, initializationErrorMessage, currentUser]); // Added currentUser to dependencies
 
     const handleNewAvatarFileChange = (event: ChangeEvent<HTMLInputElement>) => {
         const isBrowser = typeof window !== 'undefined';
@@ -262,11 +267,10 @@ export default function UserProfilePage() {
     };
 
     const handleUpdateAvatar = async () => {
-        console.log("[handleUpdateAvatar] Current User UID:", currentUser?.uid);
-        console.log("[handleUpdateAvatar] Profile User ID:", profileUserId);
-        console.log("[handleUpdateAvatar] New Avatar File:", newAvatarFile);
-        console.log("[handleUpdateAvatar] DB instance:", db);
-        console.log("[handleUpdateAvatar] Profile User Data:", profileUserData);
+        console.log("[handleUpdateAvatar] Initiating. Current User UID:", currentUser?.uid);
+        console.log("[handleUpdateAvatar] Profile User ID being updated:", profileUserId);
+        console.log("[handleUpdateAvatar] New Avatar File selected:", !!newAvatarFile);
+        console.log("[handleUpdateAvatar] Firestore DB instance available:", !!db);
 
 
         if (!currentUser || !newAvatarFile || !db || !profileUserId) { 
@@ -279,14 +283,15 @@ export default function UserProfilePage() {
         try {
             
             const userDocRef = doc(db, 'users', profileUserId); 
-            console.log("Mise à jour de l'avatar pour l'utilisateur UID:", profileUserId);
-            console.log("Référence du document Firestore :", userDocRef.path);
+            console.log("[handleUpdateAvatar] Firestore document reference path:", userDocRef.path);
 
             const newAvatarUrl = await uploadFile(newAvatarFile, profileUserId, false, (progress) => {
                 setAvatarUploadProgress(progress);
             }, 'userAvatar'); 
+            console.log("[handleUpdateAvatar] Avatar uploaded to Storage. New URL:", newAvatarUrl);
 
             await updateDoc(userDocRef, { avatarUrl: newAvatarUrl });
+            console.log("[handleUpdateAvatar] Firestore document updated with new avatarUrl.");
 
             toast({ title: 'Avatar mis à jour !' });
             
@@ -299,10 +304,8 @@ export default function UserProfilePage() {
         } catch (error: any) {
             console.error("Erreur lors de la mise à jour de l'avatar:", error);
             let userFriendlyError = "Impossible de mettre à jour l'avatar.";
-            if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied') {
-                userFriendlyError = "Permission refusée. Vérifiez les règles de sécurité.";
-            } else if (error.message?.includes('Firebase Storage: User does not have permission to access')) {
-                userFriendlyError = `Permission refusée par Firebase Storage. Vérifiez les règles de Storage. Détails: ${error.message}`;
+            if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied' || error.code === 'storage/object-not-found' || error.message?.includes('Firebase Storage: User does not have permission to access')) {
+                userFriendlyError = `Permission refusée par Firebase Storage ou Firestore. Vérifiez les règles de sécurité et que l'objet existe. Détails: ${error.message}`;
             } else {
                  userFriendlyError = error.message || userFriendlyError;
             }
@@ -354,6 +357,7 @@ export default function UserProfilePage() {
      } satisfies ChartConfig
 
     if (loading) {
+        console.log(`[UserProfilePage Render] Affichage du Skeleton Loader. ProfileUserId: ${profileUserId}`);
         return (
             <div className="container mx-auto max-w-6xl px-4 py-8">
                  <div className="flex flex-col md:flex-row items-center md:items-end gap-6 mb-8 border-b border-border pb-8">
@@ -374,12 +378,13 @@ export default function UserProfilePage() {
         );
     }
 
-    if (error && !profileUserData) { 
+    if (error && !profileUserData) { // Si une erreur s'est produite ET que profileUserData est null
+        console.error(`[UserProfilePage Render] Affichage de l'alerte d'erreur. Erreur: ${error}. ProfileUserId: ${profileUserId}`);
         return (
              <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[calc(100vh-10rem)]">
                  <Alert variant="destructive" className="max-w-lg">
                     <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Erreur</AlertTitle>
+                    <AlertUITitle>Erreur</AlertUITitle>
                     <AlertDescription>{error}</AlertDescription>
                  </Alert>
             </div>
@@ -387,18 +392,19 @@ export default function UserProfilePage() {
     }
 
     if (!profileUserData) { 
+        console.log(`[UserProfilePage Render] profileUserData est null (mais pas d'erreur explicite). Redirection ou affichage "Non trouvé". ProfileUserId: ${profileUserId}`);
         return <div className="container mx-auto px-4 py-12 text-center">Chargement du profil ou utilisateur non trouvé...</div>;
     }
-
+    console.log(`[UserProfilePage Render] Affichage du profil pour : ${profileUserData.email}. ProfileUserId: ${profileUserId}`);
     const joinDate = getDateFromTimestamp(profileUserData.createdAt);
     const displayUsername = profileUserData.pseudo || profileUserData.displayName || profileUserData.email.split('@')[0];
 
     return (
         <div className="container mx-auto max-w-6xl px-4 py-8">
-             {error && ( 
+             {error && ( // Afficher une alerte si une erreur s'est produite mais que profileUserData existe (par ex. erreur de chargement des commentaires)
                 <Alert variant="warning" className="mb-6">
                     <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Avertissement</AlertTitle>
+                    <AlertUITitle>Avertissement</AlertUITitle>
                     <AlertDescription>Certaines informations (événements ou commentaires) n'ont pas pu être chargées. {error}</AlertDescription>
                 </Alert>
              )}
@@ -607,3 +613,4 @@ export default function UserProfilePage() {
         </div>
     );
 }
+
