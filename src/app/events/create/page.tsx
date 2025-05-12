@@ -37,8 +37,9 @@ import {
   ACCEPTED_MEDIA_TYPES,
   MAX_FILE_SIZE as MEDIA_MAX_FILE_SIZE_CONFIG,
   COMPRESSED_COVER_PHOTO_MAX_SIZE_MB,
+  ACCEPTED_COVER_PHOTO_TYPES, 
 } from '@/services/media-uploader';
-import { coverPhotoSchema, ACCEPTED_COVER_PHOTO_TYPES } from '@/services/validation-schemas'; 
+import { coverPhotoSchema } from '@/services/validation-schemas'; 
 
 
 import { Progress } from '@/components/ui/progress';
@@ -555,7 +556,7 @@ export default function CreateEventPage() {
                             <FormItem>
                                 <div className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center bg-secondary/50 h-48 md:h-64 relative">
                                   <FormControl>
-                                    <div className="w-full h-full flex flex-col items-center justify-center"> {/* Wrapper div */}
+                                  <React.Fragment> {/* Ensure a single child for FormControl */}
                                       {coverPhotoPreview ? (
                                           <>
                                               <div className="relative w-full h-full">
@@ -587,7 +588,7 @@ export default function CreateEventPage() {
                                           className="hidden"
                                           onChange={handleCoverPhotoChange}
                                       />
-                                    </div>
+                                    </React.Fragment>
                                   </FormControl>
                                 </div>
                                  {uploadProgress.coverPhoto !== undefined && uploadProgress.coverPhoto >= 0 && (
@@ -824,3 +825,4 @@ export default function CreateEventPage() {
     </div>
   );
 }
+
