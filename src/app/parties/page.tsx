@@ -17,7 +17,7 @@ import { useFirebase } from '@/context/FirebaseContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useSearchParams } from 'next/navigation';
-import type { PartyData as SharedPartyData } from '@/lib/party-utils'; // Updated import to directly use shared PartyData
+import type { PartyData as SharedPartyData } from '@/lib/party-utils'; 
 import { calculatePartyAverageRating, getDateFromTimestamp as sharedGetDateFromTimestamp } from '@/lib/party-utils';
 
 
@@ -43,7 +43,6 @@ interface UserProfile { // For fetching user data
     avatarUrl?: string;
 }
 
-// Use the shared PartyData type, which now includes commentCount?
 type PartyData = SharedPartyData; 
 
 const getDateFromTimestamp = sharedGetDateFromTimestamp;
@@ -122,7 +121,7 @@ export default function PartiesListPage() {
                  let commentCount = 0;
                  try {
                     const commentsRef = collection(db, 'parties', docSnap.id, 'comments');
-                    const commentsSnapshot = await getDocs(commentsRef); // Get actual count
+                    const commentsSnapshot = await getDocs(commentsRef); 
                     commentCount = commentsSnapshot.size;
                  } catch (e) {
                     console.warn(`Could not fetch comments count for party ${docSnap.id}:`, e);
@@ -136,7 +135,7 @@ export default function PartiesListPage() {
                      location: data.location || undefined,
                      coverPhotoUrl: data.coverPhotoUrl || undefined,
                      ratings: data.ratings || {},
-                     commentCount: commentCount, // Store the fetched comment count
+                     commentCount: commentCount, 
                      createdAt: data.createdAt,
                      participants: data.participants || [],
                      participantsDetails: participantsDetails,
@@ -263,8 +262,8 @@ export default function PartiesListPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {filteredParties.map((party) => {
             const partyDate: Date | null = getDateFromTimestamp(party.date);
-            const averageRating = calculatePartyAverageRating(party.ratings);
-            const commentCount = party.commentCount || 0; // Use the direct commentCount
+            const averageRating = calculatePartyAverageRating(party); // Pass the full party object
+            const commentCount = party.commentCount || 0; 
             return (
               <Link href={`/party/${party.id}`} key={party.id} className="block group">
                 <Card className="bg-card border border-border/50 overflow-hidden h-full flex flex-col hover:shadow-lg hover:border-primary/50 transition-all duration-300">
@@ -288,10 +287,10 @@ export default function PartiesListPage() {
                            <ImageIcon className="h-12 w-12 text-muted-foreground/50" />
                         </div>
                       )}
-                       {averageRating > 0 && (
+                       {averageRating > 0 && ( // averageRating is already 0-5 scale
                          <Badge variant="secondary" className="absolute top-2 right-2 backdrop-blur-sm bg-black/50 border-white/20 text-sm px-2 py-0.5">
                             <Star className="h-3 w-3 text-yellow-400 fill-current mr-1" />
-                            {(averageRating / 2).toFixed(1)}
+                            {averageRating.toFixed(1)} 
                          </Badge>
                        )}
                        {commentCount > 0 && (
@@ -355,3 +354,4 @@ export default function PartiesListPage() {
     </div>
   );
 }
+
