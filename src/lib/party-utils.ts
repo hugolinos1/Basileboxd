@@ -15,97 +15,80 @@ export interface MediaItem {
 }
 
 export interface CommentData {
-    id?: string; // Make id optional for new comments before they are saved
+    id?: string; 
     userId: string;
     email: string;
     avatar?: string | null;
     text: string;
-    timestamp: Timestamp | FieldValue | Date; // Allow FieldValue for serverTimestamp or Timestamp.now()
-    partyId?: string; // partyId can be optional during creation, added before saving
+    timestamp: Timestamp | FieldValue | Date; 
+    partyId?: string; 
     partyName?: string;
-    parentId?: string; // ID of the comment this is a reply to
+    parentId?: string; 
 }
 
 export interface PartyData {
     id: string;
     name: string;
     description?: string;
-    date: FirestoreTimestamp | Timestamp | Date; // Allow Date
+    date: FirestoreTimestamp | Timestamp | Date; 
     location?: string; 
     latitude?: number | null; 
     longitude?: number | null; 
     createdBy: string;
     creatorEmail?: string;
-    participants: string[]; // Array of UIDs
-    participantEmails?: string[]; // Array of emails
+    participants: string[]; 
+    participantEmails?: string[]; 
     mediaItems?: MediaItem[]; 
     coverPhotoUrl?: string;
-    ratings?: { [userId: string]: number }; // Ratings are 0-10
-    createdAt?: FirestoreTimestamp | Timestamp | Date; // Allow Date
-    averageRating?: number; // Calculated average, scale 0-5 for display
-    comments?: CommentData[]; // Updated to use CommentData type for consistency
-    commentCount?: number; // Optional: direct count of comments for efficiency in list views
+    ratings?: { [userId: string]: number }; 
+    createdAt?: FirestoreTimestamp | Timestamp | Date; 
+    averageRating?: number; 
+    comments?: CommentData[]; 
+    commentCount?: number;
+    // Optional: Could be added to optimize fetching recently commented events
+    // lastCommentedAt?: Timestamp | Date; 
 }
 
 // --- Helper Functions ---
 
-/**
- * Safely converts a Firestore Timestamp or timestamp-like object to a JavaScript Date.
- * Returns null if the input is invalid or conversion fails.
- * @param timestamp The Firestore Timestamp or object to convert.
- * @returns A Date object or null.
- */
 export const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date | FieldValue | undefined): Date | null => {
     if (!timestamp) return null;
     try {
         if (timestamp instanceof Timestamp) return timestamp.toDate();
-        if (timestamp instanceof Date) return timestamp; // Already a Date
+        if (timestamp instanceof Date) return timestamp; 
         if (typeof timestamp === 'object' && 'seconds' in timestamp && typeof (timestamp as any).seconds === 'number') {
             const date = new Date((timestamp as FirestoreTimestamp).seconds * 1000);
             return isNaN(date.getTime()) ? null : date;
         }
         if (timestamp instanceof FieldValue) {
-            // serverTimestamp() is a FieldValue, can't be converted on client before write
-            // console.warn("Cannot convert serverTimestamp FieldValue to Date on client-side.");
             return null; 
         }
-        // console.warn("Unrecognized timestamp format:", timestamp);
         return null;
     } catch (e) {
-        // console.error("Error converting timestamp:", timestamp, e);
         return null;
     }
 }
 
-/**
- * Calculates the average rating for a party based on its ratings object (0-10 scale).
- * Then converts this average to a 0-5 scale for display.
- * Returns 0 if there are no ratings.
- * @param party The party data object.
- * @returns The average rating (float) on a 0-5 scale or 0.
- */
 export const calculatePartyAverageRating = (party: PartyData): number => {
     if (!party.ratings) return 0;
     const allRatings = Object.values(party.ratings);
     if (allRatings.length === 0) return 0;
-    const sum = allRatings.reduce((acc, rating) => acc + (Number(rating) || 0), 0); // Ensure rating is a number
+    const sum = allRatings.reduce((acc, rating) => acc + (Number(rating) || 0), 0); 
     const averageOutOf10 = sum / allRatings.length;
-    return averageOutOf10 / 2; // Convert to 0-5 scale
+    return averageOutOf10 / 2; 
 };
 
-// Helper to normalize city names (client-side and server-side if needed)
 export const normalizeCityName = (cityName: string | undefined): string => {
   if (!cityName || typeof cityName !== 'string') return '';
   return cityName
     .toLowerCase()
-    .normalize("NFD") // Decompose accented characters
-    .replace(/[\u0300-\u036f]/g, "") // Remove diacritics
-    .replace(/[^a-z0-9\s-]/g, "") // Remove non-alphanumeric (except space/hyphen)
+    .normalize("NFD") 
+    .replace(/[\u0300-\u036f]/g, "") 
+    .replace(/[^a-z0-9\s-]/g, "") 
     .trim();
 };
 
 
-// --- Geocoding Helper ---
 export const geocodeCity = async (cityName: string): Promise<{ lat: number; lon: number } | null> => {
   if (!cityName) return null;
   const normalizedCity = normalizeCityName(cityName); 
