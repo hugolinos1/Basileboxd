@@ -5,6 +5,7 @@ import { HeroSection } from '@/components/home/HeroSection';
 import { TopPartiesSection } from '@/components/home/TopPartiesSection';
 import { RecentPartiesSection } from '@/components/home/RecentPartiesSection';
 import { AddPartySection } from '@/components/home/AddPartySection';
+import { LandingInvitationSection } from '@/components/home/LandingInvitationSection'; // New import
 import { Separator } from '@/components/ui/separator';
 import { collection, getDocs, query, orderBy, limit, Timestamp, doc, getDoc as getFirestoreDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
@@ -180,11 +181,19 @@ async function getPartyData(): Promise<{ topParties: TopPartyDisplayData[], rece
 
 const AuthenticatedHomePageContent = ({ topParties, recentParties }: { topParties: TopPartyDisplayData[], recentParties: RecentPartyDisplayData[] }) => {
   console.log("[AuthenticatedHomePageContent] Rendering with topParties:", topParties.length, "recentParties:", recentParties.length);
+  if (topParties.length === 0 && recentParties.length === 0) {
+    return (
+      <div className="container mx-auto px-4 text-center py-10">
+        <p className="text-lg text-foreground">Aucun événement à afficher pour le moment.</p>
+        <p className="text-muted-foreground mt-2">Soyez le premier à <a href="/events/create" className="text-primary hover:underline">créer un événement</a> !</p>
+      </div>
+    );
+  }
   return (
     <>
-      <TopPartiesSection parties={topParties} />
+      {topParties.length > 0 && <TopPartiesSection parties={topParties} />}
       <Separator className="my-8 md:my-12 bg-border/50" />
-      <RecentPartiesSection parties={recentParties} />
+      {recentParties.length > 0 && <RecentPartiesSection parties={recentParties} />}
       <Separator className="my-8 md:my-12 bg-border/50" />
       <AddPartySection />
     </>
@@ -198,28 +207,35 @@ export default function Home() {
 
   useEffect(() => {
     console.log("[Home useEffect] AuthLoading:", authLoading, "FirebaseInitialized:", firebaseInitialized, "User:", !!user);
-    if (!firebaseInitialized) { // Only proceed if Firebase is initialized
+    
+    if (!firebaseInitialized) {
       setDataLoading(true); 
       return;
     }
 
-    // If Firebase is initialized, proceed to fetch data
-    // getPartyData is general and doesn't depend on user auth status for fetching all parties.
-    setDataLoading(true);
-    console.log("[Home useEffect] Triggering getPartyData.");
-    getPartyData().then(data => { 
-      console.log("[Home useEffect] Data received from getPartyData:", data);
-      setPartyData(data);
-      setDataLoading(false);
-    }).catch(err => {
-      console.error("[Home useEffect] Failed to load party data:", err);
-      setPartyData({ topParties: [], recentParties: [] }); 
-      setDataLoading(false);
-    });
+    // If Firebase is initialized AND user is authenticated, fetch party data
+    if (firebaseInitialized && user) {
+      setDataLoading(true);
+      console.log("[Home useEffect] User authenticated. Triggering getPartyData.");
+      getPartyData().then(data => { 
+        console.log("[Home useEffect] Data received from getPartyData:", data);
+        setPartyData(data);
+        setDataLoading(false);
+      }).catch(err => {
+        console.error("[Home useEffect] Failed to load party data:", err);
+        setPartyData({ topParties: [], recentParties: [] }); 
+        setDataLoading(false);
+      });
+    } else if (firebaseInitialized && !user && !authLoading) {
+      // Firebase initialized, no user, and auth check is complete
+      console.log("[Home useEffect] User not authenticated. Skipping party data fetch.");
+      setDataLoading(false); // No data to load for unauthenticated user view (beyond Hero)
+      setPartyData(null); // Ensure partyData is null for unauthenticated view
+    }
 
-  }, [firebaseInitialized]); // Removed user and authLoading to prevent re-fetches on auth change if not needed for general data
+  }, [firebaseInitialized, user, authLoading]);
 
-  if (authLoading || !firebaseInitialized || dataLoading) {
+  if (authLoading || !firebaseInitialized) {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -231,18 +247,25 @@ export default function Home() {
   return (
     <div className="flex flex-col space-y-12 md:space-y-16 lg:space-y-20 pb-16">
       <HeroSection />
-      {/* Render content if partyData is loaded, regardless of user auth state if data is public */}
-      {partyData && (partyData.topParties.length > 0 || partyData.recentParties.length > 0) ? (
-          <AuthenticatedHomePageContent topParties={partyData.topParties} recentParties={partyData.recentParties} />
-        ) : ( // Fallback if no data or loading still (though dataLoading should handle it)
-          <div className="container mx-auto px-4 text-center py-10">
-            <p className="text-lg text-foreground">Bienvenue sur BaliseBoxd !</p>
-            <p className="text-muted-foreground">
-              {user ? "Aucun événement à afficher pour le moment." : "Connectez-vous pour découvrir, noter et partager les meilleurs Events."}
-            </p>
+      {user ? ( // User is authenticated
+        dataLoading ? (
+          <div className="flex justify-center items-center min-h-[calc(100vh-25rem)]"> {/* Adjust height if Hero is tall */}
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="ml-2">Chargement des événements...</span>
           </div>
+        ) : (
+          partyData && (partyData.topParties.length > 0 || partyData.recentParties.length > 0) ? (
+            <AuthenticatedHomePageContent topParties={partyData.topParties} recentParties={partyData.recentParties} />
+          ) : (
+            <div className="container mx-auto px-4 text-center py-10">
+              <p className="text-lg text-foreground">Aucun événement à afficher pour le moment.</p>
+              <p className="text-muted-foreground mt-2">Soyez le premier à <a href="/events/create" className="text-primary hover:underline">créer un événement</a> !</p>
+            </div>
+          )
         )
-      }
+      ) : ( // User is not authenticated
+        <LandingInvitationSection />
+      )}
     </div>
   );
 }
