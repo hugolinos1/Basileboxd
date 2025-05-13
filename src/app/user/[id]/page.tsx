@@ -67,22 +67,24 @@ const calculateAverageRatingGiven = (parties: PartyData[], userId: string): numb
     let totalRating = 0;
     let ratingCount = 0;
     parties.forEach(party => {
+        // Check if the specific user (userId) has rated this party
         if (party.ratings && party.ratings[userId] !== undefined) {
-            totalRating += party.ratings[userId];
+            totalRating += party.ratings[userId]; // Ratings are 0-10
             ratingCount++;
         }
     });
-    return ratingCount > 0 ? totalRating / ratingCount : 0;
+    return ratingCount > 0 ? (totalRating / ratingCount) : 0; // Returns average on 0-10 scale
 };
 
 const calculateRatingDistribution = (parties: PartyData[], userId: string): { rating: number; votes: number; fill: string }[] => {
     const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 10 }, (_, i) => ({ rating: (i + 1) * 0.5, votes: 0, fill: '' }));
     parties.forEach(party => {
-        const userRating = party.ratings?.[userId]; // This is 0-10
-        if (userRating !== undefined && userRating > 0) { // Ensure rating exists and is > 0 (0.5 star is rating 1)
-             // userRating 1 -> index 0 (0.5 stars)
-             // userRating 10 -> index 9 (5.0 stars)
-             const index = Math.round(userRating) - 1; 
+        const userRating = party.ratings?.[userId]; // Rating is 0-10
+        if (userRating !== undefined && userRating >= 0) { // Ensure rating exists and is valid
+             // userRating 0 (0 stars) -> index 0 (0.5 stars on chart, but actually represents 0) - adjust if 0 is not a valid rating
+             // userRating 1 (0.5 stars) -> index 0
+             // userRating 10 (5.0 stars) -> index 9
+             const index = Math.max(0, Math.round(userRating) -1); // Ensure index is not negative
              if (index >= 0 && index < 10) {
                 counts[index].votes++;
             }
@@ -91,12 +93,13 @@ const calculateRatingDistribution = (parties: PartyData[], userId: string): { ra
      return counts.map(c => ({ ...c, fill: "hsl(var(--primary))" }));
 };
 
+
 const calculatePartyAverageRating = (party: PartyData): number => {
     if (!party.ratings) return 0;
     const allRatings = Object.values(party.ratings);
     if (allRatings.length === 0) return 0;
     const sum = allRatings.reduce((acc, rating) => acc + rating, 0);
-    return sum / allRatings.length;
+    return sum / allRatings.length; // Returns average on 0-10 scale
 };
 
 const getInitials = (name: string | null | undefined, email: string): string => {
@@ -183,27 +186,40 @@ export default function UserProfilePage() {
                 let fetchedPartiesData: PartyData[] = [];
                 let fetchedCommentsData: CommentData[] = [];
 
-                try {
-                    console.log(`[UserProfilePage fetchData] Querying 'parties' where 'participants' array-contains '${profileUserId}'`);
-                    const partiesRef = collection(db, 'parties');
-                    const participatedPartiesQuery = query(partiesRef, where('participants', 'array-contains', profileUserId));
-                    const participatedPartiesSnapshot = await getDocs(participatedPartiesQuery);
-                    console.log(`[UserProfilePage fetchData] Fetched ${participatedPartiesSnapshot.size} participated parties.`);
-                    fetchedPartiesData = participatedPartiesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PartyData));
-                    setUserParties(fetchedPartiesData);
-                } catch (partiesError: any) {
-                    console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des fêtes participées: ${partiesError.message}`, partiesError);
-                    setError(prevError => prevError ? `${prevError} | Parties: ${partiesError.message}` : `Parties: ${partiesError.message}`);
-                }
+                // Fetch all parties to later check for ratings by this user
+                // Or, if you want to limit to parties they participated in/created:
+                // const partiesQuery = query(collection(db, 'parties'), where('participants', 'array-contains', profileUserId));
+                // For now, fetching all parties and filtering client-side for ratings (can be inefficient for many parties)
+                // A more optimized approach might involve a dedicated "ratings" collection or Cloud Functions.
+                console.log(`[UserProfilePage fetchData] Querying all 'parties' to find user ratings and participations for ${profileUserId}`);
+                const allPartiesSnapshot = await getDocs(collection(db, 'parties'));
+                console.log(`[UserProfilePage fetchData] Fetched ${allPartiesSnapshot.size} total parties.`);
+                
+                const partiesUserInteractedWith: PartyData[] = [];
+                allPartiesSnapshot.forEach(docSnap => {
+                    const partyData = { id: docSnap.id, ...docSnap.data() } as PartyData;
+                    // Check if the user created, participated in, or rated this party
+                    if (partyData.createdBy === profileUserId || 
+                        (partyData.participants && partyData.participants.includes(profileUserId)) ||
+                        (partyData.ratings && partyData.ratings[profileUserId] !== undefined)
+                    ) {
+                        partiesUserInteractedWith.push(partyData);
+                    }
+                });
+                fetchedPartiesData = partiesUserInteractedWith;
+                setUserParties(fetchedPartiesData);
+                console.log(`[UserProfilePage fetchData] User interacted with ${fetchedPartiesData.length} parties.`);
+
 
                 try {
                     console.log(`[UserProfilePage fetchData] Querying 'comments' collectionGroup where 'userId' == '${profileUserId}' ordered by 'timestamp' desc`);
                     const commentsCollectionRef = collectionGroup(db, 'comments');
                     const commentsQuery = query(commentsCollectionRef, where('userId', '==', profileUserId), orderBy('timestamp', 'desc'));
                     const commentsSnapshot = await getDocs(commentsQuery);
-                    console.log(`[UserProfilePage fetchData] Fetched ${commentsSnapshot.size} comments.`);
+                    console.log(`[UserProfilePage fetchData] Fetched ${commentsSnapshot.size} comments for user ${profileUserId}.`);
+                    
                     const commentsDataPromises = commentsSnapshot.docs.map(async (commentDoc) => {
-                        const commentData = commentDoc.data() as Omit<CommentData, 'partyName'>;
+                        const commentData = commentDoc.data() as Omit<SharedCommentData, 'partyName' | 'id'>;
                         const partyDocRef = commentDoc.ref.parent.parent; 
                         if (partyDocRef) {
                             const partySnap = await getDoc(partyDocRef);
@@ -215,9 +231,10 @@ export default function UserProfilePage() {
                     });
                     fetchedCommentsData = await Promise.all(commentsDataPromises);
                     setUserComments(fetchedCommentsData);
+                     console.log(`[UserProfilePage fetchData] Processed ${fetchedCommentsData.length} comments with party names.`);
                 } catch (commentsError: any)
                  {
-                    console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des commentaires: ${commentsError.message}`, commentsError);
+                    console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des commentaires pour ${profileUserId}: ${commentsError.message}`, commentsError);
                     if (commentsError instanceof FirestoreError && commentsError.code === 'failed-precondition' && commentsError.message.includes('index')) {
                         setError(prevError => prevError ? `${prevError} | Commentaires: Index Firestore manquant pour les commentaires.` : "Index Firestore manquant pour les commentaires. Consultez la console Firebase pour le créer.");
                         console.error("INDEX REQUIRED for collectionGroup query on 'comments'. Error:", commentsError);
@@ -274,8 +291,8 @@ export default function UserProfilePage() {
         console.log("[handleUpdateAvatar] Profile User Data:", profileUserData);
 
 
-        if (!currentUser || !newAvatarFile || !db || !profileUserId) { 
-            toast({ title: 'Erreur', description: 'Impossible de mettre à jour l\'avatar pour le moment. Vérifiez les informations et la connexion.', variant: 'destructive' });
+        if (!currentUser || !newAvatarFile || !db || !profileUserId || !isOwnProfileOrAdmin) { 
+            toast({ title: 'Erreur', description: 'Impossible de mettre à jour l\'avatar pour le moment. Vérifiez les informations, les permissions et la connexion.', variant: 'destructive' });
             return;
         }
         setIsUploadingAvatar(true);
@@ -305,7 +322,7 @@ export default function UserProfilePage() {
         } catch (error: any) {
             console.error("Erreur lors de la mise à jour de l'avatar:", error);
             let userFriendlyError = "Impossible de mettre à jour l'avatar.";
-             if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied' || error.message?.includes('Firebase Storage: User does not have permission to access')) {
+             if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied') {
                 userFriendlyError = `Permission refusée par Firebase Storage ou Firestore. Vérifiez les règles de sécurité et que l'objet existe. Détails: ${error.message}`;
             } else if (error.code === 'storage/object-not-found') {
                 userFriendlyError = "Le fichier d'origine est introuvable pour la mise à jour de l'avatar (cela peut arriver si l'ancien avatar a été supprimé manuellement).";
@@ -331,13 +348,13 @@ export default function UserProfilePage() {
             return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
         }
 
-        const avgRatingGiven = calculateAverageRatingGiven(userParties, profileUserId);
+        const avgRatingGiven = calculateAverageRatingGiven(userParties, profileUserId); // Returns 0-10 scale
         console.log("[UserProfilePage statsMemo] Calculated averageRatingGiven (0-10 scale):", avgRatingGiven);
-        console.log("[UserProfilePage statsMemo] userParties for stats calculation:", JSON.stringify(userParties.map(p => ({id: p.id, name: p.name, ratings: p.ratings }))));
+        // console.log("[UserProfilePage statsMemo] userParties for stats calculation:", JSON.stringify(userParties.map(p => ({id: p.id, name: p.name, ratings: p.ratings }))));
 
 
         return {
-            eventCount: userParties.length,
+            eventCount: userParties.filter(p => p.createdBy === profileUserId || (p.participants && p.participants.includes(profileUserId))).length,
             commentCount: userComments.length,
             averageRatingGiven: avgRatingGiven,
         };
@@ -356,24 +373,25 @@ export default function UserProfilePage() {
      const topRatedCreatedParties = useMemo(() => {
         return userParties
             .filter(party => party.createdBy === profileUserId)
-            .sort((a, b) => calculatePartyAverageRating(b) - calculatePartyAverageRating(a))
+            .sort((a, b) => calculatePartyAverageRating(b) - calculatePartyAverageRating(a)) // Avg rating is 0-10
             .slice(0, 4);
     }, [userParties, profileUserId]);
 
     const recentParticipatedParties = useMemo(() => {
-        return [...userParties].sort((a, b) => {
+        return [...userParties].filter(party => party.participants && party.participants.includes(profileUserId)) // Ensure participation
+            .sort((a, b) => {
             const timeA = getDateFromTimestamp(a.date ?? a.createdAt)?.getTime() || 0;
             const timeB = getDateFromTimestamp(b.date ?? b.createdAt)?.getTime() || 0;
             return timeB - timeA;
         }).slice(0, 4);
-    }, [userParties]);
+    }, [userParties, profileUserId]);
 
 
      const chartConfig = {
         votes: { label: "Votes", color: "hsl(var(--primary))" },
      } satisfies ChartConfig
 
-    if (loading) {
+    if (loading || authLoading) {
         console.log(`[UserProfilePage Render] Affichage du Skeleton Loader. ProfileUserId: ${profileUserId}`);
         return (
             <div className="container mx-auto max-w-6xl px-4 py-8">
@@ -418,7 +436,7 @@ export default function UserProfilePage() {
 
     return (
         <div className="container mx-auto max-w-6xl px-4 py-8">
-             {error && !profileUserData && ( // Seulement afficher cette alerte si profileUserData est aussi null
+             {error && ( // Afficher si une erreur s'est produite même si les données de profil sont partiellement chargées
                 <Alert variant="warning" className="mb-6">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertUITitle>Avertissement</AlertUITitle>
@@ -545,7 +563,7 @@ export default function UserProfilePage() {
                              {topRatedCreatedParties.length > 0 ? (
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     {topRatedCreatedParties.map(party => {
-                                         const overallAvg = calculatePartyAverageRating(party);
+                                         const overallAvg = calculatePartyAverageRating(party); // 0-10 scale
                                         return (
                                              <Link href={`/party/${party.id}`} key={party.id} className="block group">
                                                  <Card className="overflow-hidden h-full bg-secondary hover:border-primary/50">
