@@ -1,7 +1,7 @@
 // src/app/user/[id]/page.tsx
 'use client';
 
-import { useEffect, useState, useMemo, ChangeEvent } from 'react';
+import { useEffect, useState, useMemo, ChangeEvent, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { doc, getDoc, collection, query, where, getDocs, orderBy, Timestamp, updateDoc, collectionGroup, FirestoreError } from 'firebase/firestore';
 import { db, storage } from '@/config/firebase';
@@ -78,9 +78,11 @@ const calculateAverageRatingGiven = (parties: PartyData[], userId: string): numb
 const calculateRatingDistribution = (parties: PartyData[], userId: string): { rating: number; votes: number; fill: string }[] => {
     const counts: { rating: number; votes: number; fill: string }[] = Array.from({ length: 10 }, (_, i) => ({ rating: (i + 1) * 0.5, votes: 0, fill: '' }));
     parties.forEach(party => {
-        const userRating = party.ratings?.[userId];
-        if (userRating !== undefined) {
-             const index = Math.round(userRating * 2) - 1; 
+        const userRating = party.ratings?.[userId]; // This is 0-10
+        if (userRating !== undefined && userRating > 0) { // Ensure rating exists and is > 0 (0.5 star is rating 1)
+             // userRating 1 -> index 0 (0.5 stars)
+             // userRating 10 -> index 9 (5.0 stars)
+             const index = Math.round(userRating) - 1; 
              if (index >= 0 && index < 10) {
                 counts[index].votes++;
             }
@@ -133,12 +135,14 @@ export default function UserProfilePage() {
     useEffect(() => {
         console.log(`[UserProfilePage useEffect] Initializing. profileUserId: ${profileUserId}, firebaseInitialized: ${firebaseInitialized}, authLoading: ${authLoading}, db available: ${!!db}`);
         if (initializationFailed) {
+            console.error("[UserProfilePage] Echec init Firebase:", initializationErrorMessage);
             setError(initializationErrorMessage || "Échec de l'initialisation de Firebase.");
             setLoading(false);
             return;
         }
 
         if (!firebaseInitialized || authLoading) {
+            console.log("[UserProfilePage] En attente de l'init/auth Firebase...");
             setLoading(true);
             return;
         }
@@ -173,7 +177,7 @@ export default function UserProfilePage() {
                     return;
                 }
                  console.log(`[UserProfilePage fetchData] User document found for ID: ${profileUserId}`, userDocSnap.data());
-                const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as UserData; // No longer expect stats fields here
+                const fetchedUser = { id: userDocSnap.id, ...userDocSnap.data() } as UserData; 
                 setProfileUserData(fetchedUser);
 
                 let fetchedPartiesData: PartyData[] = [];
@@ -189,7 +193,7 @@ export default function UserProfilePage() {
                     setUserParties(fetchedPartiesData);
                 } catch (partiesError: any) {
                     console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des fêtes participées: ${partiesError.message}`, partiesError);
-                    setError(`Erreur lors de la récupération des fêtes participées: ${partiesError.message}`);
+                    setError(prevError => prevError ? `${prevError} | Parties: ${partiesError.message}` : `Parties: ${partiesError.message}`);
                 }
 
                 try {
@@ -214,7 +218,12 @@ export default function UserProfilePage() {
                 } catch (commentsError: any)
                  {
                     console.warn(`[UserProfilePage fetchData] Erreur lors de la récupération des commentaires: ${commentsError.message}`, commentsError);
-                    setError(`Erreur lors de la récupération des commentaires: ${commentsError.message}`);
+                    if (commentsError instanceof FirestoreError && commentsError.code === 'failed-precondition' && commentsError.message.includes('index')) {
+                        setError(prevError => prevError ? `${prevError} | Commentaires: Index Firestore manquant pour les commentaires.` : "Index Firestore manquant pour les commentaires. Consultez la console Firebase pour le créer.");
+                        console.error("INDEX REQUIRED for collectionGroup query on 'comments'. Error:", commentsError);
+                    } else {
+                        setError(prevError => prevError ? `${prevError} | Commentaires: ${commentsError.message}` : `Commentaires: ${commentsError.message}`);
+                    }
                 }
                 
             } catch (err: any) {
@@ -223,9 +232,6 @@ export default function UserProfilePage() {
                   if (err.code === 'permission-denied' || err.message?.includes('permission-denied') || err.message?.includes('insufficient permissions')) {
                      userFriendlyError = "Permission refusée. Vérifiez les règles Firestore.";
                       console.error("FIREBASE PERMISSION ERROR: Details -", err);
-                 } else if (err.message?.includes('collectionGroup') && err.message?.includes('index')) {
-                     userFriendlyError = "Index Firestore manquant pour la requête collectionGroup sur 'comments'. Veuillez créer cet index dans votre console Firebase.";
-                     console.error("INDEX REQUIRED for collectionGroup query on 'comments'. Error:", err);
                  }
                 setError(userFriendlyError);
             } finally {
@@ -299,8 +305,10 @@ export default function UserProfilePage() {
         } catch (error: any) {
             console.error("Erreur lors de la mise à jour de l'avatar:", error);
             let userFriendlyError = "Impossible de mettre à jour l'avatar.";
-            if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied' || error.code === 'storage/object-not-found' || error.message?.includes('Firebase Storage: User does not have permission to access')) {
+             if (error.message?.includes('storage/unauthorized') || error.code === 'permission-denied' || error.message?.includes('Firebase Storage: User does not have permission to access')) {
                 userFriendlyError = `Permission refusée par Firebase Storage ou Firestore. Vérifiez les règles de sécurité et que l'objet existe. Détails: ${error.message}`;
+            } else if (error.code === 'storage/object-not-found') {
+                userFriendlyError = "Le fichier d'origine est introuvable pour la mise à jour de l'avatar (cela peut arriver si l'ancien avatar a été supprimé manuellement).";
             } else {
                  userFriendlyError = error.message || userFriendlyError;
             }
@@ -318,17 +326,31 @@ export default function UserProfilePage() {
 
 
     const stats = useMemo(() => {
-        if (!profileUserData || !userParties || !userComments) return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
+        if (!profileUserData || !userParties || !userComments) {
+             console.log("[UserProfilePage statsMemo] Missing data, returning zero stats", { profileUserData: !!profileUserData, userParties: userParties?.length, userComments: userComments?.length });
+            return { eventCount: 0, commentCount: 0, averageRatingGiven: 0 };
+        }
+
+        const avgRatingGiven = calculateAverageRatingGiven(userParties, profileUserId);
+        console.log("[UserProfilePage statsMemo] Calculated averageRatingGiven (0-10 scale):", avgRatingGiven);
+        console.log("[UserProfilePage statsMemo] userParties for stats calculation:", JSON.stringify(userParties.map(p => ({id: p.id, name: p.name, ratings: p.ratings }))));
+
+
         return {
             eventCount: userParties.length,
             commentCount: userComments.length,
-            averageRatingGiven: calculateAverageRatingGiven(userParties, profileUserId), 
+            averageRatingGiven: avgRatingGiven,
         };
     }, [profileUserData, userParties, userComments, profileUserId]);
 
      const ratingDistributionGiven = useMemo(() => {
-        if (!userParties || !profileUserId) return [];
-         return calculateRatingDistribution(userParties, profileUserId);
+        if (!userParties || !profileUserId) {
+            console.log("[UserProfilePage ratingDistributionMemo] Missing userParties or profileUserId");
+            return [];
+        }
+        const distribution = calculateRatingDistribution(userParties, profileUserId);
+        console.log("[UserProfilePage ratingDistributionMemo] Calculated distribution:", JSON.stringify(distribution));
+        return distribution;
     }, [userParties, profileUserId]);
 
      const topRatedCreatedParties = useMemo(() => {
@@ -396,11 +418,11 @@ export default function UserProfilePage() {
 
     return (
         <div className="container mx-auto max-w-6xl px-4 py-8">
-             {error && ( 
+             {error && !profileUserData && ( // Seulement afficher cette alerte si profileUserData est aussi null
                 <Alert variant="warning" className="mb-6">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertUITitle>Avertissement</AlertUITitle>
-                    <AlertDescription>Certaines informations (événements ou commentaires) n'ont pas pu être chargées. {error}</AlertDescription>
+                    <AlertDescription>Certaines informations n'ont pas pu être chargées. {error}</AlertDescription>
                 </Alert>
              )}
             <div className="flex flex-col md:flex-row items-center md:items-end gap-4 md:gap-6 mb-8 border-b border-border pb-8">
@@ -591,8 +613,8 @@ export default function UserProfilePage() {
                          <CardContent className="pl-2">
                               {stats.averageRatingGiven > 0 && ratingDistributionGiven.some(r => r.votes > 0) ? (
                                   <ChartContainer config={chartConfig} className="h-[150px] w-full">
-                                     <BarChart accessibilityLayer data={ratingDistributionGiven.map(r => ({...r, rating: r.rating / 2}))} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
-                                          <XAxis dataKey="rating" type="number" domain={[0, 5]} tickLine={false} tickMargin={10} axisLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12} interval={0} tickFormatter={(value) => `${value.toFixed(1)}`} />
+                                     <BarChart accessibilityLayer data={ratingDistributionGiven} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
+                                          <XAxis dataKey="rating" type="number" domain={[0.5, 5]} tickLine={false} tickMargin={10} axisLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12} interval={0} tickFormatter={(value) => `${value.toFixed(1)}`} ticks={[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]} />
                                          <YAxis tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12} width={30} />
                                          <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel hideIndicator />} formatter={(value, name, props) => [`${value} votes`, `${props.payload.rating.toFixed(1)} étoiles`]} />
                                          <Bar dataKey="votes" fill="var(--color-votes)" radius={4} />
