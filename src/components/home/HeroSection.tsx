@@ -59,7 +59,7 @@ export function HeroSection() {
           quality={85}
           priority
           className="absolute inset-0 z-0"
-          data-ai-hint="fête jeunes soirée"
+          data-ai-hint="fête jeunes concert"
           sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1600px"
           onError={() => {
             console.warn(`Error loading hero image: ${currentImage}. Falling back to default.`);
@@ -79,13 +79,16 @@ export function HeroSection() {
             <p className="text-base md:text-lg text-gray-200 mb-6 shadow-md">
               Le QG des délires que t’as (presque) oubliés
             </p>
-            <div className="flex space-x-3">
+            <div className="flex flex-col space-y-3">
               <Link href="/events/create" passHref>
-                <Button variant="default" size="lg" className="bg-white text-black hover:bg-gray-200">
+                <Button variant="default" size="lg" className="bg-white text-black hover:bg-gray-200 w-full sm:w-auto">
                   <PlusCircle className="mr-2 h-5 w-5 fill-primary" />
                   Créer un Event
                 </Button>
               </Link>
+              <p className="text-xs md:text-sm text-gray-300 shadow-md max-w-xs sm:max-w-sm mx-auto sm:mx-0 text-center sm:text-left">
+                Tu peux créer tes Events, laisser des souvenirs et noter tous les Events et réagir en commentaires.
+              </p>
             </div>
         </div>
       </div>
