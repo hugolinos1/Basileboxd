@@ -71,7 +71,7 @@ async function getPartyData(): Promise<{
   try {
     const partiesCollectionRef = collection(db, 'parties');
     
-    const recentQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(15));
+    const recentQuery = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(5)); // Limit to 5 recent parties
     const allPartiesQueryForRanking = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(50)); 
     // For recently commented, we'll fetch parties and then their latest comments
     const allPartiesQueryForComments = query(partiesCollectionRef, orderBy('createdAt', 'desc'), limit(30)); // Fetch a decent pool of recent parties
@@ -270,3 +270,4 @@ export default function Home() {
     </div>
   );
 }
+
