@@ -44,6 +44,7 @@ export interface PartyData {
     createdAt?: FirestoreTimestamp | Timestamp | Date; // Allow Date
     averageRating?: number; // Calculated average, scale 0-5 for display
     comments?: CommentData[]; // Updated to use CommentData type for consistency
+    commentCount?: number; // Optional: direct count of comments for efficiency in list views
 }
 
 // --- Helper Functions ---
@@ -107,31 +108,46 @@ export const normalizeCityName = (cityName: string | undefined): string => {
 // --- Geocoding Helper ---
 export const geocodeCity = async (cityName: string): Promise<{ lat: number; lon: number } | null> => {
   if (!cityName) return null;
-  const normalizedCity = normalizeCityName(cityName); // Use the normalization function
+  const normalizedCity = normalizeCityName(cityName); 
   if (!normalizedCity) return null;
 
   const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizedCity)}&format=json&limit=1&addressdetails=1`;
   try {
     const response = await fetch(apiUrl, {
       headers: {
-        'User-Agent': 'PartyHubApp/1.0 (contact@partagefestif.com)', // Replace with your app's contact
+        'User-Agent': 'PartyHubApp/1.0 (contact@partagefestif.com)', 
         'Accept-Language': 'fr,en;q=0.9'
       }
     });
     if (!response.ok) {
-      console.error(`Erreur API Nominatim: ${response.status} pour la ville: ${cityName} (normalisé: ${normalizedCity})`);
+      const errorText = await response.text().catch(() => "Impossible de lire le corps de l'erreur");
+      console.error(`[geocodeCity] Erreur API Nominatim: ${response.status} pour la ville: ${cityName} (normalisé: ${normalizedCity}). URL: ${apiUrl}. Détails: ${errorText}`);
       return null;
     }
-    const data = await response.json();
-    if (data && data.length > 0 && data[0].lat && data[0].lon) {
-      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    
+    let data;
+    try {
+        data = await response.json();
+    } catch (jsonError: any) {
+        console.error(`[geocodeCity] Erreur de parsing JSON pour ${cityName}. URL: ${apiUrl}. Erreur: `, jsonError);
+        const rawResponse = await response.text().catch(() => "Impossible de lire la réponse brute après l'erreur JSON");
+        console.log(`[geocodeCity] Réponse brute de l'API pour ${normalizedCity}:`, rawResponse);
+        return null;
     }
-    console.warn(`Aucune coordonnée trouvée pour: ${cityName} (normalisé: ${normalizedCity})`);
+
+    if (data && data.length > 0 && data[0].lat && data[0].lon) {
+      const lat = parseFloat(data[0].lat);
+      const lon = parseFloat(data[0].lon);
+       if (!isNaN(lat) && !isNaN(lon)) {
+        return { lat, lon };
+      } else {
+        console.warn(`[geocodeCity] Coordonnées invalides (NaN) pour ${cityName}. Lat: ${data[0].lat}, Lon: ${data[0].lon}.`);
+      }
+    }
+    console.warn(`[geocodeCity] Aucune coordonnée trouvée ou structure de réponse inattendue pour: ${cityName} (normalisé: ${normalizedCity}). Réponse API:`, data);
     return null;
   } catch (error) {
-    console.error("Erreur de géocodage:", error);
+    console.error(`[geocodeCity] Erreur inattendue pendant le géocodage pour: ${cityName}. URL: ${apiUrl}`, error);
     return null;
   }
 };
-
-    

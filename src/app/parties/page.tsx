@@ -1,7 +1,8 @@
+// src/app/parties/page.tsx
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, query, orderBy, Timestamp, FirestoreError, doc, getDoc as getFirestoreDoc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, FirestoreError, doc, getDoc as getFirestoreDoc, limit } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -10,13 +11,14 @@ import { fr } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Star, CalendarDays, MapPin, Image as ImageIcon, Loader2, AlertTriangle, PlusCircle, Search, Users, MessageSquare } from 'lucide-react';
+import { Star, CalendarDays, MapPin, Image as ImageIcon, Loader2, AlertTriangle, PlusCircle, Search, MessageSquare, Users } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useFirebase } from '@/context/FirebaseContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useSearchParams } from 'next/navigation';
-import type { CommentData as SharedCommentData, PartyData as SharedPartyData } from '@/lib/party-utils';
+import type { PartyData as SharedPartyData } from '@/lib/party-utils'; // Updated import to directly use shared PartyData
+import { calculatePartyAverageRating, getDateFromTimestamp as sharedGetDateFromTimestamp } from '@/lib/party-utils';
 
 
 interface FirestoreTimestamp {
@@ -41,38 +43,10 @@ interface UserProfile { // For fetching user data
     avatarUrl?: string;
 }
 
-interface PartyData extends SharedPartyData { // Use extended type
-    id: string;
-    participantsDetails?: ParticipantDetail[]; // Added for displaying avatars
-}
+// Use the shared PartyData type, which now includes commentCount?
+type PartyData = SharedPartyData; 
 
-interface Comment extends SharedCommentData {
-    // Inherits from SharedCommentData, no additional fields needed here
-}
-
-
-const calculateAverageRating = (ratings: { [userId: string]: number } | undefined): number => {
-  if (!ratings) return 0;
-  const allRatings = Object.values(ratings);
-  if (allRatings.length === 0) return 0;
-  const sum = allRatings.reduce((acc, rating) => acc + rating, 0);
-  return sum / allRatings.length;
-};
-
-const getDateFromTimestamp = (timestamp: FirestoreTimestamp | Timestamp | Date | undefined): Date | null => {
-    if (!timestamp) return null;
-    try {
-        if (timestamp instanceof Timestamp) return timestamp.toDate();
-        if (timestamp && typeof timestamp === 'object' && typeof (timestamp as any).seconds === 'number') {
-             const date = new Date((timestamp as FirestoreTimestamp).seconds * 1000);
-             return isNaN(date.getTime()) ? null : date;
-        } else if (timestamp instanceof Date) return timestamp;
-        return null;
-    } catch (e) {
-        console.error("getDateFromTimestamp: Error converting timestamp to Date:", timestamp, e);
-        return null;
-    }
-}
+const getDateFromTimestamp = sharedGetDateFromTimestamp;
 
 const getInitials = (participant: ParticipantDetail): string => {
     const name = participant.pseudo || participant.displayName || participant.email;
@@ -145,16 +119,14 @@ export default function PartiesListPage() {
                  });
                  const participantsDetails = await Promise.all(participantDetailsPromises);
 
-                 // Fetch comments for comment count (simplified for list view, could be optimized)
                  let commentCount = 0;
                  try {
                     const commentsRef = collection(db, 'parties', docSnap.id, 'comments');
-                    const commentsSnapshot = await getDocs(query(commentsRef, limit(1))); // Just need to know if >0, limit(1) to check existence
-                    commentCount = (await getDocs(commentsRef)).size; // Get actual count
+                    const commentsSnapshot = await getDocs(commentsRef); // Get actual count
+                    commentCount = commentsSnapshot.size;
                  } catch (e) {
                     console.warn(`Could not fetch comments count for party ${docSnap.id}:`, e);
                  }
-
 
                  const partyObject: PartyData = {
                      id: docSnap.id,
@@ -164,7 +136,7 @@ export default function PartiesListPage() {
                      location: data.location || undefined,
                      coverPhotoUrl: data.coverPhotoUrl || undefined,
                      ratings: data.ratings || {},
-                     comments: Array(commentCount).fill(null), // Populate with dummy array of correct length
+                     commentCount: commentCount, // Store the fetched comment count
                      createdAt: data.createdAt,
                      participants: data.participants || [],
                      participantsDetails: participantsDetails,
@@ -291,8 +263,8 @@ export default function PartiesListPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {filteredParties.map((party) => {
             const partyDate: Date | null = getDateFromTimestamp(party.date);
-            const averageRating = calculateAverageRating(party.ratings);
-            const commentCount = party.comments?.length || 0;
+            const averageRating = calculatePartyAverageRating(party.ratings);
+            const commentCount = party.commentCount || 0; // Use the direct commentCount
             return (
               <Link href={`/party/${party.id}`} key={party.id} className="block group">
                 <Card className="bg-card border border-border/50 overflow-hidden h-full flex flex-col hover:shadow-lg hover:border-primary/50 transition-all duration-300">
