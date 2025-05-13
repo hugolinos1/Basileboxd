@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -11,12 +10,14 @@ import { fr } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Star, CalendarDays, MapPin, Image as ImageIcon, Loader2, AlertTriangle, PlusCircle, Search, Users } from 'lucide-react';
+import { Star, CalendarDays, MapPin, Image as ImageIcon, Loader2, AlertTriangle, PlusCircle, Search, Users, MessageSquare } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useFirebase } from '@/context/FirebaseContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useSearchParams } from 'next/navigation';
+import type { CommentData as SharedCommentData, PartyData as SharedPartyData } from '@/lib/party-utils';
+
 
 interface FirestoreTimestamp {
     seconds: number;
@@ -40,27 +41,15 @@ interface UserProfile { // For fetching user data
     avatarUrl?: string;
 }
 
-interface PartyData {
+interface PartyData extends SharedPartyData { // Use extended type
     id: string;
-    name: string;
-    description?: string;
-    date: FirestoreTimestamp | Timestamp;
-    location?: string;
-    coverPhotoUrl?: string;
-    ratings?: { [userId: string]: number };
-    comments?: Comment[];
-    createdAt: FirestoreTimestamp | Timestamp;
-    participants: string[]; // Array of UIDs
     participantsDetails?: ParticipantDetail[]; // Added for displaying avatars
 }
 
-interface Comment {
-    userId: string;
-    email: string;
-    avatar?: string;
-    text: string;
-    timestamp: FirestoreTimestamp | Timestamp;
+interface Comment extends SharedCommentData {
+    // Inherits from SharedCommentData, no additional fields needed here
 }
+
 
 const calculateAverageRating = (ratings: { [userId: string]: number } | undefined): number => {
   if (!ratings) return 0;
@@ -156,6 +145,17 @@ export default function PartiesListPage() {
                  });
                  const participantsDetails = await Promise.all(participantDetailsPromises);
 
+                 // Fetch comments for comment count (simplified for list view, could be optimized)
+                 let commentCount = 0;
+                 try {
+                    const commentsRef = collection(db, 'parties', docSnap.id, 'comments');
+                    const commentsSnapshot = await getDocs(query(commentsRef, limit(1))); // Just need to know if >0, limit(1) to check existence
+                    commentCount = (await getDocs(commentsRef)).size; // Get actual count
+                 } catch (e) {
+                    console.warn(`Could not fetch comments count for party ${docSnap.id}:`, e);
+                 }
+
+
                  const partyObject: PartyData = {
                      id: docSnap.id,
                      name: data.name,
@@ -164,7 +164,7 @@ export default function PartiesListPage() {
                      location: data.location || undefined,
                      coverPhotoUrl: data.coverPhotoUrl || undefined,
                      ratings: data.ratings || {},
-                     comments: data.comments || [],
+                     comments: Array(commentCount).fill(null), // Populate with dummy array of correct length
                      createdAt: data.createdAt,
                      participants: data.participants || [],
                      participantsDetails: participantsDetails,
@@ -323,8 +323,9 @@ export default function PartiesListPage() {
                          </Badge>
                        )}
                        {commentCount > 0 && (
-                            <Badge variant="secondary" className="absolute bottom-2 left-2 backdrop-blur-sm bg-black/50 border-white/20 text-xs px-1.5 py-0.5">
-                                {commentCount} {commentCount > 1 ? 'commentaires' : 'commentaire'}
+                            <Badge variant="secondary" className="absolute bottom-2 left-2 backdrop-blur-sm bg-black/50 border-white/20 text-xs px-1.5 py-0.5 flex items-center">
+                                <MessageSquare className="h-3 w-3 mr-1"/>
+                                {commentCount}
                             </Badge>
                        )}
                     </div>
