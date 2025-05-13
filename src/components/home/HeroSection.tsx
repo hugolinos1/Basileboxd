@@ -87,7 +87,7 @@ export function HeroSection() {
                 </Button>
               </Link>
               <p className="text-xs md:text-sm text-gray-300 shadow-md max-w-xs sm:max-w-sm mx-auto sm:mx-0 text-center sm:text-left">
-                Tu peux créer tes Events, laisser des souvenirs et noter tous les Events et réagir en commentaires.
+                Crée tes Events, laisse des souvenirs et note tous les Events. Réagis en commentaires.
               </p>
             </div>
         </div>
